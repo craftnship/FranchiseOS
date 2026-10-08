@@ -3,7 +3,7 @@ import { newStore, ctx } from "./helpers";
 import { processOnce } from "../../functions/integrations/idempotency";
 import { withRetry, ProviderError } from "../../functions/integrations/retry";
 import { resolveZohoEndpoints } from "../../functions/integrations/region";
-import { buildSelect, literal } from "../../functions/common/catalystStore";
+import { buildSelect, literal, toStoreRow } from "../../functions/common/catalystStore";
 import { resolveTenant } from "../../functions/common/tenant";
 import { fail, ok } from "../../functions/common/response";
 import { AppError } from "../../functions/common/errors";
@@ -136,5 +136,19 @@ describe("platform basics", () => {
       if (t.name !== "tenants") expect(t.columns.some((c) => c.name === "tenant_id"), t.name).toBe(true);
       for (const c of t.columns) if (c.ref) expect(names.has(c.ref), `${t.name}.${c.name} -> ${c.ref}`).toBe(true);
     }
+  });
+});
+
+describe("Catalyst datetime values", () => {
+  it("converts UTC ISO timestamps to the Data Store datetime format and leaves other values alone", () => {
+    expect(toStoreRow({ created_at: "2026-10-08T18:16:09.302Z", d: "2026-10-08", n: 1, j: '{"at":"2026-10-08T18:16:09Z"}', x: null }))
+      .toEqual({ created_at: "2026-10-08 18:16:09", d: "2026-10-08", n: 1, j: '{"at":"2026-10-08T18:16:09Z"}', x: null });
+  });
+
+  it("records a readable error for non-Error throws", async () => {
+    const store = newStore();
+    await expect(processOnce(store, "t1", { source: "CRM", eventId: "e", recordId: "r", payload: {} }, async () => { throw { code: "INVALID_INPUT" }; })).rejects.toBeTruthy();
+    const row = await store.findOne("integration_events", { event_key: "CRM:e:r" });
+    expect(row?.error_message).toContain("INVALID_INPUT");
   });
 });

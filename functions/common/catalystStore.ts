@@ -39,6 +39,21 @@ export function buildSelect(table: string, where: Record<string, Primitive>, opt
   return q;
 }
 
+const ISO_UTC = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?Z$/;
+
+/**
+ * Data Store datetime columns reject ISO strings ("datetime value expected") and take
+ * "YYYY-MM-DD HH:mm:ss". Domain code writes UTC ISO timestamps, so they are converted here.
+ */
+export function toStoreRow(row: Row): Row {
+  const out: Row = {};
+  for (const [k, v] of Object.entries(row)) {
+    const m = typeof v === "string" ? ISO_UTC.exec(v) : null;
+    out[k] = m ? `${m[1]} ${m[2]}` : v;
+  }
+  return out;
+}
+
 function isDuplicate(err: unknown): boolean {
   const msg = String((err as { message?: string })?.message ?? err).toLowerCase();
   // Verify the exact Data Store error code for unique violations at build time.
@@ -50,7 +65,7 @@ export class CatalystStore implements Store {
 
   async insert(table: string, row: Row): Promise<Row> {
     try {
-      return await this.app.datastore().table(ident(table)).insertRow(row);
+      return await this.app.datastore().table(ident(table)).insertRow(toStoreRow(row));
     } catch (e) {
       if (isDuplicate(e)) throw new DuplicateKeyError(table);
       throw e;
@@ -59,7 +74,7 @@ export class CatalystStore implements Store {
 
   async update(table: string, rowId: string, patch: Row): Promise<Row> {
     try {
-      return await this.app.datastore().table(ident(table)).updateRow({ ...patch, ROWID: rowId });
+      return await this.app.datastore().table(ident(table)).updateRow(toStoreRow({ ...patch, ROWID: rowId }));
     } catch (e) {
       if (isDuplicate(e)) throw new DuplicateKeyError(table);
       throw e;

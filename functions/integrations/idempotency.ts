@@ -5,6 +5,13 @@ export function eventKey(source: string, eventId: string, recordId: string): str
   return `${source}:${eventId}:${recordId}`;
 }
 
+// SDK errors are not always Error instances, so fall back to their JSON form.
+function errorText(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
 export type ProcessResult<T> = { duplicate: true } | { duplicate: false; result: T };
 
 /**
@@ -43,7 +50,7 @@ export async function processOnce<T>(
     await store.update("integration_events", rowId, { status: "PROCESSED", processed_at: new Date().toISOString() });
     return { duplicate: false, result };
   } catch (e) {
-    await store.update("integration_events", rowId, { status: "FAILED", error_message: String((e as Error).message).slice(0, 500) });
+    await store.update("integration_events", rowId, { status: "FAILED", error_message: errorText(e).slice(0, 500) });
     throw e;
   }
 }
