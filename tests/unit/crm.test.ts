@@ -80,6 +80,17 @@ describe("CRM webhook endpoint", () => {
     expect((await hit("/webhooks/crm/lead/STARK", {}, { lead_id: "1", token: "nope" })).status).toBe(401);
   });
 
+  it("reports a Zoho failure as ZOHO_SYNC_FAILED with Zoho's reason", async () => {
+    const { ProviderError } = await import("../../functions/integrations/retry");
+    const { store } = await setup();
+    const { handleWebhook } = await import("../../functions/webhooks/router");
+    const broken = { getLead: async () => { throw new ProviderError("Zoho token refresh failed: invalid_client", 401, false); } };
+    const res = await handleWebhook({ method: "POST", path: "/webhooks/crm/lead/STARK", headers: { "x-fos-webhook-secret": "s3cret" }, query: {}, body: { lead_id: "123" } },
+      { store, crm: async () => broken as never, sleep });
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(res.body)).toContain("invalid_client");
+  });
+
   it("rejects a wrong secret and an unknown tenant the same way", async () => {
     const { hit } = await setup();
     expect((await hit("/webhooks/crm/lead/STARK", { "x-fos-webhook-secret": "nope" }, { lead_id: "123" })).status).toBe(401);

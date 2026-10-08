@@ -6,6 +6,7 @@ import { fail, newRequestId, ok } from "../common/response";
 import { Store } from "../common/store";
 import { CrmFactory } from "../integrations/crmSync";
 import { normalizePath } from "../api/router";
+import { ProviderError } from "../integrations/retry";
 import { DEFAULT_CRM_TRIGGER_STATUS, handleCrmLead } from "./crmLead";
 
 // Webhook entry (§14). These routes have no Catalyst user, so each call must carry the tenant's
@@ -69,7 +70,9 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     const result = await handleCrmLead(deps.store, ctx, crm, { leadId, triggerStatus: settings.crm_trigger_status ?? DEFAULT_CRM_TRIGGER_STATUS, sleep: deps.sleep });
     log("info", "webhook.crm_lead", { request_id: requestId, tenant_id: tenantId, external_id: leadId, action: result.action });
     return { status: 200, body: ok(result, requestId) };
-  } catch (err) {
+  } catch (caught) {
+    // Zoho's own reason (e.g. invalid_client, INVALID_TOKEN) carries no secrets and says what to fix.
+    const err = caught instanceof ProviderError ? new AppError("ZOHO_SYNC_FAILED", caught.message.slice(0, 300)) : caught;
     if (err instanceof AppError) log("warn", "webhook.rejected", { request_id: requestId, code: err.code, error: err.message });
     else log("error", "webhook.unhandled", { request_id: requestId, error: String((err as Error)?.message ?? err) });
     return fail(err, requestId);
