@@ -89,3 +89,22 @@ describe("CRM webhook endpoint", () => {
     expect(await store.findMany("franchise_applications", { zoho_lead_id: "123" })).toHaveLength(1);
   });
 });
+
+describe("pilot env fallbacks", () => {
+  it("uses the env refresh token and webhook secret when the integration row has none", async () => {
+    const { crmFactory } = await import("../../functions/integrations/tenantClients");
+    const { handleWebhook } = await import("../../functions/webhooks/router");
+    const store = newStore();
+    const t = await store.insert("tenants", { tenant_code: "STARK", name: "Stark", status: "ACTIVE", zoho_dc: "IN" });
+    await store.insert("tenant_integrations", { tenant_id: String(t.ROWID), provider: "ZOHO", zoho_dc: "IN", status: "ACTIVE", provider_key: "k" });
+    const factory = crmFactory(store, { clientId: "c", clientSecret: "s" }, undefined, { ZOHO_REFRESH_TOKEN: "r" } as NodeJS.ProcessEnv);
+    expect(await factory(String(t.ROWID))).not.toBeNull();
+    expect(await crmFactory(store, { clientId: "c", clientSecret: "s" }, undefined, {} as NodeJS.ProcessEnv)(String(t.ROWID))).toBeNull();
+    const res = await handleWebhook({ method: "POST", path: "/webhooks/crm/lead/STARK", headers: { "x-fos-webhook-secret": "wrong" }, query: {}, body: { lead_id: "1" } },
+      { store, crm: async () => null, fallbackSecret: "envsecret" });
+    expect(res.status).toBe(401);
+    const res2 = await handleWebhook({ method: "POST", path: "/webhooks/crm/lead/STARK", headers: { "x-fos-webhook-secret": "envsecret" }, query: {}, body: { lead_id: "1" } },
+      { store, crm: async () => null, fallbackSecret: "envsecret" });
+    expect((res2.body as any).error.code).toBe("ZOHO_SYNC_FAILED");
+  });
+});

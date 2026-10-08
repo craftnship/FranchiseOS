@@ -19,7 +19,13 @@ export interface WebhookRequest {
   body: unknown;
 }
 
-export interface WebhookDeps { store: Store; crm: CrmFactory; sleep?: (ms: number) => Promise<void> }
+export interface WebhookDeps {
+  store: Store;
+  crm: CrmFactory;
+  sleep?: (ms: number) => Promise<void>;
+  /** Pilot fallback when the tenant_integrations row has no webhook_secret (env FOS_CRM_WEBHOOK_SECRET). */
+  fallbackSecret?: string;
+}
 
 const LEAD_ROUTE = /^\/webhooks\/crm\/lead\/([A-Za-z0-9_-]{1,40})$/;
 
@@ -47,7 +53,8 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
       : null;
     const given = header(req.headers, "x-fos-webhook-secret") || req.query.token || "";
     // Unknown tenant and wrong secret answer the same way.
-    if (!integration?.webhook_secret || !given || !sameSecret(given, String(integration.webhook_secret))) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
+    const expected = integration ? String(integration.webhook_secret || deps.fallbackSecret || "") : "";
+    if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
 
     const body = (req.body ?? {}) as Record<string, unknown>;
     const leadId = String(body.lead_id ?? body.id ?? req.query.lead_id ?? "").trim();

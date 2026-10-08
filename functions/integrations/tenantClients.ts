@@ -12,13 +12,18 @@ export function zohoCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): Zo
   return env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : null;
 }
 
-export function crmFactory(store: Store, app: ZohoAppCredentials | null, fetchFn?: FetchLike): CrmFactory {
+/**
+ * For the single pilot tenant the refresh token may live in the function's ZOHO_REFRESH_TOKEN env
+ * variable instead of the tenant_integrations row.
+ */
+export function crmFactory(store: Store, app: ZohoAppCredentials | null, fetchFn?: FetchLike, env: NodeJS.ProcessEnv = process.env): CrmFactory {
   return async (tenantId) => {
     if (!app) return null;
     const row = await store.findOne("tenant_integrations", { tenant_id: tenantId, provider: "ZOHO", status: "ACTIVE" });
-    if (!row?.refresh_token) return null;
+    const refreshToken = row?.refresh_token || env.ZOHO_REFRESH_TOKEN;
+    if (!row || !refreshToken) return null;
     const endpoints = endpointsFor(String(row.zoho_dc));
-    const http = new ZohoHttp(new RefreshTokenProvider(endpoints, { ...app, refreshToken: String(row.refresh_token) }, fetchFn), fetchFn);
+    const http = new ZohoHttp(new RefreshTokenProvider(endpoints, { ...app, refreshToken: String(refreshToken) }, fetchFn), fetchFn);
     return new HttpCrmClient(http, endpoints.crm);
   };
 }

@@ -24,7 +24,7 @@ export async function handleWebhookRequest(req: IncomingMessage, res: ServerResp
   const store = new CatalystStore(sdk.initialize(req, { scope: "admin" }));
   const result = await handleWebhook(
     { method: req.method ?? "POST", path: url.pathname, headers: req.headers, query: Object.fromEntries(url.searchParams), body },
-    { store, crm: crmFactory(store, zohoCredentialsFromEnv()) },
+    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET },
   );
   send(res, result.status, result.body);
 }
