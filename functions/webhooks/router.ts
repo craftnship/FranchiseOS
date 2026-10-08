@@ -70,7 +70,8 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     log("info", "webhook.crm_lead", { request_id: requestId, tenant_id: tenantId, external_id: leadId, action: result.action });
     return { status: 200, body: ok(result, requestId) };
   } catch (err) {
-    if (!(err instanceof AppError)) log("error", "webhook.unhandled", { request_id: requestId, error: String((err as Error)?.message ?? err) });
+    if (err instanceof AppError) log("warn", "webhook.rejected", { request_id: requestId, code: err.code, error: err.message });
+    else log("error", "webhook.unhandled", { request_id: requestId, error: String((err as Error)?.message ?? err) });
     return fail(err, requestId);
   }
 }
