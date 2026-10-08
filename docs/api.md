@@ -39,18 +39,38 @@ Catalyst Authentication session; the tenant, user and roles come from the `users
 | GET | /approvals/:id | approver on the chain | With recorded actions |
 | POST | /approvals/:id/approve, /reject, /return | current step's approver | Body `{ step, comments }`; final outcome moves the application |
 
-Not in this release: projects, agreements, dashboards, CRM and Sign webhooks (plan Steps 2 and 5–6).
+Not in this release: projects, agreements, dashboards and the Sign webhook (plan Steps 5–6).
+
+## CRM lead intake (D-9)
+
+`POST /webhooks/crm/lead/{TENANT_CODE}` on the `fos_webhooks` function, with header
+`x-fos-webhook-secret` (or `?token=`) matching `tenant_integrations.webhook_secret` for provider ZOHO.
+Body `{ "lead_id": "<CRM lead id>" }`. Only the id is trusted: the lead is read back from CRM. When its
+Lead Status is **Pre-Qualified** (tenant setting `crm_trigger_status`), the lead becomes a franchisee
+plus a DRAFT application, and `FOS_Application_Code` / `FOS_Application_Status` are written back to the
+lead. Every later application status change is written back too. The same lead edit delivered twice is
+processed once (`integration_events`).
+
+CRM Leads custom fields (created 2026-10-08): `Investment_Capacity`, `Franchise_Type`, `Preferred_City`,
+`Preferred_State`, `FOS_Application_Code`, `FOS_Application_Status`.
+
+Setup in Zoho CRM: a workflow rule on Leads (when Lead Status is updated to Pre-Qualified) with a
+webhook action that POSTs `lead_id = ${Leads.Lead Id}` to the gateway URL with the secret header.
+
+Function env variables: `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (a Zoho Self Client in the IN data center).
+The refresh token (scope `ZohoCRM.modules.leads.ALL`) is stored per tenant in `tenant_integrations.refresh_token`.
 
 ## Deploying
 
 ```
 npm ci
 npm run package:functions      # tsc, then copies dist/ into catalyst/functions/fos_api/
-cd catalyst && catalyst deploy --only functions:fos_api
+cd catalyst && catalyst deploy --only functions
 ```
 
-Then add one API Gateway route: source `/api/v1/{path:.*}` (method ANY), target the `fos_api`
-Advanced I/O function, authentication "Catalyst Authentication".
+Then add two API Gateway routes: `/api/v1/{path:.*}` (ANY) to `fos_api` with Catalyst
+Authentication, and `/webhooks/{path:.*}` (POST) to `fos_webhooks` with no authentication (the
+shared secret is checked in code).
 
 ## First user
 

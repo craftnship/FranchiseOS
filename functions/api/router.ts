@@ -51,7 +51,7 @@ export type Handler = (call: Call) => Promise<unknown>;
 
 interface Route { method: string; parts: string[]; permission: string | null; handler: Handler; status: number }
 
-export const API_PREFIXES = ["/server/fos_api", "/api/v1"];
+export const API_PREFIXES = ["/server/fos_api", "/server/fos_webhooks", "/api/v1"];
 
 export function normalizePath(path: string): string {
   let p = path.split("?")[0].replace(/\/+$/, "") || "/";

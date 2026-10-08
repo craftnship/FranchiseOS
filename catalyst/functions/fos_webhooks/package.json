@@ -1,0 +1,10 @@
+{
+  "name": "fos_webhooks",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "zcatalyst-sdk-node": "^2.5.0",
+    "zod": "^3.23.8"
+  }
+}

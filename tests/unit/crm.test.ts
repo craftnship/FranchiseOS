@@ -59,3 +59,33 @@ describe("CRM lead webhook (D-9)", () => {
     expect(logs).toHaveLength(1);
   });
 });
+
+describe("CRM webhook endpoint", () => {
+  async function setup() {
+    const { bootstrapTenant } = await import("../../database/seed/bootstrapTenant");
+    const { handleWebhook } = await import("../../functions/webhooks/router");
+    const store = newStore();
+    const t = await bootstrapTenant(store, { tenantCode: "STARK", name: "Stark", zohoDc: "IN" });
+    await store.insert("tenant_integrations", { tenant_id: t.tenantId, provider: "ZOHO", zoho_dc: "IN", status: "ACTIVE", webhook_secret: "s3cret", refresh_token: "r", provider_key: `${t.tenantId}:ZOHO` });
+    const { crm } = fakeCrm({ ...lead, id: "123" });
+    const hit = (path: string, headers: Record<string, string>, body: unknown) =>
+      handleWebhook({ method: "POST", path, headers, query: {}, body }, { store, crm: async () => crm, sleep });
+    return { store, hit };
+  }
+
+  it("rejects a wrong secret and an unknown tenant the same way", async () => {
+    const { hit } = await setup();
+    expect((await hit("/webhooks/crm/lead/STARK", { "x-fos-webhook-secret": "nope" }, { lead_id: "123" })).status).toBe(401);
+    expect((await hit("/webhooks/crm/lead/NOPE", { "x-fos-webhook-secret": "s3cret" }, { lead_id: "123" })).status).toBe(401);
+    expect((await hit("/webhooks/crm/lead/STARK", {}, { lead_id: "123" })).status).toBe(401);
+  });
+
+  it("validates the lead id and processes a good call", async () => {
+    const { hit, store } = await setup();
+    expect((await hit("/webhooks/crm/lead/STARK", { "x-fos-webhook-secret": "s3cret" }, { lead_id: "x' OR 1=1" })).status).toBe(422);
+    const ok = await hit("/server/fos_webhooks/webhooks/crm/lead/stark", { "x-fos-webhook-secret": "s3cret" }, { lead_id: "123" });
+    expect(ok.status).toBe(200);
+    expect((ok.body as any).data.action).toBe("created");
+    expect(await store.findMany("franchise_applications", { zoho_lead_id: "123" })).toHaveLength(1);
+  });
+});

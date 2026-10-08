@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { CatalystStore } from "../common/catalystStore";
 import { newRequestId } from "../common/response";
 import { IdentityUser } from "../common/tenant";
+import { crmFactory, zohoCredentialsFromEnv } from "../integrations/tenantClients";
 import { buildRouter } from "./app";
 
 // Entry point of the fos_api Advanced I/O function. API Gateway forwards /api/v1/* here with
@@ -16,7 +17,7 @@ interface CatalystSdk {
   } & ConstructorParameters<typeof CatalystStore>[0];
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+export function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -30,7 +31,7 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+export function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(JSON.stringify(body));
 }
@@ -67,7 +68,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       requestId,
       correlationId: typeof correlation === "string" ? correlation.slice(0, 100) : undefined,
     },
-    { store: new CatalystStore(app) },
+    { store: new CatalystStore(app), crm: crmFactory(new CatalystStore(app), zohoCredentialsFromEnv()) },
   );
   send(res, result.status, result.body);
 }
