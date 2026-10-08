@@ -9,7 +9,7 @@ import { normalizePath } from "../api/router";
 import { DEFAULT_CRM_TRIGGER_STATUS, handleCrmLead } from "./crmLead";
 
 // Webhook entry (§14). These routes have no Catalyst user, so each call must carry the tenant's
-// shared secret (header x-fos-webhook-secret, or `token` in the query for senders that cannot set headers).
+// shared secret (header x-fos-webhook-secret, or `token` in the query or form body for senders that cannot set headers).
 
 export interface WebhookRequest {
   method: string;
@@ -51,12 +51,13 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     const integration = tenant && tenant.status === "ACTIVE"
       ? await deps.store.findOne("tenant_integrations", { tenant_id: String(tenant.ROWID), provider: "ZOHO", status: "ACTIVE" })
       : null;
-    const given = header(req.headers, "x-fos-webhook-secret") || req.query.token || "";
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Zoho CRM sends a webhook's custom parameters in the form body, so `token` is accepted there too.
+    const given = header(req.headers, "x-fos-webhook-secret") || req.query.token || (typeof body.token === "string" ? body.token : "");
     // Unknown tenant and wrong secret answer the same way.
     const expected = integration ? String(integration.webhook_secret || deps.fallbackSecret || "") : "";
     if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
 
-    const body = (req.body ?? {}) as Record<string, unknown>;
     const leadId = String(body.lead_id ?? body.id ?? req.query.lead_id ?? "").trim();
     if (!/^\d{1,25}$/.test(leadId)) throw new AppError("VALIDATION_FAILED", "lead_id is required.", { lead_id: "required" });
 

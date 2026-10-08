@@ -73,6 +73,13 @@ describe("CRM webhook endpoint", () => {
     return { store, hit };
   }
 
+  it("accepts the secret as a token in the form body", async () => {
+    const { hit } = await setup();
+    const res = await hit("/webhooks/crm/lead/STARK", {}, { lead_id: "x", token: "s3cret" });
+    expect(res.status).toBe(422);
+    expect((await hit("/webhooks/crm/lead/STARK", {}, { lead_id: "1", token: "nope" })).status).toBe(401);
+  });
+
   it("rejects a wrong secret and an unknown tenant the same way", async () => {
     const { hit } = await setup();
     expect((await hit("/webhooks/crm/lead/STARK", { "x-fos-webhook-secret": "nope" }, { lead_id: "123" })).status).toBe(401);
