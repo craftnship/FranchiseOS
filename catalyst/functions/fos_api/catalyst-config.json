@@ -1,0 +1,11 @@
+{
+  "deployment": {
+    "name": "fos_api",
+    "stack": "node20",
+    "type": "advancedio",
+    "env_variables": {}
+  },
+  "execution": {
+    "main": "index.js"
+  }
+}

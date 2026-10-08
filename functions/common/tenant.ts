@@ -8,7 +8,7 @@ export interface IdentityUser {
 }
 
 export interface UserDirectory {
-  findActiveByExternalId(externalUserId: string): Promise<{ userId: string; tenantId: string; roleCodes: string[] } | null>;
+  findActiveByExternalId(externalUserId: string): Promise<{ userId: string; tenantId: string; roleCodes: string[]; franchiseeId?: string } | null>;
   findTenant(tenantId: string): Promise<{ tenantId: string; status: string; zohoDc: string } | null>;
 }
 
@@ -33,5 +33,6 @@ export async function resolveTenant(
     zohoDc: tenant.zohoDc,
     requestId: ids.requestId,
     correlationId: ids.correlationId ?? ids.requestId,
+    ...(user.franchiseeId ? { franchiseeId: user.franchiseeId } : {}),
   };
 }

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "targets": ["fos_api"],
+    "ignore": [],
+    "source": "functions"
+  }
+}
