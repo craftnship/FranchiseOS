@@ -30,7 +30,7 @@ async function act(call: Call, action: ApprovalAction) {
   if (transition && instance.entity_type === "application") {
     // Engine-driven: the approver's decision is the authority, so the system permission is granted here only.
     entity = await transitionEntity("application", String(instance.entity_id), transition, call.ctx, {
-      store: call.store, permissions: async () => new Set(["system.approval", "application.reject"]),
+      store: call.store, onTransition: call.onTransition, permissions: async () => new Set(["system.approval", "application.reject"]),
     });
   }
   return { outcome, approval: instance, entity };

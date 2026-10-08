@@ -12,6 +12,8 @@ export interface TransitionDeps {
   permissions: PermissionLookup;
   /** Optional per-entity business rules (e.g. mandatory documents before submit). */
   businessRules?: Partial<Record<EntityType, BusinessRule>>;
+  /** Runs after a successful transition (e.g. CRM status write-back). Errors are the hook's to handle. */
+  onTransition?: (event: { entityType: EntityType; entity: Record<string, unknown>; from: string; to: string; transition: string }) => Promise<void>;
 }
 
 /**
@@ -49,5 +51,6 @@ export async function transitionEntity(
   const updated = await repo.update(table, entityId, { status: to, ...(rule.sideFields?.(entity) ?? {}) });
 
   await logActivity(deps.store, ctx, { entityType, entityId, action: `transition:${transition}`, metadata: { from, to } });
+  await deps.onTransition?.({ entityType, entity: updated, from, to, transition });
   return updated;
 }

@@ -62,7 +62,7 @@ export function feasibilityRoutes(r: Router): void {
     for (const li of line_items ?? []) await call.repo.insert("feasibility_inputs", { ...li, feasibility_id: String(model.ROWID) });
     await call.repo.update("franchise_applications", String(app.ROWID), { feasibility_id: String(model.ROWID) });
     if (app.status === "SITE_SUBMITTED") {
-      await transitionEntity("application", String(app.ROWID), "start_feasibility", call.ctx, { store: call.store, permissions: call.permissions });
+      await transitionEntity("application", String(app.ROWID), "start_feasibility", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     }
     await logActivity(call.store, call.ctx, { entityType: "feasibility", entityId: String(model.ROWID), action: "create", metadata: { application_id: body.application_id } });
     return model;

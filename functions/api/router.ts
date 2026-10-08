@@ -7,6 +7,8 @@ import { authorize, PermissionLookup } from "../common/rbac";
 import { fail, newRequestId, ok } from "../common/response";
 import { Store, TenantRepo } from "../common/store";
 import { IdentityUser, resolveTenant } from "../common/tenant";
+import { CrmFactory, pushApplicationStatus } from "../integrations/crmSync";
+import { TransitionDeps } from "../workflows/transition";
 
 // Framework-free router for the /api/v1 Advanced I/O function (D-14). The Catalyst entry point
 // adapts Node's req/res to ApiRequest, so every route is testable against MemoryStore.
@@ -28,6 +30,8 @@ export interface ApiDeps {
   /** Overrides role_permissions lookups (tests). */
   permissions?: PermissionLookup;
   now?: () => Date;
+  /** Builds the tenant's CRM client; null when CRM is not connected. */
+  crm?: CrmFactory;
 }
 
 export interface Call {
@@ -39,6 +43,8 @@ export interface Call {
   query: Record<string, string>;
   body: unknown;
   now: Date;
+  /** Passed to transitionEntity: writes application status back to the CRM lead. */
+  onTransition: NonNullable<TransitionDeps["onTransition"]>;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -97,6 +103,10 @@ export class Router {
         query: req.query ?? {},
         body: req.body ?? {},
         now: deps.now?.() ?? new Date(),
+        onTransition: async (e) => {
+          if (e.entityType !== "application" || !deps.crm) return;
+          await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
+        },
       });
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (err) {

@@ -74,7 +74,7 @@ export function siteRoutes(r: Router): void {
     // First site on an application waiting for one moves it forward.
     if (app.status === "SITE_REQUIRED") {
       await call.repo.update("franchise_applications", String(app.ROWID), { site_id: String(site.ROWID) });
-      await transitionEntity("application", String(app.ROWID), "site_submitted", call.ctx, { store: call.store, permissions: async () => new Set(["site.write"]) });
+      await transitionEntity("application", String(app.ROWID), "site_submitted", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: async () => new Set(["site.write"]) });
     }
     return site;
   }, 201);
@@ -107,7 +107,7 @@ export function siteRoutes(r: Router): void {
       gps_lat: body.gps_lat ?? null, gps_lng: body.gps_lng ?? null, evaluated_by: call.ctx.userId,
     });
     await call.repo.update("sites", String(site.ROWID), { site_score: score, recommendation });
-    const updated = await transitionEntity("site", String(site.ROWID), "evaluated", call.ctx, { store: call.store, permissions: call.permissions });
+    const updated = await transitionEntity("site", String(site.ROWID), "evaluated", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     return { site: updated, evaluation };
   });
 
@@ -115,7 +115,7 @@ export function siteRoutes(r: Router): void {
   r.on("POST", "/sites/:id/approve", "site.approve", async (call) => {
     const site = await getSite(call);
     if (site.recommendation === "REJECT") throw new AppError("VALIDATION_FAILED", "Sites scored below 65 cannot be approved.", { site_score: "below threshold" });
-    return transitionEntity("site", String(site.ROWID), "approve", call.ctx, { store: call.store, permissions: call.permissions });
+    return transitionEntity("site", String(site.ROWID), "approve", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
   });
 
   r.on("POST", "/sites/:id/transition", null, async (call) => {
@@ -123,7 +123,7 @@ export function siteRoutes(r: Router): void {
     const site = await getSite(call);
     if (transition === "evaluated" || transition === "approve") throw new AppError("INVALID_TRANSITION", `Use the dedicated endpoint for ${transition}.`);
     if (findRule("site", String(site.status), transition)?.permission.startsWith("system.")) throw new AppError("INVALID_TRANSITION");
-    const row = await transitionEntity("site", String(site.ROWID), transition, call.ctx, { store: call.store, permissions: call.permissions });
+    const row = await transitionEntity("site", String(site.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     if (comments) await logActivity(call.store, call.ctx, { entityType: "site", entityId: String(site.ROWID), action: "comment", metadata: { transition, comments } });
     return row;
   });

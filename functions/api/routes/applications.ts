@@ -118,7 +118,7 @@ export function applicationRoutes(r: Router): void {
   r.on("POST", "/applications/:id/submit", null, async (call) => {
     const app = await getApp(call);
     return transitionEntity("application", String(app.ROWID), "submit", call.ctx, {
-      store: call.store, permissions: call.permissions,
+      store: call.store, onTransition: call.onTransition, permissions: call.permissions,
       businessRules: { application: (entity) => requireDocuments(call, entity as Row) },
     });
   });
@@ -153,7 +153,7 @@ export function applicationRoutes(r: Router): void {
     if (rule?.permission.startsWith("system.") || transition === "submit" || transition === "start_approval") {
       throw new AppError("INVALID_TRANSITION", `Use the dedicated endpoint for ${transition}.`);
     }
-    return transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, permissions: call.permissions });
+    return transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
   });
 
   r.on("POST", "/applications/:id/start-approval", "approval.start", async (call) => {
@@ -164,7 +164,7 @@ export function applicationRoutes(r: Router): void {
     if (feas.passed !== true && String(feas.passed) !== "true") throw new AppError("FEASIBILITY_FAILED", "Feasibility did not meet the thresholds.");
     const site = app.site_id ? await call.repo.findOne("sites", { ROWID: String(app.site_id) }) : null;
 
-    const updated = await transitionEntity("application", String(app.ROWID), "start_approval", call.ctx, { store: call.store, permissions: call.permissions });
+    const updated = await transitionEntity("application", String(app.ROWID), "start_approval", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     try {
       const approval = await startApproval(call.store, call.ctx, {
         entityType: "application", entityId: String(app.ROWID), workflowCode: DEFAULT_APPROVAL_WORKFLOW.code, now: call.now,
