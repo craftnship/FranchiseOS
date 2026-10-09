@@ -59,8 +59,12 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     const expected = integration ? String(integration.webhook_secret || deps.fallbackSecret || "") : "";
     if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
 
-    const leadId = String(body.lead_id ?? body.id ?? req.query.lead_id ?? "").trim();
-    if (!/^\d{1,25}$/.test(leadId)) throw new AppError("VALIDATION_FAILED", "lead_id is required.", { lead_id: "required" });
+    const leadId = [body.lead_id, body.id, req.query.lead_id, req.query.id].map((v) => String(v ?? "").trim()).find(Boolean) ?? "";
+    if (!/^\d{1,25}$/.test(leadId)) {
+      // Names only, never values: shows what the sender actually posted when lead_id is missing.
+      log("warn", "webhook.lead_id_missing", { request_id: requestId, content_type: header(req.headers, "content-type"), body_keys: Object.keys(body).join(","), query_keys: Object.keys(req.query).join(",") });
+      throw new AppError("VALIDATION_FAILED", "lead_id is required.", { lead_id: "required" });
+    }
 
     const tenantId = String(tenant!.ROWID);
     const crm = await deps.crm(tenantId);
