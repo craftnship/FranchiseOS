@@ -242,10 +242,13 @@ export async function onboardSignedAgreement(
   if (app.status === "AGREEMENT_SIGNED") app = await transitionEntity("application", appId, "start_onboarding", ctx, deps);
 
   const pending: string[] = [];
+  const failures: string[] = [];
   const step = async (name: string, fn: () => Promise<void>) => {
     try { await fn(); } catch (e) {
+      const error = String((e as Error)?.message ?? e).slice(0, 300);
       pending.push(name);
-      log("warn", "onboarding.step_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, step: name, error: String((e as Error)?.message ?? e).slice(0, 300) });
+      failures.push(`${name} (${error})`);
+      log("warn", "onboarding.step_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, step: name, error });
     }
   };
 
@@ -350,7 +353,7 @@ export async function onboardSignedAgreement(
     tasks_created: (build as { tasksCreated: number } | null)?.tasksCreated ?? 0,
     pending,
   };
-  if (pending.length) throw new ProviderError(`Onboarding incomplete: ${pending.join(", ")}`, 502);
+  if (pending.length) throw new ProviderError(`Onboarding incomplete: ${failures.join("; ")}`, 502);
   return result;
 }
 
