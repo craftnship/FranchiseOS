@@ -97,6 +97,11 @@ export function findRule(entityType: EntityType, fromState: string, transition: 
   return STATE_MACHINES[entityType].find((r) => r.transition === transition && r.from.includes(fromState));
 }
 
+/** Transitions from a state with the permission each needs (undefined: no extra permission). */
+export function transitionsFrom(entityType: EntityType, fromState: string): { transition: string; permission?: string }[] {
+  return STATE_MACHINES[entityType].filter((r) => r.from.includes(fromState)).map((r) => ({ transition: r.transition, permission: r.permission }));
+}
+
 export function allowedTransitions(entityType: EntityType, fromState: string): string[] {
   return STATE_MACHINES[entityType].filter((r) => r.from.includes(fromState)).map((r) => r.transition);
 }

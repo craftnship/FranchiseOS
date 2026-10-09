@@ -75,6 +75,16 @@ describe("readiness and risk (FOS-058, D-7)", () => {
     expect(riskLevel({ rag: "GREEN", ...none }, 5)).toBe("LOW");
   });
 
+  it("lists only the project actions the caller may take, and /me says what they may do", async () => {
+    const s = await setup();
+    await s.store.update("franchise_projects", String(s.project.ROWID), { status: "PLANNING" });
+    expect((await s.call("dir", "GET", `/projects/${s.project.ROWID}`)).data.allowed_transitions).toEqual([]);
+    expect((await s.call("pm", "GET", `/projects/${s.project.ROWID}`)).data.allowed_transitions).toEqual(["start"]);
+    const me = (await s.call("dir", "GET", "/me")).data;
+    expect(me.permissions).toContain("dashboard.view");
+    expect(me.permissions).not.toContain("project.write");
+  });
+
   it("only project.write roles can block items; anyone in the tenant can read readiness", async () => {
     const s = await setup();
     expect((await s.call("dir", "PATCH", `/projects/${s.project.ROWID}/checklist/${s.rows[1].ROWID}`, { blocked: true })).error?.code).toBe("ACCESS_DENIED");

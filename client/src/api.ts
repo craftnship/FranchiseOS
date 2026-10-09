@@ -22,7 +22,12 @@ export async function api<T>(method: string, path: string, opts: { query?: Recor
   return json.data as T;
 }
 
-export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null }
+export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; permissions?: string[] }
+
+let current: Me | null = null;
+export const setCurrentUser = (me: Me | null) => { current = me; };
+/** Hides actions the signed-in user cannot take; the API enforces the same rule. */
+export const can = (permission: string) => !!current?.permissions && (current.permissions.includes("*") || current.permissions.includes(permission));
 export type Row = Record<string, any>;
 export interface Kpi { value: number | null; drill?: { path: string; query: Record<string, string> } }
 

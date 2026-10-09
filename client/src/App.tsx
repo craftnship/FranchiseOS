@@ -1,10 +1,10 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api, ApiError, isPortal, Me } from "./api";
+import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
 import { Layout } from "./components/Layout";
 import { ErrorState } from "./components/ui";
 import { Dashboard } from "./pages/Dashboard";
-import { Agreements, ApplicationDetail, Applications } from "./pages/Applications";
+import { AgreementDetail, Agreements, ApplicationDetail, Applications } from "./pages/Applications";
 import { Franchisees } from "./pages/Franchisees";
 import { ProjectDetail, Projects } from "./pages/Projects";
 import { PortalAgreement, PortalHome, PortalTasks } from "./pages/Portal";
@@ -32,6 +32,7 @@ export function App() {
     return <ErrorState error={e} retry={me.reload} />;
   }
   const user = me.data!;
+  setCurrentUser(user);
   const portal = isPortal(user);
   return (
     <HashRouter>
@@ -52,6 +53,7 @@ export function App() {
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/agreements" element={<Agreements />} />
+              <Route path="/agreements/:id" element={<AgreementDetail />} />
               <Route path="/franchisees" element={<Franchisees />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>

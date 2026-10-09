@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, Row } from "../api";
+import { api, ApiError, can, Row } from "../api";
 import { useLoad } from "../hooks";
 import { date, ErrorState, Loaded, Pill } from "../components/ui";
 
@@ -69,7 +69,7 @@ export function ProjectDetail() {
         <h1>{p.project_code} <Pill value={p.status} /> {p.delayed && <span className="pill bad">delayed</span>}</h1>
         <p className="muted">Target opening {date(p.target_opening_date)}{p.actual_opening_date ? ` · opened ${date(p.actual_opening_date)}` : ""}{p.zoho_project_id ? " · linked to Zoho Projects" : ""}</p>
         <div className="actions">
-          <button onClick={() => run("sync", () => api("POST", `/projects/${id}/sync`))} disabled={!!busy}>{busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>
+          {can("project.write") && <button onClick={() => run("sync", () => api("POST", `/projects/${id}/sync`))} disabled={!!busy}>{busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
           {(p.allowed_transitions as string[]).filter((t) => TRANSITION_LABEL[t]).map((t) => (
             <button key={t} className="secondary" onClick={() => transition(t)} disabled={!!busy}>{TRANSITION_LABEL[t]}</button>
           ))}
@@ -78,7 +78,7 @@ export function ProjectDetail() {
         <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
         <section className="card">
           <h2>Opening checklist</h2>
-          <Checklist items={p.checklist} onToggle={(item) => run(`b${item.ROWID}`, () => api("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body: { blocked: item.status !== "BLOCKED" } }))} busy={busy} />
+          <Checklist items={p.checklist} busy={busy} onToggle={!can("project.write") ? undefined : (item) => run(`b${item.ROWID}`, () => api("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body: { blocked: item.status !== "BLOCKED" } }))} />
         </section>
       </>
     )}</Loaded>

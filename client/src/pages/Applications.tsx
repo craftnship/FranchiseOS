@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, Row } from "../api";
+import { api, ApiError, can, Row } from "../api";
 import { useLoad } from "../hooks";
 import { date, ErrorState, inr, Loaded, Pill } from "../components/ui";
 
@@ -60,7 +60,7 @@ export function ApplicationDetail() {
           <dt>Qualification</dt><dd>{a.qualification_score ?? "-"} {a.qualification_class && <Pill value={a.qualification_class} />}</dd>
           <dt>Created</dt><dd>{date(a.CREATEDTIME)}</dd>
         </dl>
-        {(a.status === "APPROVED" || a.status === "AGREEMENT_PENDING") && (
+        {can("agreement.write") && (a.status === "APPROVED" || a.status === "AGREEMENT_PENDING") && (
           <p><button onClick={send} disabled={busy}>{busy ? "Sending…" : a.status === "APPROVED" ? "Send franchise agreement" : "Resend agreement"}</button></p>
         )}
         {notice && <div className="state ok">{notice}</div>}
@@ -79,10 +79,32 @@ export function Agreements() {
         <table>
           <thead><tr><th>Agreement</th><th>Status</th><th>Signed</th><th>Effective</th><th>Expires</th><th>Application</th></tr></thead>
           <tbody>{rows.map((g) => (
-            <tr key={g.ROWID}><td>{g.agreement_code}</td><td><Pill value={g.status} /></td><td>{date(g.signed_at)}</td><td>{date(g.effective_date)}</td><td>{date(g.expiry_date)}</td><td><Link to={`/applications/${g.application_id}`}>Open</Link></td></tr>
+            <tr key={g.ROWID}><td><Link to={`/agreements/${g.ROWID}`}>{g.agreement_code}</Link></td><td><Pill value={g.status} /></td><td>{date(g.signed_at)}</td><td>{date(g.effective_date)}</td><td>{date(g.expiry_date)}</td><td><Link to={`/applications/${g.application_id}`}>Open</Link></td></tr>
           ))}</tbody>
         </table>
       )}</Loaded>
     </>
+  );
+}
+
+export function AgreementDetail() {
+  const { id } = useParams();
+  const load = useLoad(() => api<Row>("GET", `/agreements/${id}`), [id]);
+  return (
+    <Loaded load={load}>{(g) => (
+      <>
+        <p><Link to="/agreements">← Agreements</Link></p>
+        <h1>{g.agreement_code} <Pill value={g.status} /></h1>
+        <dl className="facts">
+          <dt>Application</dt><dd><Link to={`/applications/${g.application_id}`}>Open application</Link></dd>
+          <dt>Sent</dt><dd>{date(g.CREATEDTIME)}</dd>
+          <dt>Signed</dt><dd>{date(g.signed_at)}</dd>
+          <dt>Effective</dt><dd>{date(g.effective_date)}</dd>
+          <dt>Expires</dt><dd>{date(g.expiry_date)}</dd>
+          <dt>Zoho Sign request</dt><dd>{g.zoho_sign_request_id ?? "-"}</dd>
+          <dt>Books invoice</dt><dd>{g.zoho_books_invoice_id ?? "-"}</dd>
+        </dl>
+      </>
+    )}</Loaded>
   );
 }

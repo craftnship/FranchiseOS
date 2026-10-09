@@ -4,7 +4,7 @@ import { authorize } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { syncProjectTasks } from "../../workflows/projectSync";
 import { computeReadiness, refreshReadiness, setChecklistBlocked } from "../../workflows/readiness";
-import { allowedTransitions } from "../../workflows/stateMachines";
+import { transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
 import { assertOwner, fetchAll, listByStatus, mustGet, ownerFilter } from "./shared";
@@ -41,7 +41,9 @@ export function projectRoutes(r: Router): void {
   r.on("GET", "/projects/:id", null, async (call) => {
     const project = await getProject(call);
     const checklist = await call.repo.findMany("opening_checklists", { project_id: call.params.id }, { orderBy: "due_date", limit: 300 });
-    return { ...project, delayed: isDelayed(project, today(call)), allowed_transitions: allowedTransitions("project", String(project.status)), checklist };
+    const perms = call.ctx.roles.includes("SUPER_ADMIN") ? null : await call.permissions(call.ctx.roles);
+    const allowed = transitionsFrom("project", String(project.status)).filter((t) => !perms || !t.permission || perms.has(t.permission)).map((t) => t.transition);
+    return { ...project, delayed: isDelayed(project, today(call)), allowed_transitions: allowed, checklist };
   });
 
   // Live readiness from the checklist (§20, D-7); nothing is written.
