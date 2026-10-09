@@ -1,8 +1,10 @@
 import { Router } from "./router";
+import { agreementRoutes } from "./routes/agreements";
 import { applicationRoutes } from "./routes/applications";
 import { approvalRoutes } from "./routes/approvals";
 import { feasibilityRoutes } from "./routes/feasibility";
 import { franchiseeRoutes } from "./routes/franchisees";
+import { projectRoutes } from "./routes/projects";
 import { siteRoutes } from "./routes/sites";
 import { territoryRoutes } from "./routes/territories";
 
@@ -16,5 +18,7 @@ export function buildRouter(): Router {
   siteRoutes(r);
   feasibilityRoutes(r);
   approvalRoutes(r);
+  agreementRoutes(r);
+  projectRoutes(r);
   return r;
 }

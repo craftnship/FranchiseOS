@@ -59,4 +59,6 @@ export const DEFAULTS = {
   readinessWeights: DEFAULT_READINESS_WEIGHTS,
   feasibility: { scenarios: DEFAULT_SCENARIOS, thresholds: DEFAULT_FEASIBILITY_THRESHOLDS },
   territoryRule: { territory_level: "CITY_ZONE", radius_km: 3, exclusive: true, max_locations: 1, reservation_days: 30 },
+  // Step 5. franchise_fee 0 means no Books invoice until the tenant sets its fee (D-17).
+  onboarding: { agreement_term_years: 5, opening_target_days: 120, franchise_fee: 0, projects_dependencies: false },
 };

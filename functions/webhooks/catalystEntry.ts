@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { readBody, send } from "../api/catalystEntry";
 import { CatalystStore } from "../common/catalystStore";
-import { crmFactory, zohoCredentialsFromEnv } from "../integrations/tenantClients";
+import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
 import { handleWebhook } from "./router";
 
 // Entry point of the fos_webhooks Advanced I/O function. Its API Gateway route has no Catalyst
@@ -24,7 +24,7 @@ export async function handleWebhookRequest(req: IncomingMessage, res: ServerResp
   const store = new CatalystStore(sdk.initialize(req, { scope: "admin" }));
   const result = await handleWebhook(
     { method: req.method ?? "POST", path: url.pathname, headers: req.headers, query: Object.fromEntries(url.searchParams), body },
-    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET },
+    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), zoho: zohoFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET },
   );
   send(res, result.status, result.body);
 }

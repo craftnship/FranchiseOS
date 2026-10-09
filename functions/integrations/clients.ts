@@ -1,8 +1,9 @@
-// Provider adapter contracts (spec §13). addDependency is added for §15 / FOS-056;
-// confirm Zoho Projects V3 supports it by API before Step 5 (plan §8).
+// Provider adapter contracts (spec §13). Each adapter returns only the ids and fields FOS stores.
 export interface ProjectRef { id: string }
 export interface TaskListRef { id: string }
 export interface TaskRef { id: string }
+/** A Zoho Projects task as the sync job needs it. */
+export interface TaskState { id: string; status: string; closed: boolean; percent?: number }
 
 export interface ZohoProjectsClient {
   createProject(data: { name: string; description?: string; start_date?: string; end_date?: string }): Promise<ProjectRef>;
@@ -11,6 +12,7 @@ export interface ZohoProjectsClient {
   createTask(projectId: string, data: { name: string; tasklist_id: string; start_date?: string; end_date?: string }): Promise<TaskRef>;
   updateTask(projectId: string, taskId: string, data: object): Promise<void>;
   addDependency(projectId: string, predecessorTaskId: string, successorTaskId: string): Promise<void>;
+  listTasks(projectId: string): Promise<TaskState[]>;
 }
 
 export interface ZohoCrmClient {
@@ -21,13 +23,21 @@ export interface ZohoCrmClient {
   createAccount(data: object): Promise<{ id: string }>;
 }
 
+export interface SignRecipient { name: string; email: string }
+/** Zoho Sign request status: draft, inprogress, completed, declined, recalled, expired. */
+export interface SignRequestState { id: string; status: string; completedAt?: string }
+
 export interface ZohoSignClient {
-  createRequest(data: object): Promise<{ id: string }>;
-  sendRequest(id: string): Promise<void>;
-  getRequest(id: string): Promise<{ id: string; status: string }>;
+  /** Creates a request from a Sign template and sends it to the recipient in one call. */
+  sendFromTemplate(templateId: string, data: { requestName: string; recipient: SignRecipient; fieldData?: Record<string, string> }): Promise<{ id: string }>;
+  getRequest(id: string): Promise<SignRequestState>;
 }
 
 export interface ZohoBooksClient {
-  createCustomer(data: object): Promise<{ id: string }>;
-  createInvoice(data: object): Promise<{ id: string }>;
+  /** Finds a customer by exact contact name, so a retried run does not create a second one. */
+  findCustomer(name: string): Promise<{ id: string } | null>;
+  createCustomer(data: { contact_name: string; company_name?: string; email?: string; phone?: string }): Promise<{ id: string }>;
+  /** Finds an invoice by its reference number (the agreement code). */
+  findInvoice(referenceNumber: string): Promise<{ id: string } | null>;
+  createInvoice(data: { customer_id: string; reference_number: string; date?: string; line_items: Array<{ name: string; description?: string; rate: number; quantity: number }> }): Promise<{ id: string }>;
 }

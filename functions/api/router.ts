@@ -8,6 +8,8 @@ import { fail, newRequestId, ok } from "../common/response";
 import { Store, TenantRepo } from "../common/store";
 import { IdentityUser, resolveTenant } from "../common/tenant";
 import { CrmFactory, pushApplicationStatus } from "../integrations/crmSync";
+import { ProviderError } from "../integrations/retry";
+import { ZohoClients, ZohoFactory } from "../integrations/tenantClients";
 import { TransitionDeps } from "../workflows/transition";
 
 // Framework-free router for the /api/v1 Advanced I/O function (D-14). The Catalyst entry point
@@ -32,6 +34,8 @@ export interface ApiDeps {
   now?: () => Date;
   /** Builds the tenant's CRM client; null when CRM is not connected. */
   crm?: CrmFactory;
+  /** Builds all of the tenant's Zoho clients (Sign, Books, Projects); null when not connected. */
+  zoho?: ZohoFactory;
 }
 
 export interface Call {
@@ -45,6 +49,8 @@ export interface Call {
   now: Date;
   /** Passed to transitionEntity: writes application status back to the CRM lead. */
   onTransition: NonNullable<TransitionDeps["onTransition"]>;
+  /** The tenant's Zoho clients, or null when Zoho is not connected. */
+  zoho: () => Promise<ZohoClients | null>;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -107,9 +113,12 @@ export class Router {
           if (e.entityType !== "application" || !deps.crm) return;
           await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
         },
+        zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
       });
       return { status: m.route.status, body: ok(data, requestId) };
-    } catch (err) {
+    } catch (caught) {
+      // A Zoho failure carries Zoho's own reason, which names what to fix and holds no secrets.
+      const err = caught instanceof ProviderError ? new AppError("ZOHO_SYNC_FAILED", caught.message.slice(0, 300)) : caught;
       if (!(err instanceof AppError)) log("error", "api.unhandled", { request_id: requestId, error: String((err as Error)?.stack ?? err) });
       return fail(err, requestId);
     }

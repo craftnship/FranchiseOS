@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { CatalystStore } from "../common/catalystStore";
 import { newRequestId } from "../common/response";
 import { IdentityUser } from "../common/tenant";
-import { crmFactory, zohoCredentialsFromEnv } from "../integrations/tenantClients";
+import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
 import { buildRouter } from "./app";
 
 // Entry point of the fos_api Advanced I/O function. API Gateway forwards /api/v1/* here with
@@ -68,7 +68,11 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       requestId,
       correlationId: typeof correlation === "string" ? correlation.slice(0, 100) : undefined,
     },
-    { store: new CatalystStore(app), crm: crmFactory(new CatalystStore(app), zohoCredentialsFromEnv()) },
+    (() => {
+      const store = new CatalystStore(app);
+      const creds = zohoCredentialsFromEnv();
+      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds) };
+    })(),
   );
   send(res, result.status, result.body);
 }
