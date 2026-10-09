@@ -59,3 +59,26 @@ Only the request id is taken from the callback; its status is read back from Sig
 
 When a step after signing fails (a Zoho outage, a timeout), the callback answers 502, and a replay
 of the callback or `POST /api/v1/agreements/{id}/onboard` finishes only the unfinished steps.
+
+## Step 6: risk job, web app and sign-in
+
+**Risk job.** Fill the `fos_jobs` section of `catalyst/env.local.json` with the same three Zoho values
+as `fos_api`, then `node scripts/deployFunctions.mjs fos_jobs`. In the console, Cloud Scale > Cron,
+create a cron "project_risk" that calls `fos_jobs` daily (for example 06:00 IST).
+
+**Web app.** `npm run deploy:client` builds `client/` and deploys it to Web Client Hosting. It is served
+at `https://franchiseos-60082871087.development.catalystserverless.in/app/` and calls `/server/fos_api`.
+
+**Sign-in.** Turn on Cloud Scale > Authentication (Hosted login, Email) and add users there. Each
+person also needs a `users` row before the API lets them in:
+
+| Column | Value |
+|---|---|
+| tenant_id | 62105000000093292 (Stark Industries) |
+| external_user_id | the Catalyst Authentication user id |
+| email, name | the person |
+| status | ACTIVE |
+| role_id | the `roles` row for their role (e.g. FRANCHISE_DIRECTOR; FRANCHISEE for portal users) |
+| franchisee_id | portal users only: their `franchisees` row, so they see only their own records |
+ Once real sign-ins work, set `test_routes_enabled` to false in the tenant
+settings so the test agreement route stops answering.

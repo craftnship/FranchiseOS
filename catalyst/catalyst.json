@@ -1,7 +1,14 @@
 {
   "functions": {
-    "targets": ["fos_api", "fos_webhooks", "fos_jobs"],
+    "targets": [
+      "fos_api",
+      "fos_webhooks",
+      "fos_jobs"
+    ],
     "ignore": [],
     "source": "functions"
+  },
+  "client": {
+    "source": "client"
   }
 }

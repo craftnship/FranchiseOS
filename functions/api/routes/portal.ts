@@ -2,6 +2,7 @@ import { AppError } from "../../common/errors";
 import { Row } from "../../common/store";
 import { computeReadiness } from "../../workflows/readiness";
 import { Router } from "../router";
+import { FUNNEL } from "./dashboards";
 
 // Franchisee portal home (spec §25, plan Step 6.3): the signed-in franchisee's own application, site,
 // agreement and project, plus the one next action. Other portal pages use the shared list routes,
@@ -40,7 +41,9 @@ export function portalRoutes(r: Router): void {
       call.repo.findMany("agreements", own, { orderBy: "CREATEDTIME", desc: true, limit: 5 }),
       call.repo.findMany("franchise_projects", own, { orderBy: "CREATEDTIME", desc: true, limit: 5 }),
     ]);
-    const application = apps.find((a) => !CLOSED.includes(String(a.status))) ?? apps[0] ?? null;
+    // The application furthest along is the one the franchisee is working on.
+    const open = apps.filter((a) => !CLOSED.includes(String(a.status))).sort((a, b) => FUNNEL.indexOf(String(b.status)) - FUNNEL.indexOf(String(a.status)));
+    const application = open[0] ?? apps[0] ?? null;
     const project = application ? projects.find((p) => p.application_id === application.ROWID) ?? null : null;
     const today = call.now.toISOString().slice(0, 10);
     const readiness = project ? await computeReadiness(call.store, call.ctx, String(project.ROWID), today) : null;
