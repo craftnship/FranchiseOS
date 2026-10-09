@@ -19,3 +19,9 @@ export function round(n: number, dp = 2): number {
   const f = 10 ** dp;
   return Math.round(n * f) / f;
 }
+
+/** A number, or null when empty. Data Store returns empty double columns as null or the string "null". */
+export function toNumOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "" || v === "null") return null;
+  return toNum(v);
+}

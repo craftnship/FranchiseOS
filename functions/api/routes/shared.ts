@@ -34,3 +34,28 @@ export function settings(tenant: Row | null): Record<string, unknown> {
 export function defined<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
+
+/** Every row of a table for this tenant, paged past the 300-row ZCQL cap (dashboards, pilot scale). */
+export async function fetchAll(repo: TenantRepo, table: string, where: Record<string, string> = {}, max = 3000): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let offset = 0; offset < max; offset += 300) {
+    const rows = await repo.findMany(table, where, { orderBy: "ROWID", limit: 300, offset });
+    out.push(...rows);
+    if (rows.length < 300) break;
+  }
+  return out;
+}
+
+/**
+ * List filter for `status=A,B,C` (dashboard drill-downs): one query per status, merged newest first.
+ * A single status keeps the plain paged query.
+ */
+export async function listByStatus(repo: TenantRepo, table: string, status: string | undefined, where: Record<string, string>, page: { limit: number; offset: number }): Promise<Row[]> {
+  const statuses = (status ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (statuses.length <= 1) {
+    return repo.findMany(table, { ...where, ...(statuses[0] ? { status: statuses[0] } : {}) }, { orderBy: "CREATEDTIME", desc: true, limit: page.limit, offset: page.offset });
+  }
+  const rows = (await Promise.all(statuses.map((s) => fetchAll(repo, table, { ...where, status: s })))).flat();
+  rows.sort((a, b) => String(b.CREATEDTIME ?? "").localeCompare(String(a.CREATEDTIME ?? "")));
+  return rows.slice(page.offset, page.offset + page.limit);
+}

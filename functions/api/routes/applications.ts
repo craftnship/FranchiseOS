@@ -11,7 +11,7 @@ import { allowedTransitions, findRule } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
 import { Call, page, parse, Router } from "../router";
-import { assertOwner, defined, mustGet, ownerFilter, settings } from "./shared";
+import { assertOwner, defined, listByStatus, mustGet, ownerFilter, settings } from "./shared";
 
 const editable = {
   application_type: z.enum(["UNIT", "MULTI_UNIT", "MASTER", "AREA_DEVELOPER"]).optional(),
@@ -53,8 +53,8 @@ async function requireDocuments(call: Call, app: Row): Promise<void> {
 export function applicationRoutes(r: Router): void {
   r.on("GET", "/applications", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), franchisee_id: z.string().optional() }), call.query);
-    const where = { ...(q.status ? { status: q.status } : {}), ...(q.franchisee_id ? { franchisee_id: q.franchisee_id } : {}), ...ownerFilter(call) };
-    return call.repo.findMany("franchise_applications", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset });
+    const where = { ...(q.franchisee_id ? { franchisee_id: q.franchisee_id } : {}), ...ownerFilter(call) };
+    return listByStatus(call.repo, "franchise_applications", q.status, where, q);
   });
 
   // Staff create for any franchisee; a portal user creates one for their own franchisee only.

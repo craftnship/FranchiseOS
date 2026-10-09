@@ -230,7 +230,7 @@ describe("project task sync (FOS-057)", () => {
     const rows = await s.store.findMany("opening_checklists", {});
     await s.store.update("opening_checklists", String(rows.find((r) => r.external_task_id === s.tasks[1].id)!.ROWID), { status: "BLOCKED" });
     const res = await s.call("pm", "POST", `/projects/${project}/sync`);
-    expect(res.data).toEqual({ checked: QSR_PROJECT_TEMPLATE.length, updated: 1, missing: 0 });
+    expect(res.data.sync).toEqual({ checked: QSR_PROJECT_TEMPLATE.length, updated: 1, missing: 0 });
     const detail = await s.call("pm", "GET", `/projects/${project}`);
     expect(detail.data.checklist.find((r: any) => r.external_task_id === s.tasks[0].id).status).toBe("COMPLETED");
     expect(detail.data.checklist.find((r: any) => r.external_task_id === s.tasks[1].id).status).toBe("BLOCKED");

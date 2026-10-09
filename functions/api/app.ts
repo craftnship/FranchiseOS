@@ -1,10 +1,13 @@
 import { Router } from "./router";
 import { agreementRoutes } from "./routes/agreements";
+import { dashboardRoutes } from "./routes/dashboards";
 import { applicationRoutes } from "./routes/applications";
 import { approvalRoutes } from "./routes/approvals";
 import { feasibilityRoutes } from "./routes/feasibility";
 import { franchiseeRoutes } from "./routes/franchisees";
+import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
+import { searchRoutes } from "./routes/search";
 import { siteRoutes } from "./routes/sites";
 import { territoryRoutes } from "./routes/territories";
 
@@ -20,5 +23,8 @@ export function buildRouter(): Router {
   approvalRoutes(r);
   agreementRoutes(r);
   projectRoutes(r);
+  dashboardRoutes(r);
+  searchRoutes(r);
+  portalRoutes(r);
   return r;
 }

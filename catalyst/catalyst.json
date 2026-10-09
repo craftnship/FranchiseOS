@@ -1,6 +1,6 @@
 {
   "functions": {
-    "targets": ["fos_api", "fos_webhooks"],
+    "targets": ["fos_api", "fos_webhooks", "fos_jobs"],
     "ignore": [],
     "source": "functions"
   }
