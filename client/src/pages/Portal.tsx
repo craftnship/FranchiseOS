@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { api, Row } from "../api";
 import { useLoad } from "../hooks";
-import { date, Loaded, Pill } from "../components/ui";
+import { date, Facts, Icon, Loaded, PageHeader, Panel, Pill, Progress } from "../components/ui";
 import { Checklist, ReadinessCard } from "./Projects";
 
 export function PortalHome() {
@@ -9,26 +9,25 @@ export function PortalHome() {
   return (
     <Loaded load={load}>{(h) => (
       <>
-        <h1>Welcome{h.franchisee?.display_name ? `, ${h.franchisee.display_name}` : ""}</h1>
-        <section className={`card next ${h.next_action.owner}`}>
-          <div className="muted">{h.next_action.owner === "you" ? "Your next step" : "With our team"}</div>
-          <h2>{h.next_action.title}</h2>
-          {h.next_action.detail && <p>{h.next_action.detail}</p>}
-          {h.next_action.path && <Link to={h.next_action.path}>Go</Link>}
+        <PageHeader title={`Welcome${h.franchisee?.display_name ? `, ${h.franchisee.display_name}` : ""}`} subtitle="Your franchise journey at a glance." />
+        <section className={`next-action ${h.next_action.owner}`}>
+          <div>
+            <small>{h.next_action.owner === "you" ? "Your next step" : "With our team"}</small>
+            <h2>{h.next_action.title}</h2>
+            {h.next_action.detail && <p>{h.next_action.detail}</p>}
+          </div>
+          {h.next_action.path && <Link className="btn" to={h.next_action.path}>Continue<Icon name="chevron" size={16} /></Link>}
         </section>
-        <div className="grid3">
-          <section className="card"><h2>Application</h2>{h.application ? <p>{h.application.application_code} <Pill value={h.application.status} /></p> : <p className="muted">Not started</p>}</section>
-          <section className="card"><h2>Site</h2>{h.site ? <p>{h.site.site_code} · {h.site.city} <Pill value={h.site.status} /></p> : <p className="muted">No site yet</p>}</section>
-          <section className="card"><h2>Agreement</h2>{h.agreement ? <p>{h.agreement.agreement_code} <Pill value={h.agreement.status} />{h.agreement.signed_at ? ` · signed ${date(h.agreement.signed_at)}` : ""}</p> : <p className="muted">Not sent yet</p>}</section>
+        <div className="row c3">
+          <Panel title="Application">{h.application ? <div className="stat-line"><span className="code">{h.application.application_code}</span><Pill value={h.application.status} /></div> : <p className="muted">Not started</p>}</Panel>
+          <Panel title="Site">{h.site ? <div className="stat-line">{h.site.site_code} · {h.site.city}<Pill value={h.site.status} /></div> : <p className="muted">No site yet</p>}</Panel>
+          <Panel title="Agreement">{h.agreement ? <><div className="stat-line">{h.agreement.agreement_code}<Pill value={h.agreement.status} /></div>{h.agreement.signed_at && <p className="muted">Signed {date(h.agreement.signed_at)}</p>}</> : <p className="muted">Not sent yet</p>}</Panel>
         </div>
         {h.project && (
-          <section className="card">
-            <h2>Store opening {h.project.project_code} <Pill value={h.project.readiness?.rag} /></h2>
-            <p>Readiness {h.project.readiness?.score ?? "-"}% · target opening {date(h.project.target_opening_date)}</p>
-            <h3>Coming up</h3>
+          <Panel title={<>Store opening {h.project.project_code}<Pill value={h.project.readiness?.rag} /></>} action={<Link to="/portal/tasks">All tasks</Link>} flush>
+            <div className="panel-body"><Facts items={[["Readiness", <Progress value={h.project.readiness?.score} rag={h.project.readiness?.rag} />], ["Target opening", date(h.project.target_opening_date)]]} /></div>
             <Checklist items={h.upcoming_tasks} />
-            <Link to="/portal/tasks">All tasks</Link>
-          </section>
+          </Panel>
         )}
       </>
     )}</Loaded>
@@ -47,9 +46,9 @@ function ProjectTasks({ id }: { id: string }) {
   const readiness = useLoad(() => api<Row>("GET", `/projects/${id}/readiness`), [id]);
   return (
     <>
-      <h1>Opening tasks</h1>
+      <PageHeader title="Opening tasks" subtitle="Everything that has to be done before your store opens." />
       <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
-      <Loaded load={project}>{(p) => <section className="card"><Checklist items={p.checklist} /></section>}</Loaded>
+      <Loaded load={project}>{(p) => <Panel title="Checklist" flush><Checklist items={p.checklist} /></Panel>}</Loaded>
     </>
   );
 }
@@ -58,15 +57,14 @@ export function PortalAgreement() {
   const load = useLoad(() => api<Row[]>("GET", "/agreements"), []);
   return (
     <>
-      <h1>Your agreement</h1>
-      <Loaded load={load} empty={(d) => !d.length}>{(rows) => (
-        <ul className="plain">{rows.map((g) => (
-          <li key={g.ROWID} className="card">
-            <h2>{g.agreement_code} <Pill value={g.status} /></h2>
-            {g.status === "SENT" || g.status === "VIEWED" ? <p>Check your email for the Zoho Sign request and sign it there.</p> : null}
-            {g.signed_at && <p>Signed {date(g.signed_at)} · valid {date(g.effective_date)} to {date(g.expiry_date)}</p>}
-          </li>
-        ))}</ul>
+      <PageHeader title="Your agreement" />
+      <Loaded load={load} empty={(d) => !d.length} emptyText="Your agreement appears here once it is sent.">{(rows) => (
+        <>{rows.map((g) => (
+          <Panel key={g.ROWID} title={<>{g.agreement_code}<Pill value={g.status} /></>}>
+            {g.status === "SENT" || g.status === "VIEWED" ? <div className="notice warn"><Icon name="send" />Check your email for the Zoho Sign request and sign it there.</div> : null}
+            <Facts items={[["Signed", date(g.signed_at)], ["Effective", date(g.effective_date)], ["Expires", date(g.expiry_date)]]} />
+          </Panel>
+        ))}</>
       )}</Loaded>
     </>
   );

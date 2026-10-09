@@ -1,46 +1,75 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
-import { useLoad } from "../hooks";
-import { date, ErrorState, Loaded, Pill } from "../components/ui";
+import { useFranchiseeNames, useLoad } from "../hooks";
+import { DataTable, date, Donut, ErrorState, Icon, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
+import { StatusPath } from "./Applications";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
+const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
+const STATUS_ORDER = ["PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING", "OPENED", "CLOSED"];
+const VIEWS: [string, Record<string, string>][] = [
+  ["All", {}], ["In flight", { status: "PLANNING,IN_PROGRESS,AT_RISK,READY_FOR_OPENING" }], ["At risk", { status: "AT_RISK" }],
+  ["High risk", { risk_level: "HIGH" }], ["Delayed", { delayed: "true" }], ["Opened", { status: "OPENED" }],
+];
+const daysTo = (d: unknown) => (d ? Math.round((Date.parse(String(d).slice(0, 10)) - Date.parse(new Date().toISOString().slice(0, 10))) / 86400000) : null);
 
 export function Projects() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const query = Object.fromEntries(params.entries());
-  const load = useLoad(() => api<Row[]>("GET", "/projects", { query: { ...query, limit: "100" } }), [params.toString()]);
-  const filtered = Object.keys(query).length > 0;
+  const load = useLoad(() => api<Row[]>("GET", "/projects", { query: { ...query, limit: "200" } }), [params.toString()]);
+  const names = useFranchiseeNames();
+  const key = JSON.stringify(query);
+  const known = VIEWS.some(([, q]) => JSON.stringify(q) === key);
   return (
     <>
-      <h1>Opening projects</h1>
-      {filtered && <p className="muted">Filtered: {Object.entries(query).map(([k, v]) => `${k.replace(/_/g, " ")} ${v.replace(/,/g, ", ").toLowerCase()}`).join("; ")} · <Link to="/projects">Show all</Link></p>}
-      <Loaded load={load} empty={(d) => !d.length}>{(rows) => (
-        <table>
-          <thead><tr><th>Project</th><th>Status</th><th>Readiness</th><th>Risk</th><th>Target opening</th></tr></thead>
-          <tbody>{rows.map((p) => (
-            <tr key={p.ROWID}><td><Link to={`/projects/${p.ROWID}`}>{p.project_code}</Link></td><td><Pill value={p.status} /></td><td>{p.readiness_score ?? "-"} <Pill value={p.readiness_rag} /></td><td><Pill value={p.risk_level} /></td><td>{date(p.target_opening_date)}</td></tr>
-          ))}</tbody>
-        </table>
+      <PageHeader title="Opening projects" crumbs={[["Operations"], ["Opening projects"]]} subtitle="Store openings with live readiness, risk and target dates." />
+      <Loaded load={load}>{(rows) => (
+        <DataTable rows={rows} href={(p) => `/projects/${p.ROWID}`} searchKeys={["project_code", "status", "readiness_rag", "risk_level"]}
+          toolbar={<div className="chips">
+            {VIEWS.map(([text, q]) => <button key={text} className={`chip ${JSON.stringify(q) === key ? "on" : ""}`} onClick={() => setParams(q)}>{text}</button>)}
+            {!known && <span className="chip on">Filtered: {Object.entries(query).map(([k, v]) => `${label(k)} ${label(v)}`).join(", ")}</span>}
+          </div>}
+          columns={[
+            { key: "project_code", label: "Project", render: (p) => <span className="code">{p.project_code}</span> },
+            { key: "franchisee_id", label: "Franchisee", sort: (p) => names[p.franchisee_id] ?? "", render: (p) => names[p.franchisee_id] ?? <span className="muted">—</span> },
+            { key: "status", label: "Status", sort: (p) => STATUS_ORDER.indexOf(p.status), render: (p) => <Pill value={p.status} /> },
+            { key: "readiness_score", label: "Readiness", sort: (p) => Number(p.readiness_score ?? -1), render: (p) => <Progress value={p.readiness_score} rag={p.readiness_rag} /> },
+            { key: "readiness_rag", label: "RAG", render: (p) => <Pill value={p.readiness_rag} /> },
+            { key: "risk_level", label: "Risk", sort: (p) => ["LOW", "MEDIUM", "HIGH"].indexOf(p.risk_level), render: (p) => <Pill value={p.risk_level} /> },
+            { key: "target_opening_date", label: "Target opening", render: (p) => {
+              const d = daysTo(p.target_opening_date);
+              const open = !["OPENED", "CLOSED"].includes(p.status);
+              return <>{date(p.target_opening_date)}{open && d !== null && <span className="cell-sub" style={{ color: d < 0 ? "var(--bad)" : undefined }}>{d < 0 ? `${-d} days late` : `in ${d} days`}</span>}</>;
+            } },
+            { key: "actual_opening_date", label: "Opened", render: (p) => date(p.actual_opening_date) },
+          ]} />
       )}</Loaded>
     </>
   );
 }
 
-/** Readiness card shared by the staff project page and the portal. */
+/** Readiness panel shared by the staff project page and the portal. */
 export function ReadinessCard({ r }: { r: Row }) {
   return (
-    <section className="card">
-      <h2>Readiness <span className="big">{r.score}%</span> <Pill value={r.rag} /></h2>
-      {r.score !== r.weighted_score && <p className="muted">Capped at {r.score}% by {r.blockers.length} blocker(s); tasks are {r.weighted_score}% done by weight.</p>}
+    <Panel title="Readiness" action={<Pill value={r.rag} />}>
+      <div className="ready-hero">
+        <Donut size={120} parts={[{ value: r.score, tone: toneOf(r.rag) }, { value: 100 - r.score, tone: "transparent" }]} center={<strong>{r.score}%</strong>} caption="ready" />
+        <div className="ready-meta">
+          {r.score !== r.weighted_score
+            ? <p>Capped at <strong>{r.score}%</strong> by {r.blockers.length} blocker{r.blockers.length === 1 ? "" : "s"}. Tasks are {r.weighted_score}% done by weight.</p>
+            : <p>Tasks are <strong>{r.weighted_score}%</strong> done by weight.</p>}
+          {(r.blocker_items?.length ?? 0) > 0 && <div className="issue-list"><span className="muted">Blockers</span>{r.blocker_items.map((i: Row) => <Pill key={i.item} value={i.item} tone="bad" />)}</div>}
+          {(r.overdue_items?.length ?? 0) > 0 && <div className="issue-list"><span className="muted">Overdue</span>{r.overdue_items.map((i: Row) => <Pill key={i.item} value={i.item} tone="warn" />)}</div>}
+        </div>
+      </div>
+      <h3 className="muted" style={{ fontSize: ".72rem", textTransform: "uppercase", letterSpacing: ".05em", margin: "1.2rem 0 .5rem" }}>By category</h3>
       <ul className="cats">
         {Object.entries(r.by_category as Record<string, number>).map(([c, v]) => (
-          <li key={c}><span>{c.toLowerCase()}</span><span className="bar"><span style={{ width: `${v}%` }} /></span><span className="num">{v}%</span></li>
+          <li key={c}><span>{label(c)}</span><Progress value={v} rag={v >= 85 ? "GREEN" : v >= 70 ? "AMBER" : v > 0 ? "RED" : undefined} /></li>
         ))}
       </ul>
-      {(r.blocker_items?.length ?? 0) > 0 && <p><strong>Blockers:</strong> {r.blocker_items.map((i: Row) => i.item).join(", ")}</p>}
-      {(r.overdue_items?.length ?? 0) > 0 && <p><strong>Overdue:</strong> {r.overdue_items.map((i: Row) => i.item).join(", ")}</p>}
-    </section>
+    </Panel>
   );
 }
 
@@ -64,24 +93,35 @@ export function ProjectDetail() {
     return api("POST", `/projects/${id}/transition`, { body });
   });
   return (
-    <Loaded load={project}>{(p) => (
-      <>
-        <h1>{p.project_code} <Pill value={p.status} /> {p.delayed && <span className="pill bad">delayed</span>}</h1>
-        <p className="muted">Target opening {date(p.target_opening_date)}{p.actual_opening_date ? ` · opened ${date(p.actual_opening_date)}` : ""}{p.zoho_project_id ? " · linked to Zoho Projects" : ""}</p>
-        <div className="actions">
-          {can("project.write") && <button onClick={() => run("sync", () => api("POST", `/projects/${id}/sync`))} disabled={!!busy}>{busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
-          {(p.allowed_transitions as string[]).filter((t) => TRANSITION_LABEL[t]).map((t) => (
-            <button key={t} className="secondary" onClick={() => transition(t)} disabled={!!busy}>{TRANSITION_LABEL[t]}</button>
-          ))}
-        </div>
-        {error && <ErrorState error={error} />}
-        <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
-        <section className="card">
-          <h2>Opening checklist</h2>
-          <Checklist items={p.checklist} busy={busy} onToggle={!can("project.write") ? undefined : (item) => run(`b${item.ROWID}`, () => api("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body: { blocked: item.status !== "BLOCKED" } }))} />
-        </section>
-      </>
-    )}</Loaded>
+    <Loaded load={project}>{(p) => {
+      const d = daysTo(p.target_opening_date);
+      const done = (p.checklist as Row[]).filter((i) => i.status === "COMPLETED").length;
+      return (
+        <>
+          <PageHeader title={p.project_code} badges={<><Pill value={p.status} />{p.delayed && <Pill value="Delayed" tone="bad" />}</>}
+            crumbs={[["Operations"], ["Opening projects", "/projects"], [p.project_code]]}
+            subtitle={p.zoho_project_id ? "Linked to Zoho Projects" : "Not linked to Zoho Projects"}
+            actions={<>
+              {can("project.write") && p.zoho_project_id && <button className="btn secondary" onClick={() => run("sync", () => api("POST", `/projects/${id}/sync`))} disabled={!!busy}><Icon name="sync" size={16} />{busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
+              {(p.allowed_transitions as string[]).filter((t) => TRANSITION_LABEL[t]).map((t) => (
+                <button key={t} className={t === "close" ? "btn secondary" : "btn"} onClick={() => transition(t)} disabled={!!busy}>{TRANSITION_LABEL[t]}</button>
+              ))}
+            </>} />
+          {error && <ErrorState error={error} />}
+          <dl className="summary">
+            <div><dt>Readiness</dt><dd>{p.readiness_score ?? "—"}%<Pill value={p.readiness_rag} /></dd></div>
+            <div><dt>Risk</dt><dd><Pill value={p.risk_level} /></dd></div>
+            <div><dt>Target opening</dt><dd>{date(p.target_opening_date)}</dd></div>
+            <div><dt>{p.actual_opening_date ? "Opened" : "Days to opening"}</dt><dd style={{ color: !p.actual_opening_date && d !== null && d < 0 ? "var(--bad)" : undefined }}>{p.actual_opening_date ? date(p.actual_opening_date) : d === null ? "—" : d < 0 ? `${-d} days late` : `${d} days`}</dd></div>
+          </dl>
+          {PATH.includes(p.status) && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
+          <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
+          <Panel title="Opening checklist" action={<span className="muted">{done} of {p.checklist.length} complete</span>} flush>
+            <Checklist items={p.checklist} busy={busy} onToggle={!can("project.write") ? undefined : (item) => run(`b${item.ROWID}`, () => api("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body: { blocked: item.status !== "BLOCKED" } }))} />
+          </Panel>
+        </>
+      );
+    }}</Loaded>
   );
 }
 
@@ -89,20 +129,16 @@ export function Checklist({ items, onToggle, busy }: { items: Row[]; onToggle?: 
   const today = new Date().toISOString().slice(0, 10);
   if (!items.length) return <div className="state">No tasks yet.</div>;
   return (
-    <table>
-      <thead><tr><th>Task</th><th>Category</th><th>Status</th><th>Due</th>{onToggle && <th />}</tr></thead>
-      <tbody>{items.map((i) => {
+    <DataTable rows={items} columns={[
+      { key: "item", label: "Task", render: (i) => <>{i.item}{String(i.mandatory) === "true" || i.mandatory === true ? null : <span className="cell-sub">Optional</span>}</> },
+      { key: "category", label: "Category", render: (i) => label(i.category) },
+      { key: "weight", label: "Weight", align: "right", sort: (i) => Number(i.weight ?? 0) },
+      { key: "status", label: "Status", render: (i) => {
         const overdue = i.status !== "COMPLETED" && i.due_date && String(i.due_date).slice(0, 10) < today;
-        return (
-          <tr key={i.ROWID}>
-            <td>{i.item}{String(i.mandatory) === "true" || i.mandatory === true ? "" : <span className="muted"> (optional)</span>}</td>
-            <td>{String(i.category).toLowerCase()}</td>
-            <td><Pill value={i.status} /> {overdue && <span className="pill bad">overdue</span>}</td>
-            <td>{date(i.due_date)}</td>
-            {onToggle && <td>{i.status !== "COMPLETED" && <button className="link" disabled={busy === `b${i.ROWID}`} onClick={() => onToggle(i)}>{i.status === "BLOCKED" ? "Unblock" : "Flag blocked"}</button>}</td>}
-          </tr>
-        );
-      })}</tbody>
-    </table>
+        return <span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}</span>;
+      } },
+      { key: "due_date", label: "Due", render: (i) => date(i.due_date) },
+      ...(onToggle ? [{ key: "_act", label: "", render: (i: Row) => i.status !== "COMPLETED" && <button className={i.status === "BLOCKED" ? "btn ghost sm" : "btn danger-ghost sm"} disabled={busy === `b${i.ROWID}`} onClick={() => onToggle(i)}>{i.status === "BLOCKED" ? "Unblock" : "Flag blocked"}</button> }] : []),
+    ]} />
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "./api";
+import { api, ApiError, Row } from "./api";
 
 export interface Load<T> { data: T | null; error: ApiError | null; loading: boolean; reload: () => void }
 
@@ -17,4 +17,10 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): Load<T> {
   }, [...deps, tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { ...state, reload };
+}
+
+/** Franchisee names by ROWID, for showing who a record belongs to in lists. */
+export function useFranchiseeNames(): Record<string, string> {
+  const load = useLoad(() => api<Row[]>("GET", "/franchisees", { query: { limit: "200" } }), []);
+  return Object.fromEntries((load.data ?? []).map((f) => [String(f.ROWID), String(f.display_name ?? f.franchise_code)]));
 }

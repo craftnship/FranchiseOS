@@ -3,6 +3,8 @@ import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
 import { Layout } from "./components/Layout";
 import { ErrorState } from "./components/ui";
+import { Sites } from "./pages/Sites";
+import { Territories } from "./pages/Territories";
 import { Dashboard } from "./pages/Dashboard";
 import { AgreementDetail, Agreements, ApplicationDetail, Applications } from "./pages/Applications";
 import { Franchisees } from "./pages/Franchisees";
@@ -14,17 +16,20 @@ const LOGIN_URL = "/__catalyst/auth/login";
 
 function SignIn({ reason }: { reason?: string }) {
   return (
-    <div className="signin card">
-      <h1>FranchiseOS</h1>
-      <p>{reason ?? "Sign in to continue."}</p>
-      <a className="button" href={LOGIN_URL}>Sign in</a>
+    <div className="signin-page">
+      <div className="signin">
+        <span className="brand-mark">F</span>
+        <h1>Sign in to FranchiseOS</h1>
+        <p>{reason ?? "Manage franchise expansion, agreements and store openings in one place."}</p>
+        <a className="button" href={LOGIN_URL}>Continue to sign in</a>
+      </div>
     </div>
   );
 }
 
 export function App() {
   const me = useLoad(() => api<Me>("GET", "/me"), []);
-  if (me.loading && !me.data) return <div className="state">Loading…</div>;
+  if (me.loading && !me.data) return <div className="state" style={{ minHeight: "100vh" }}><span className="spinner" />Loading FranchiseOS…</div>;
   if (me.error) {
     const e = me.error as ApiError;
     if (e.code === "AUTH_REQUIRED") return <SignIn />;
@@ -55,6 +60,8 @@ export function App() {
               <Route path="/agreements" element={<Agreements />} />
               <Route path="/agreements/:id" element={<AgreementDetail />} />
               <Route path="/franchisees" element={<Franchisees />} />
+              <Route path="/territories" element={<Territories />} />
+              <Route path="/sites" element={<Sites />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
           )}
