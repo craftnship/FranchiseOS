@@ -9,7 +9,7 @@ import { normalizePath } from "../api/router";
 import { ProviderError } from "../integrations/retry";
 import { DEFAULT_CRM_TRIGGER_STATUS, handleCrmLead } from "./crmLead";
 import { ZohoFactory } from "../integrations/tenantClients";
-import { handleSignEvent } from "../workflows/agreements";
+import { handleSignEvent, sendAgreement, SYSTEM_PERMISSIONS } from "../workflows/agreements";
 
 // Webhook entry (§14): POST /webhooks/crm/lead/:TENANT and /webhooks/sign/:TENANT. These routes have no Catalyst user, so each call must carry the tenant's
 // shared secret (header x-fos-webhook-secret, or `token` in the query or form body for senders that cannot set headers).
@@ -34,6 +34,9 @@ export interface WebhookDeps {
 
 const LEAD_ROUTE = /^\/webhooks\/crm\/lead\/([A-Za-z0-9_-]{1,40})$/;
 const SIGN_ROUTE = /^\/webhooks\/sign\/([A-Za-z0-9_-]{1,40})$/;
+// Development only: sends an agreement before staff logins exist. Off unless the tenant setting
+// test_routes_enabled is true, and protected by the same secret as the webhooks.
+const TEST_AGREEMENT_ROUTE = /^\/webhooks\/test\/agreement\/([A-Za-z0-9_-]{1,40})$/;
 
 function sameSecret(given: string, expected: string): boolean {
   // Hash both so lengths match and the comparison is constant time.
@@ -51,7 +54,7 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
   const requestId = newRequestId();
   try {
     const path = normalizePath(req.path);
-    const m = LEAD_ROUTE.exec(path) ?? SIGN_ROUTE.exec(path);
+    const m = LEAD_ROUTE.exec(path) ?? SIGN_ROUTE.exec(path) ?? TEST_AGREEMENT_ROUTE.exec(path);
     if (!m || req.method.toUpperCase() !== "POST") throw new AppError("NOT_FOUND", "Route not found.");
 
     const tenant = await deps.store.findOne("tenants", { tenant_code: m[1].toUpperCase() });
@@ -66,8 +69,9 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
 
     const tenantId = String(tenant!.ROWID);
-    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId };
+    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : TEST_AGREEMENT_ROUTE.test(path) ? "SYSTEM:test" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId };
     if (SIGN_ROUTE.test(path)) return { status: 200, body: ok(await signCallback(body, ctx, deps), requestId) };
+    if (TEST_AGREEMENT_ROUTE.test(path)) return { status: 200, body: ok(await testSendAgreement(tenant!, body, ctx, deps), requestId) };
 
     // Zoho CRM may send webhook parameters as headers; proxies drop header names with "_", so "lead-id" is accepted too.
     const leadId = [body.lead_id, body.id, req.query.lead_id, req.query.id, header(req.headers, "lead-id"), header(req.headers, "lead_id")]
@@ -113,4 +117,17 @@ async function signCallback(body: Record<string, unknown>, ctx: TenantContext, d
   } });
   log("info", "webhook.sign", { request_id: ctx.requestId, tenant_id: ctx.tenantId, external_id: signRequestId, action: result.action });
   return result;
+}
+
+async function testSendAgreement(tenant: Record<string, unknown>, body: Record<string, unknown>, ctx: TenantContext, deps: WebhookDeps) {
+  let settings: Record<string, unknown> = {};
+  try { settings = tenant.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { settings = {}; }
+  if (settings.test_routes_enabled !== true) throw new AppError("NOT_FOUND", "Route not found.");
+  const applicationId = String(body.application_id ?? "").trim();
+  if (!/^\d{1,25}$/.test(applicationId)) throw new AppError("VALIDATION_FAILED", "application_id is required.", { application_id: "required" });
+  const zoho = deps.zoho ? await deps.zoho(ctx.tenantId) : null;
+  if (!zoho) throw new AppError("ZOHO_SYNC_FAILED", "Zoho is not connected for this tenant.");
+  return sendAgreement(deps.store, ctx, zoho.sign, { applicationId, permissions: SYSTEM_PERMISSIONS, onTransition: async (e) => {
+    if (e.entityType === "application") await pushApplicationStatus(deps.store, ctx, zoho.crm, e.entity, { sleep: deps.sleep });
+  } });
 }

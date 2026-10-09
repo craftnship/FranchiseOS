@@ -200,6 +200,26 @@ describe("Sign callback and onboarding (Step 5 exit test)", () => {
   });
 });
 
+describe("development test route", () => {
+  const send = (s: Awaited<ReturnType<typeof setup>>, applicationId: string) => handleWebhook(
+    { method: "POST", path: "/server/fos_webhooks/webhooks/test/agreement/STARK", headers: { "x-fos-webhook-secret": "s3cret" }, query: {}, body: { application_id: applicationId } },
+    { store: s.store, crm: async () => s.clients.crm, zoho: async () => s.clients, sleep },
+  );
+
+  it("is off unless the tenant enables it", async () => {
+    const s = await setup();
+    expect((await send(s, String(s.app.ROWID))).status).toBe(404);
+    expect(s.calls.send).toBe(0);
+  });
+
+  it("sends an agreement when enabled", async () => {
+    const s = await setup({ test_routes_enabled: true });
+    const res = await send(s, String(s.app.ROWID));
+    expect(res.status).toBe(200);
+    expect((res.body as Body).data).toMatchObject({ sent: true, agreement: { status: "SENT" } });
+  });
+});
+
 describe("project task sync (FOS-057)", () => {
   it("mirrors Zoho task progress into the opening checklist", async () => {
     const s = await setup();
