@@ -3,3 +3,4 @@ dist/
 .catalystrc
 *.log
 catalyst/functions/*/dist/
+catalyst/env.local.json

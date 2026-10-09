@@ -2,8 +2,7 @@
   "deployment": {
     "name": "fos_webhooks",
     "stack": "node20",
-    "type": "advancedio",
-    "env_variables": {}
+    "type": "advancedio"
   },
   "execution": {
     "main": "index.js"
