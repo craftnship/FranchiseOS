@@ -1,0 +1,16 @@
+{
+  "note": "Rows seeded into the FranchiseOS Development Data Store on 2026-10-08 by database/seed/bootstrapTenant.ts (replayed through the Catalyst API).",
+  "tenant": { "tenant_code": "STARK", "name": "Stark Industries", "ROWID": "62105000000093292", "zoho_dc": "IN", "currency": "INR", "timezone": "Asia/Kolkata" },
+  "roles": {
+    "SUPER_ADMIN": "62105000000078681", "FRANCHISE_DIRECTOR": "62105000000078682", "FRANCHISE_MANAGER": "62105000000078683",
+    "FINANCE_MANAGER": "62105000000078684", "LEGAL_MANAGER": "62105000000078685", "PROJECT_MANAGER": "62105000000078686",
+    "TRAINING_MANAGER": "62105000000078687", "OPERATIONS_MANAGER": "62105000000078688", "REGIONAL_MANAGER": "62105000000078689",
+    "FRANCHISEE": "62105000000078690", "FRANCHISEE_STAFF": "62105000000078691", "VENDOR": "62105000000078692"
+  },
+  "role_permissions": 35,
+  "qualification_template": { "ROWID": "62105000000094710", "items": 7 },
+  "evaluation_template": { "ROWID": "62105000000095336", "items": 8 },
+  "approval_workflow": { "code": "FRANCHISE_APPROVAL", "ROWID": "62105000000094711", "steps": ["62105000000104009", "62105000000104010", "62105000000104011", "62105000000104012"] },
+  "project_template": { "ROWID": "62105000000100487", "tasks": 12 },
+  "territory_rule": "62105000000095337"
+}

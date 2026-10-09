@@ -7,13 +7,13 @@ import { TemplateTask } from "../../functions/workflows/projectCreation";
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   FRANCHISE_DIRECTOR: ["application.review", "application.reject", "application.activate", "approval.start", "site.approve", "project.open", "dashboard.view"],
-  FRANCHISE_MANAGER: ["application.review", "application.reject", "application.withdraw", "approval.start", "site.write", "site.evaluate", "feasibility.write", "agreement.write", "territory.reserve", "dashboard.view"],
+  FRANCHISE_MANAGER: ["application.review", "application.reject", "application.withdraw", "approval.start", "site.write", "site.evaluate", "feasibility.write", "agreement.write", "territory.reserve", "territory.write", "dashboard.view"],
   FINANCE_MANAGER: ["feasibility.write", "dashboard.view"],
   LEGAL_MANAGER: ["agreement.write"],
   PROJECT_MANAGER: ["project.write", "project.open", "dashboard.view"],
   TRAINING_MANAGER: ["project.write"],
   OPERATIONS_MANAGER: ["dashboard.view"],
-  REGIONAL_MANAGER: ["site.write", "site.evaluate", "territory.reserve"],
+  REGIONAL_MANAGER: ["site.write", "site.evaluate", "territory.reserve", "territory.write"],
   FRANCHISEE: ["application.submit", "application.withdraw", "portal.view"],
   FRANCHISEE_STAFF: ["portal.view"],
   VENDOR: ["portal.view"],
@@ -49,6 +49,9 @@ export const QSR_PROJECT_TEMPLATE: TemplateTask[] = [
   { code: "OPENING_STOCK", name: "Receive opening inventory", category: "INVENTORY", mandatory: true, offset_days: 92, depends_on: ["EQUIP_INSTALL"] },
   { code: "LAUNCH_CAMPAIGN", name: "Run launch campaign", category: "MARKETING", mandatory: false, offset_days: 95 },
 ];
+
+/** Documents an application needs before submit, unless the tenant overrides required_documents. */
+export const DEFAULT_REQUIRED_DOCUMENTS = ["ID_PROOF", "ADDRESS_PROOF", "BANK_STATEMENT"];
 
 export const DEFAULTS = {
   qualification: { weights: DEFAULT_QUALIFICATION_WEIGHTS, thresholds: DEFAULT_THRESHOLDS },

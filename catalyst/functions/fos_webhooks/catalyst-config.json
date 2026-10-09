@@ -1,0 +1,10 @@
+{
+  "deployment": {
+    "name": "fos_webhooks",
+    "stack": "node20",
+    "type": "advancedio"
+  },
+  "execution": {
+    "main": "index.js"
+  }
+}

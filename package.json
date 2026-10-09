@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "package:functions": "npm run build && node scripts/packageFunctions.mjs",
+    "deploy:functions": "npm run package:functions && node scripts/deployFunctions.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

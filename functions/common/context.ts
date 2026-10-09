@@ -6,4 +6,6 @@ export interface TenantContext {
   zohoDc: string;
   requestId: string;
   correlationId: string;
+  /** Set for portal users: the franchisee record they belong to (§25). */
+  franchiseeId?: string;
 }
