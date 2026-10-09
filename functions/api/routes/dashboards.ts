@@ -86,7 +86,7 @@ export function dashboardRoutes(r: Router): void {
   r.on("GET", "/dashboard/risk", "dashboard.view", async (call) => {
     const projects = (await fetchAll(call.repo, "franchise_projects")).filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
     const atRisk = projects
-      .filter((p) => p.status === "AT_RISK" || p.risk_level === "HIGH" || p.readiness_rag === "RED")
+      .filter((p) => p.status === "AT_RISK" || p.risk_level === "HIGH")
       .sort((a, b) => toNum(a.readiness_score) - toNum(b.readiness_score));
     return {
       rag: ["GREEN", "AMBER", "RED"].map((rag) => ({ rag, ...kpi(projects.filter((p) => p.readiness_rag === rag).length, "/projects", { rag }) })),

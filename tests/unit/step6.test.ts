@@ -3,7 +3,7 @@ import { buildRouter } from "../../functions/api/app";
 import { nextAction } from "../../functions/api/routes/portal";
 import { buildSelect } from "../../functions/common/catalystStore";
 import { ZohoProjectsClient } from "../../functions/integrations/clients";
-import { refreshReadiness, runProjectRiskJob } from "../../functions/workflows/readiness";
+import { refreshReadiness, riskLevel, runProjectRiskJob, setChecklistBlocked } from "../../functions/workflows/readiness";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { ctx, newStore } from "./helpers";
 
@@ -53,7 +53,7 @@ describe("readiness and risk (FOS-058, D-7)", () => {
     const s = await setup();
     const c = { ...ctx(["SYSTEM"], s.tid) };
     const first = await refreshReadiness(s.store, c, String(s.project.ROWID), { today: TODAY, now: NOW });
-    expect(first).toMatchObject({ score: 28.57, rag: "RED", risk_level: "HIGH", status: "IN_PROGRESS", blockers: [] });
+    expect(first).toMatchObject({ score: 28.57, rag: "RED", risk_level: "LOW", status: "IN_PROGRESS", blockers: [] });
 
     const blocked = await s.call("pm", "PATCH", `/projects/${s.project.ROWID}/checklist/${s.rows[2].ROWID}`, { blocked: true, reason: "No candidates" });
     expect(blocked.data.readiness).toMatchObject({ status: "AT_RISK", blockers: [String(s.rows[2].ROWID)] });
@@ -61,7 +61,18 @@ describe("readiness and risk (FOS-058, D-7)", () => {
     expect(cleared.data.readiness.status).toBe("IN_PROGRESS");
 
     expect(await s.store.findMany("readiness_snapshots", { project_id: String(s.project.ROWID) })).toHaveLength(3);
-    expect((await s.store.findOne("franchise_projects", { ROWID: String(s.project.ROWID) }))).toMatchObject({ readiness_rag: "RED", risk_level: "HIGH" });
+    expect((await s.store.findOne("franchise_projects", { ROWID: String(s.project.ROWID) }))).toMatchObject({ readiness_rag: "RED", risk_level: "LOW" });
+  });
+
+  it("judges risk on pace: blockers or overdue items, and low readiness only close to opening", () => {
+    const none = { blockers: [], overdue: [] };
+    expect(riskLevel({ rag: "RED", ...none }, 120)).toBe("LOW");
+    expect(riskLevel({ rag: "RED", ...none }, null)).toBe("LOW");
+    expect(riskLevel({ rag: "GREEN", blockers: [], overdue: ["1"] }, 120)).toBe("MEDIUM");
+    expect(riskLevel({ rag: "GREEN", blockers: ["1"], overdue: ["1"] }, 120)).toBe("HIGH");
+    expect(riskLevel({ rag: "AMBER", ...none }, 25)).toBe("MEDIUM");
+    expect(riskLevel({ rag: "RED", ...none }, 10)).toBe("HIGH");
+    expect(riskLevel({ rag: "GREEN", ...none }, 5)).toBe("LOW");
   });
 
   it("only project.write roles can block items; anyone in the tenant can read readiness", async () => {
@@ -117,6 +128,10 @@ describe("dashboards (FOS-059..063)", () => {
     const openings = (await s.call("dir", "GET", "/dashboard/openings")).data;
     expect(openings.by_month.find((m: any) => m.month === "2027-02")).toMatchObject({ planned: 1 });
     expect(openings.delayed.value).toBe(1);
+    // RED but on pace is not at risk; a blocked mandatory item is.
+    await refreshReadiness(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), { today: TODAY, now: NOW });
+    expect((await s.call("dir", "GET", "/dashboard/risk")).data.at_risk.items).toEqual([]);
+    await setChecklistBlocked(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), String(s.rows[2].ROWID), true);
     await refreshReadiness(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), { today: TODAY, now: NOW });
     const risk = (await s.call("dir", "GET", "/dashboard/risk")).data;
     expect(risk.at_risk.items.map((p: any) => p.project_code)).toEqual(["PROJ-000001"]);

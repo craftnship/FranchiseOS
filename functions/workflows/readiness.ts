@@ -17,10 +17,21 @@ export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 /** Projects the risk job still watches. */
 export const ACTIVE_PROJECT_STATES = ["PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING"];
 
-export function riskLevel(r: Pick<ReadinessResult, "rag" | "blockers" | "overdue">): RiskLevel {
-  if (r.rag === "RED" || r.blockers.length) return "HIGH";
-  if (r.rag === "AMBER" || r.overdue.length) return "MEDIUM";
+/**
+ * Pace-based risk: a project is judged on whether it is keeping up, not on how much is done, so a new
+ * project on schedule is LOW. Blockers (mandatory items blocked or overdue) make it HIGH, any overdue
+ * item MEDIUM. Close to opening, low readiness counts too: RED within 14 days is HIGH, and anything
+ * short of GREEN within 30 days is at least MEDIUM.
+ */
+export function riskLevel(r: Pick<ReadinessResult, "rag" | "blockers" | "overdue">, daysToOpening: number | null = null): RiskLevel {
+  const near = (days: number) => daysToOpening !== null && daysToOpening <= days;
+  if (r.blockers.length || (near(14) && r.rag === "RED")) return "HIGH";
+  if (r.overdue.length || (near(30) && r.rag !== "GREEN")) return "MEDIUM";
   return "LOW";
+}
+
+export function daysBetween(fromIso: string, toIso: string): number {
+  return Math.round((Date.parse(toIso.slice(0, 10)) - Date.parse(fromIso.slice(0, 10))) / 86_400_000);
 }
 
 export function tenantReadinessWeights(tenant: Row | null): Weighted[] {
@@ -56,7 +67,7 @@ export async function computeReadiness(store: Store, ctx: TenantContext, project
   return {
     ...result,
     project_id: projectId,
-    risk_level: riskLevel(result),
+    risk_level: riskLevel(result, project.target_opening_date ? daysBetween(today, String(project.target_opening_date)) : null),
     blocker_items: result.blockers.map((id) => byId.get(id)!),
     overdue_items: result.overdue.map((id) => byId.get(id)!),
   };

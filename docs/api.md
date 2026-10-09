@@ -57,7 +57,10 @@ Catalyst Authentication session; the tenant, user and roles come from the `users
 ## Daily project risk job
 
 `fos_jobs` (cron) runs `job_project_risk`: for every active project of every active tenant it pulls
-task progress from Zoho Projects, then stores readiness and risk. One project's failure is logged and
+task progress from Zoho Projects, then stores readiness and risk. Risk is judged on pace (decided
+9 Oct): HIGH with a blocker (a mandatory item blocked or overdue) or RED within 14 days of the target
+opening; MEDIUM with any overdue item or short of GREEN within 30 days; otherwise LOW, so a new
+project on schedule is LOW even at 0% readiness. One project's failure is logged and
 the run carries on.
 
 ## CRM lead intake (D-9)
