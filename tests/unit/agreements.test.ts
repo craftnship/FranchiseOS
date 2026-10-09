@@ -237,13 +237,20 @@ describe("Zoho adapters", () => {
 
   it("Sign: sends a template request form-encoded to the template's signer", async () => {
     const { http, sent } = recorder([{ templates: { actions: [{ action_id: "A9", action_type: "SIGN" }] } }, { requests: { request_id: 555 } }]);
-    const ref = await new HttpSignClient(http, "https://sign.zoho.in/api/v1").sendFromTemplate("T1", { requestName: "AGR-1", recipient: { name: "P", email: "p@x.test" } });
+    const ref = await new HttpSignClient(http, "https://sign.zoho.in/api/v1").sendFromTemplate("1234", { requestName: "AGR-1", recipient: { name: "P", email: "p@x.test" } });
     expect(ref).toEqual({ id: "555" });
-    expect(sent[1].url).toBe("https://sign.zoho.in/api/v1/templates/T1/createdocument");
+    expect(sent[1].url).toBe("https://sign.zoho.in/api/v1/templates/1234/createdocument");
     expect(sent[1].headers!["Content-Type"]).toBe("application/x-www-form-urlencoded");
     const form = new URLSearchParams(sent[1].body);
     expect(form.get("is_quicksend")).toBe("true");
     expect(JSON.parse(form.get("data")!).templates.actions[0]).toMatchObject({ action_id: "A9", recipient_email: "p@x.test" });
+  });
+
+  it("Sign: looks a template up by name", async () => {
+    const { http, sent } = recorder([{ templates: [{ template_id: 77, template_name: "Other" }, { template_id: 88, template_name: "Franchise_Agreement" }] }, { templates: { actions: [{ action_id: "A1" }] } }, { requests: { request_id: 1 } }]);
+    await new HttpSignClient(http, "https://sign.zoho.in/api/v1").sendFromTemplate("Franchise_Agreement", { requestName: "AGR-1", recipient: { name: "P", email: "p@x.test" } });
+    expect(sent[1].url).toBe("https://sign.zoho.in/api/v1/templates/88");
+    expect(sent[2].url).toBe("https://sign.zoho.in/api/v1/templates/88/createdocument");
   });
 
   it("Books: scopes calls by organization and raises Books error codes", async () => {

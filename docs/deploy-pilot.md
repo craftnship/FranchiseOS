@@ -44,9 +44,9 @@ What each piece reads, so the signed-agreement flow can run end to end:
 | Books organization | `tenant_integrations.org_id` | 60091318927 |
 | Projects portal | `tenant_integrations.portal_id` | 60091315097 |
 | Projects owner | tenant `settings_json.projects_owner_zpuid` | the portal user who owns opening projects |
-| Franchise fee | tenant `settings_json.franchise_fee` | 0 skips the invoice |
+| Franchise fee | tenant `settings_json.franchise_fee` (0 skips the invoice) | 500000 |
 | Agreement term, opening target | `agreement_term_years` (5), `opening_target_days` (120) | defaults |
-| Sign template | `agreement_templates.zoho_sign_template_id` (QSR, version 1) | from Zoho Sign |
+| Sign template | `agreement_templates.zoho_sign_template_id` (QSR, version 1), id or template name | Franchise_Agreement |
 | Task dependencies in Zoho | `settings_json.projects_dependencies` | false until the V3 endpoint is verified |
 
 The Sign template needs one signer role; the franchisee is assigned to it. Text fields named

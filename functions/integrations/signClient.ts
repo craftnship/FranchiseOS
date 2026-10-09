@@ -5,13 +5,25 @@ import { ZohoHttp } from "./zohoHttp";
 // Zoho Sign v1 adapter (spec §13, FOS-045). A request is created from a Sign template and sent in
 // one call (is_quicksend). The template's first SIGN action is assigned to the franchisee.
 
+interface SignTemplateList { templates?: Array<{ template_id?: string | number; template_name?: string }> }
 interface SignTemplate { templates?: { actions?: Array<{ action_id?: string; action_type?: string }> } }
 interface SignRequestRes { requests?: { request_id?: string | number; request_status?: string; action_time?: string | number } }
 
 export class HttpSignClient implements ZohoSignClient {
   constructor(private readonly http: ZohoHttp, private readonly baseUrl: string) {}
 
-  async sendFromTemplate(templateId: string, data: { requestName: string; recipient: SignRecipient; fieldData?: Record<string, string> }): Promise<{ id: string }> {
+  /** agreement_templates may hold the Sign template's id or its name; a name is looked up. */
+  private async resolveTemplateId(idOrName: string): Promise<string> {
+    if (/^\d+$/.test(idOrName)) return idOrName;
+    const query = encodeURIComponent(JSON.stringify({ page_context: { row_count: 100, start_index: 1 } }));
+    const res = await this.http.request<SignTemplateList>("GET", `${this.baseUrl}/templates?data=${query}`);
+    const hit = res?.templates?.find((t) => t.template_name?.trim().toLowerCase() === idOrName.trim().toLowerCase() && t.template_id);
+    if (!hit) throw new ProviderError(`Sign template "${idOrName}" not found`, 404, false);
+    return String(hit.template_id);
+  }
+
+  async sendFromTemplate(templateRef: string, data: { requestName: string; recipient: SignRecipient; fieldData?: Record<string, string> }): Promise<{ id: string }> {
+    const templateId = await this.resolveTemplateId(templateRef);
     const tpl = await this.http.request<SignTemplate>("GET", `${this.baseUrl}/templates/${encodeURIComponent(templateId)}`);
     const action = tpl?.templates?.actions?.find((a) => (a.action_type ?? "SIGN").toUpperCase() === "SIGN");
     if (!action?.action_id) throw new ProviderError(`Sign template ${templateId} has no signer role`, 400, false);
