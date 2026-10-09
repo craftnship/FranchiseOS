@@ -12,7 +12,7 @@ const MAX_BODY_BYTES = 1_000_000;
 const router = buildRouter();
 
 interface CatalystSdk {
-  initialize(req: IncomingMessage): {
+  initialize(req: IncomingMessage, opts?: { scope?: string }): {
     userManagement(): { getCurrentUser(): Promise<{ user_id: string | number; email_id: string }> };
   } & ConstructorParameters<typeof CatalystStore>[0];
 }
@@ -69,7 +69,9 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       correlationId: typeof correlation === "string" ? correlation.slice(0, 100) : undefined,
     },
     (() => {
-      const store = new CatalystStore(app);
+      // Admin scope for data: the signed-in user only identifies the caller. Catalyst's App User
+      // role is read-only on every table; FranchiseOS enforces tenant isolation and RBAC itself.
+      const store = new CatalystStore(sdk.initialize(req, { scope: "admin" }));
       const creds = zohoCredentialsFromEnv();
       return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds) };
     })(),
