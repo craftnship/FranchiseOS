@@ -85,6 +85,9 @@ export async function bootstrapTenant(store: Store, seed: TenantSeed): Promise<B
     });
   }
 
+  // The Zoho Sign template id is set once the tenant has built its agreement template in Sign.
+  await ensure("agreement_templates", { tenant_id: tid, franchise_type: type, version: 1 }, { name: `${type} franchise agreement`, status: "ACTIVE", zoho_sign_template_id: null });
+
   await ensure("territory_rules", { tenant_id: tid, franchise_type: type }, { ...DEFAULTS.territoryRule });
 
   return { tenantId: tid, roleIds, created };

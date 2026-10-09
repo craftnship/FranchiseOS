@@ -46,11 +46,20 @@ export class ZohoHttp {
   constructor(private readonly tokens: TokenProvider, private readonly fetchFn: FetchLike = fetch as unknown as FetchLike) {}
 
   async request<T>(method: string, url: string, body?: unknown): Promise<T> {
+    return this.send<T>(method, url, body === undefined ? undefined : { type: "application/json", text: JSON.stringify(body) });
+  }
+
+  /** Form-encoded request; Zoho Sign takes its JSON payload in a `data` form field. */
+  async requestForm<T>(method: string, url: string, form: Record<string, string>): Promise<T> {
+    return this.send<T>(method, url, { type: "application/x-www-form-urlencoded", text: new URLSearchParams(form).toString() });
+  }
+
+  private async send<T>(method: string, url: string, body?: { type: string; text: string }): Promise<T> {
     const token = await this.tokens.accessToken();
     const res = await this.fetchFn(url, {
       method,
-      headers: { Authorization: `Zoho-oauthtoken ${token}`, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      headers: { Authorization: `Zoho-oauthtoken ${token}`, ...(body ? { "Content-Type": body.type } : {}) },
+      ...(body ? { body: body.text } : {}),
     });
     if (res.status === 204) return undefined as T;
     const text = await res.text();

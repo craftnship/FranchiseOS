@@ -28,7 +28,7 @@ export async function buildOpeningProject(
   store: Store,
   ctx: TenantContext,
   projects: ZohoProjectsClient,
-  args: { projectRowId: string; template: TemplateTask[]; startDate: string },
+  args: { projectRowId: string; template: TemplateTask[]; startDate: string; /** false keeps dependencies local only (default true). */ dependencies?: boolean },
 ): Promise<{ zohoProjectId: string; tasksCreated: number; dependenciesCreated: number }> {
   const repo = new TenantRepo(store, ctx.tenantId);
   const project = await repo.findOne("franchise_projects", { ROWID: args.projectRowId });
@@ -89,9 +89,10 @@ export async function buildOpeningProject(
     tasksCreated++;
   }
 
-  // 5. Dependencies: per successor row, flagged when done.
+  // 5. Dependencies: per successor row, flagged when done. Skipped while the tenant's Projects
+  // adapter cannot create them; depends_on_json still drives readiness.
   let dependenciesCreated = 0;
-  for (const r of byCode.values()) {
+  for (const r of args.dependencies === false ? [] : byCode.values()) {
     if (toBool(r.dependencies_synced)) continue;
     const deps = JSON.parse(String(r.depends_on_json || "[]")) as string[];
     for (const code of deps) {
