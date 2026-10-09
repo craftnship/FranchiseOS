@@ -145,11 +145,28 @@ export function Agreements() {
 export function AgreementDetail() {
   const { id } = useParams();
   const load = useLoad(() => api<Row>("GET", `/agreements/${id}`), [id]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Re-runs only the onboarding steps that have not finished (CRM, signed PDF, Books, Zoho project).
+  const onboard = async () => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const r = await api<Row>("POST", `/agreements/${id}/onboard`);
+      setNotice(r.pending?.length ? `Still pending: ${r.pending.join(", ")}.` : "Onboarding is complete in CRM, Books and Zoho Projects.");
+      load.reload();
+    } catch (e) { setError(e as ApiError); } finally { setBusy(false); }
+  };
   return (
     <Loaded load={load}>{(g) => (
       <>
         <PageHeader title={g.agreement_code} badges={<Pill value={g.status} />} crumbs={[["Contracts"], ["Agreements", "/agreements"], [g.agreement_code]]}
-          actions={<Link className="btn secondary" to={`/applications/${g.application_id}`}><Icon name="applications" size={16} />Open application</Link>} />
+          actions={<>
+            {can("agreement.write") && g.status === "SIGNED" && <button className="btn secondary" onClick={onboard} disabled={busy}><Icon name="sync" size={16} />{busy ? "Syncing…" : "Re-run onboarding sync"}</button>}
+            <Link className="btn secondary" to={`/applications/${g.application_id}`}><Icon name="applications" size={16} />Open application</Link>
+          </>} />
+        {notice && <div className="notice ok"><Icon name="check" />{notice}</div>}
+        {error && <ErrorState error={error} />}
         <dl className="summary">
           <div><dt>Sent</dt><dd>{date(g.CREATEDTIME)}</dd></div>
           <div><dt>Signed</dt><dd>{date(g.signed_at)}</dd></div>
