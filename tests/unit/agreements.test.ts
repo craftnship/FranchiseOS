@@ -18,7 +18,8 @@ const router = buildRouter();
 const sleep = async () => {};
 
 function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
-  const calls: Record<string, number> = { send: 0, account: 0, customer: 0, invoice: 0, project: 0, tasklist: 0, task: 0, leadUpdate: 0 };
+  const calls: Record<string, number> = { send: 0, account: 0, customer: 0, invoice: 0, project: 0, tasklist: 0, task: 0, leadUpdate: 0, accountUpdate: 0, attach: 0, invoiceSent: 0 };
+  const invoices: Record<string, { status: string; to: string[] }> = {};
   let signStatus = "inprogress";
   let id = 0;
   let booksFailures = opts.failBooks ?? 0;
@@ -26,11 +27,15 @@ function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
   const sign: ZohoSignClient = {
     sendFromTemplate: async () => { calls.send++; return { id: String(9000 + calls.send) }; },
     getRequest: async (rid) => ({ id: rid, status: signStatus, completedAt: "2026-10-09T06:00:00.000Z" }),
+    downloadSigned: async (rid) => ({ name: `${rid}.pdf`, type: "application/pdf", data: new Uint8Array([37, 80, 68, 70]) }),
   };
   const crm: ZohoCrmClient = {
     getLead: async () => ({}), getAccount: async () => ({}), getContact: async () => ({}),
     updateLead: async () => { calls.leadUpdate++; },
     createAccount: async () => { calls.account++; return { id: "ACC" + ++id }; },
+    updateAccount: async () => { calls.accountUpdate++; },
+    convertLead: async () => { calls.account++; return { accountId: "ACC" + ++id, contactId: "CON" + id }; },
+    attachFile: async () => { calls.attach++; return { id: "ATT" + ++id }; },
   };
   const books: ZohoBooksClient = {
     findCustomer: async () => null,
@@ -38,8 +43,13 @@ function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
     findInvoice: async () => null,
     createInvoice: async () => {
       if (booksFailures-- > 0) throw new ProviderError("Books down", 503);
-      calls.invoice++; return { id: "INV" + ++id };
+      calls.invoice++;
+      const iid = "INV" + ++id;
+      invoices[iid] = { status: "draft", to: [] };
+      return { id: iid };
     },
+    sendInvoice: async (iid, to) => { calls.invoiceSent++; invoices[iid] = { status: "sent", to }; },
+    getInvoice: async (iid) => ({ id: iid, number: "INV-1", status: invoices[iid]?.status ?? "draft", total: 250000, balance: invoices[iid]?.status === "paid" ? 0 : 250000, due_date: "2026-10-24" }),
   };
   const projects: ZohoProjectsClient = {
     createProject: async () => { calls.project++; return { id: "ZP" + ++id }; },
@@ -57,7 +67,7 @@ function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
     listTasks: async () => tasks.map((t) => ({ ...t })),
   };
   const clients: ZohoClients = { crm, sign, books, projects };
-  return { clients, calls, tasks, setSignStatus: (s: string) => { signStatus = s; } };
+  return { clients, calls, tasks, invoices, setSignStatus: (s: string) => { signStatus = s; } };
 }
 
 async function setup(settings: Record<string, unknown> = { franchise_fee: 250000 }, fakeOpts: Parameters<typeof fakes>[0] = {}) {
@@ -289,5 +299,75 @@ describe("Zoho adapters", () => {
     expect(await projects.createTask("P1", { name: "Lease", tasklist_id: "L1", end_date: "2026-11-01" })).toEqual({ id: "T1" });
     expect(sent[1].url).toBe("https://projectsapi.zoho.in/api/v3/portal/42/projects/P1/tasks");
     expect(JSON.parse(sent[1].body!)).toEqual({ name: "Lease", end_date: "2026-11-01", tasklist: { id: "L1" } });
+  });
+});
+
+describe("Phase A: close the lifecycle loop", () => {
+  const sign = async (s: Awaited<ReturnType<typeof setup>>) => {
+    await s.call("mgr", "POST", `/applications/${s.app.ROWID}/agreement`);
+    s.setSignStatus("completed");
+    return s.signCallback("9001");
+  };
+
+  it("signing activates the franchisee, converts the lead, files the signed PDF and sends the invoice once", async () => {
+    const s = await setup();
+    await s.store.update("franchisees", String(s.fr.ROWID), { zoho_lead_id: "L1" });
+    const res = await sign(s);
+    expect(res.data.result).toMatchObject({ zoho_contact_id: expect.stringMatching(/^CON/), document_ref: expect.stringMatching(/^crm:Accounts\/ACC\d+\/Attachments\/ATT\d+$/), pending: [] });
+    expect((await s.store.findOne("franchisees", { ROWID: s.fr.ROWID! }))!).toMatchObject({ status: "ACTIVE", zoho_contact_id: expect.stringMatching(/^CON/) });
+    const agreement = (await s.store.findOne("agreements", { zoho_sign_request_id: "9001" }))!;
+    expect(s.invoices[String(agreement.zoho_books_invoice_id)]).toEqual({ status: "sent", to: ["p@x.test"] });
+
+    // A manual retry finishes nothing twice.
+    await s.call("mgr", "POST", `/agreements/${agreement.ROWID}/onboard`);
+    expect(s.calls).toMatchObject({ account: 1, attach: 1, invoice: 1, invoiceSent: 1 });
+  });
+
+  it("opening the store makes the application and the franchisee ACTIVE", async () => {
+    const s = await setup();
+    await sign(s);
+    const t = await s.store.findOne("tenants", { tenant_code: "STARK" });
+    const roles = await s.store.findMany("roles", { tenant_id: String(t!.ROWID) });
+    await s.store.insert("users", { tenant_id: String(t!.ROWID), email: "boss@x.test", status: "ACTIVE", role_id: String(roles.find((r) => r.code === "SUPER_ADMIN")!.ROWID), external_user_id: "boss" });
+    // The franchisee is set back to PROSPECT to show opening activates it too.
+    await s.store.update("franchisees", String(s.fr.ROWID), { status: "PROSPECT" });
+    const project = (await s.store.findMany("franchise_projects", {}))[0];
+    await s.store.update("franchise_projects", String(project.ROWID), { status: "READY_FOR_OPENING" });
+    const updatesBefore = s.calls.accountUpdate;
+
+    const res = await s.call("boss", "POST", `/projects/${project.ROWID}/transition`, { transition: "open", actual_opening_date: "2026-10-09" });
+    expect(res.data).toMatchObject({ status: "OPENED", activation: { application_status: "ACTIVE", franchisee_status: "ACTIVE" } });
+    expect((await s.store.findOne("franchise_applications", { ROWID: s.app.ROWID! }))!.status).toBe("ACTIVE");
+    expect(s.calls.accountUpdate).toBeGreaterThan(updatesBefore);
+  });
+
+  it("the project page shows the franchise fee and whether it is paid, without blocking work", async () => {
+    const s = await setup();
+    await sign(s);
+    const project = (await s.store.findMany("franchise_projects", {}))[0];
+    const unpaid = await s.call("pm", "GET", `/projects/${project.ROWID}`);
+    expect(unpaid.data.fee).toMatchObject({ status: "sent", paid: false, balance: 250000 });
+    expect(unpaid.data.allowed_transitions).toContain("start");
+
+    const agreement = (await s.store.findOne("agreements", { zoho_sign_request_id: "9001" }))!;
+    s.invoices[String(agreement.zoho_books_invoice_id)].status = "paid";
+    expect((await s.call("pm", "GET", `/projects/${project.ROWID}`)).data.fee).toMatchObject({ status: "paid", paid: true });
+  });
+
+  it("checks the Zoho Sign signature when a Sign secret is configured", async () => {
+    const s = await setup();
+    await s.call("mgr", "POST", `/applications/${s.app.ROWID}/agreement`);
+    s.setSignStatus("completed");
+    const { createHmac } = await import("crypto");
+    const body = { requests: { request_id: "9001" }, notifications: { operation_type: "RequestCompleted" } };
+    const raw = JSON.stringify(body);
+    const post = (sig?: string) => handleWebhook(
+      { method: "POST", path: "/webhooks/sign/STARK", headers: sig ? { "x-zs-webhook-signature": sig } : {}, query: { token: "s3cret" }, body, rawBody: raw },
+      { store: s.store, crm: async () => s.clients.crm, zoho: async () => s.clients, sleep, signSecret: "sign-key" },
+    );
+    expect(((await post()).body as Body).error?.code).toBe("WEBHOOK_SIGNATURE_INVALID");
+    expect(((await post("bad")).body as Body).error?.code).toBe("WEBHOOK_SIGNATURE_INVALID");
+    const good = await post(createHmac("sha256", "sign-key").update(raw).digest("base64"));
+    expect((good.body as Body).data?.action).toBe("onboarded");
   });
 });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
 import { useFranchiseeNames, useLoad } from "../hooks";
-import { DataTable, date, Donut, ErrorState, Icon, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
+import { DataTable, date, Donut, ErrorState, Icon, inr, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
 import { StatusPath } from "./Applications";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
@@ -108,6 +108,7 @@ export function ProjectDetail() {
               ))}
             </>} />
           {error && <ErrorState error={error} />}
+          <FeeNotice fee={p.fee} />
           <dl className="summary">
             <div><dt>Readiness</dt><dd>{p.readiness_score ?? "—"}%<Pill value={p.readiness_rag} /></dd></div>
             <div><dt>Risk</dt><dd><Pill value={p.risk_level} /></dd></div>
@@ -140,5 +141,17 @@ export function Checklist({ items, onToggle, busy }: { items: Row[]; onToggle?: 
       { key: "due_date", label: "Due", render: (i) => date(i.due_date) },
       ...(onToggle ? [{ key: "_act", label: "", render: (i: Row) => i.status !== "COMPLETED" && <button className={i.status === "BLOCKED" ? "btn ghost sm" : "btn danger-ghost sm"} disabled={busy === `b${i.ROWID}`} onClick={() => onToggle(i)}>{i.status === "BLOCKED" ? "Unblock" : "Flag blocked"}</button> }] : []),
     ]} />
+  );
+}
+
+/** The franchise fee from Books: a warning while unpaid, never a block on the work. */
+function FeeNotice({ fee }: { fee: Row | null | undefined }) {
+  if (!fee) return null;
+  if (fee.status === "unknown") return <div className="notice warn"><Icon name="alert" />Couldn't check the franchise fee in Zoho Books just now.</div>;
+  if (fee.paid) return <div className="notice ok"><Icon name="check" />Franchise fee {fee.invoice_number} is paid.</div>;
+  return (
+    <div className="notice warn"><Icon name="money" />
+      Franchise fee {fee.invoice_number || "invoice"} is unpaid: {inr(Number(fee.balance))} of {inr(Number(fee.total))} outstanding{fee.due_date ? `, due ${date(fee.due_date)}` : ""} ({label(fee.status)}). Work can continue.
+    </div>
   );
 }

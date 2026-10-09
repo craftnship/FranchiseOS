@@ -54,6 +54,29 @@ export class ZohoHttp {
     return this.send<T>(method, url, { type: "application/x-www-form-urlencoded", text: new URLSearchParams(form).toString() });
   }
 
+  /** Multipart upload of one file in the `file` field (CRM attachments). */
+  async upload<T>(url: string, file: { name: string; type: string; data: Uint8Array }): Promise<T> {
+    const form = new FormData();
+    form.append("file", new Blob([file.data], { type: file.type }), file.name);
+    const token = await this.tokens.accessToken();
+    const res = await this.fetchFn(url, { method: "POST", headers: { Authorization: `Zoho-oauthtoken ${token}` }, body: form as unknown as string });
+    const text = await res.text();
+    const data = text ? safeJson(text) : undefined;
+    if (!res.ok) throw new ProviderError(`Zoho POST ${new URL(url).pathname} failed (${res.status}): ${(data as { message?: string } | undefined)?.message ?? text.slice(0, 200)}`, res.status);
+    return data as T;
+  }
+
+  /** Binary download (the signed PDF from Sign). */
+  async download(url: string): Promise<{ type: string; data: Uint8Array; name: string | null }> {
+    const token = await this.tokens.accessToken();
+    const res = await this.fetchFn(url, { method: "GET", headers: { Authorization: `Zoho-oauthtoken ${token}` } }) as Awaited<ReturnType<FetchLike>> & { arrayBuffer?: () => Promise<ArrayBuffer>; headers?: { get(n: string): string | null } };
+    if (!res.ok) throw new ProviderError(`Zoho GET ${new URL(url).pathname} failed (${res.status})`, res.status);
+    if (!res.arrayBuffer) throw new ProviderError("Binary download is not supported by this fetch", 500, false);
+    const disposition = res.headers?.get("content-disposition") ?? "";
+    const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)?.[1] ?? null;
+    return { type: res.headers?.get("content-type") ?? "application/pdf", data: new Uint8Array(await res.arrayBuffer()), name: name ? decodeURIComponent(name) : null };
+  }
+
   private async send<T>(method: string, url: string, body?: { type: string; text: string }): Promise<T> {
     const token = await this.tokens.accessToken();
     const res = await this.fetchFn(url, {

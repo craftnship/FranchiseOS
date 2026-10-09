@@ -157,7 +157,12 @@ export function AgreementDetail() {
           <div><dt>Expires</dt><dd>{date(g.expiry_date)}</dd></div>
         </dl>
         <Panel title="Integration">
-          <Facts items={[["Zoho Sign request", g.zoho_sign_request_id ?? "Not sent through Zoho Sign"], ["Books invoice", g.zoho_books_invoice_id ?? "No invoice yet"], ["Last updated", date(g.MODIFIEDTIME)]]} />
+          <Facts items={[
+            ["Zoho Sign request", g.zoho_sign_request_id ?? "Not sent through Zoho Sign"],
+            ["Signed copy", g.document_ref ? "Attached to the franchisee's CRM account" : g.status === "SIGNED" ? "Not filed yet" : "After signing"],
+            ["Books invoice", g.zoho_books_invoice_id ?? "No invoice yet"],
+            ["Last updated", date(g.MODIFIEDTIME)],
+          ]} />
         </Panel>
       </>
     )}</Loaded>

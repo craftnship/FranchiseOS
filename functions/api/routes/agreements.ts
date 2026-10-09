@@ -37,6 +37,6 @@ export function agreementRoutes(r: Router): void {
     const agreement = await mustGet(call.repo, "agreements", call.params.id, "AGREEMENT_NOT_FOUND");
     if (agreement.status !== "SIGNED") throw new AppError("INVALID_TRANSITION", `Agreement is ${agreement.status}, not signed.`);
     const zoho = await call.zoho();
-    return onboardSignedAgreement(call.store, call.ctx, { crm: zoho?.crm ?? null, books: zoho?.books ?? null, projects: zoho?.projects ?? null }, { agreementId: call.params.id, now: call.now, onTransition: call.onTransition });
+    return onboardSignedAgreement(call.store, call.ctx, { crm: zoho?.crm ?? null, sign: zoho?.sign ?? null, books: zoho?.books ?? null, projects: zoho?.projects ?? null }, { agreementId: call.params.id, now: call.now, onTransition: call.onTransition });
   });
 }

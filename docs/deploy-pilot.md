@@ -14,6 +14,8 @@ Run these on a computer with Node 20+ and the repo cloned.
      `ZohoCRM.modules.leads.ALL,ZohoCRM.modules.accounts.ALL,ZohoCRM.modules.contacts.ALL,ZohoSign.documents.ALL,ZohoSign.templates.ALL,ZohoBooks.contacts.ALL,ZohoBooks.invoices.ALL,ZohoProjects.portals.READ,ZohoProjects.projects.ALL,ZohoProjects.tasklists.ALL,ZohoProjects.tasks.ALL`;
      the Sign, Books and Projects scopes are needed from Step 5 on)
    - `fos_webhooks`: `FOS_CRM_WEBHOOK_SECRET`, a long random string (letters and digits)
+  - `fos_webhooks` (optional): `FOS_SIGN_WEBHOOK_SECRET`, the secret key set on the Zoho Sign webhook.
+    When set, every Sign callback must carry a valid `X-ZS-WEBHOOK-SIGNATURE`.
 3. Build and deploy:
    ```
    git checkout claude/step5-agreements
@@ -45,6 +47,9 @@ What each piece reads, so the signed-agreement flow can run end to end:
 | Projects portal | `tenant_integrations.portal_id` | 60091315097 |
 | Projects owner | tenant `settings_json.projects_owner_zpuid` | the portal user who owns opening projects |
 | Franchise fee | tenant `settings_json.franchise_fee` (0 skips the invoice) | 500000 |
+| Fee payment terms | tenant `settings_json.books_payment_terms` (days) | 15 (default) |
+| Fee tax | tenant `settings_json.books_tax_id` (a Books tax id, e.g. GST 18%) | unset: no tax |
+| Email the fee invoice | tenant `settings_json.books_email_invoice` (false only marks it sent) | true (default) |
 | Agreement term, opening target | `agreement_term_years` (5), `opening_target_days` (120) | defaults |
 | Sign template | `agreement_templates.zoho_sign_template_id` (QSR, version 1), id or template name | Franchise_Agreement |
 | Task dependencies in Zoho | `settings_json.projects_dependencies` | false until the V3 endpoint is verified |
@@ -82,3 +87,20 @@ person also needs a `users` row before the API lets them in:
 | franchisee_id | portal users only: their `franchisees` row, so they see only their own records |
  Once real sign-ins work, set `test_routes_enabled` to false in the tenant
 settings so the test agreement route stops answering.
+
+## Phase A: lifecycle loop
+
+- On signing: the franchisee becomes ACTIVE; the CRM lead is converted to an Account and Contact
+  (a plain Account if conversion fails); the Account gets Phone, billing city/state and the
+  `FOS_Franchise_Code`, `FOS_Application_Code`, `FOS_Application_Status`, `FOS_Target_Opening`
+  fields; the signed PDF from Zoho Sign is attached to the Account (`agreements.document_ref`);
+  the Books customer is matched by email; the fee invoice gets payment terms and tax and is
+  emailed to the franchisee once.
+- After conversion, application status is written to the Account; to the lead only while the lead
+  is unconverted. FOS writes pass `trigger: []`, so they never fire CRM workflow rules.
+- On opening (project `open`): the application becomes ACTIVE, the franchisee ACTIVE, and the
+  Account's `FOS_Opened_On` is set.
+- A CRM lead with no email and no phone is not imported; its `FOS_Application_Status` is set to
+  `NEEDS_CONTACT_DETAILS`. Adding an email or phone and saving the lead imports it.
+- The project page reads the fee invoice from Books and warns while it is unpaid. It never blocks work.
+- Data Store: `franchisees.zoho_contact_id` (varchar). CRM: the five `FOS_*` fields on Accounts.

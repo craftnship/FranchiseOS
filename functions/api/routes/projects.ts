@@ -5,6 +5,7 @@ import { Row } from "../../common/store";
 import { syncProjectTasks } from "../../workflows/projectSync";
 import { computeReadiness, refreshReadiness, setChecklistBlocked } from "../../workflows/readiness";
 import { transitionsFrom } from "../../workflows/stateMachines";
+import { activateOnOpening } from "../../workflows/agreements";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
 import { assertOwner, fetchAll, listByStatus, mustGet, ownerFilter } from "./shared";
@@ -28,6 +29,24 @@ async function getProject(call: Call): Promise<Row> {
   return assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 }
 
+/**
+ * The franchise fee invoice behind a project, read live from Books. An unpaid fee is a warning
+ * only; it never blocks work. Null when there is no invoice; status "unknown" when Books is unreachable.
+ */
+async function feeStatus(call: Call, project: Row): Promise<Row | null> {
+  const agreement = (await call.repo.findMany("agreements", { application_id: String(project.application_id), status: "SIGNED" }, { limit: 1 }))[0];
+  const invoiceId = agreement?.zoho_books_invoice_id ? String(agreement.zoho_books_invoice_id) : null;
+  if (!invoiceId) return null;
+  try {
+    const books = (await call.zoho())?.books;
+    if (!books) return { invoice_id: invoiceId, status: "unknown" };
+    const inv = await books.getInvoice(invoiceId);
+    return { invoice_id: invoiceId, invoice_number: inv.number, status: inv.status, total: inv.total, balance: inv.balance, due_date: inv.due_date, paid: inv.status === "paid" || inv.balance <= 0 };
+  } catch {
+    return { invoice_id: invoiceId, status: "unknown" };
+  }
+}
+
 export function projectRoutes(r: Router): void {
   r.on("GET", "/projects", null, async (call) => {
     const q = parse(listQuery, call.query);
@@ -43,7 +62,7 @@ export function projectRoutes(r: Router): void {
     const checklist = await call.repo.findMany("opening_checklists", { project_id: call.params.id }, { orderBy: "due_date", limit: 300 });
     const perms = call.ctx.roles.includes("SUPER_ADMIN") ? null : await call.permissions(call.ctx.roles);
     const allowed = transitionsFrom("project", String(project.status)).filter((t) => !perms || !t.permission || perms.has(t.permission)).map((t) => t.transition);
-    return { ...project, delayed: isDelayed(project, today(call)), allowed_transitions: allowed, checklist };
+    return { ...project, delayed: isDelayed(project, today(call)), allowed_transitions: allowed, checklist, fee: await feeStatus(call, project) };
   });
 
   // Live readiness from the checklist (§20, D-7); nothing is written.
@@ -88,6 +107,10 @@ export function projectRoutes(r: Router): void {
       await authorize(call.ctx, "project.open", call.permissions);
       await call.repo.update("franchise_projects", call.params.id, { actual_opening_date: body.actual_opening_date });
     }
-    return transitionEntity("project", call.params.id, body.transition, call.ctx, { store: call.store, permissions: call.permissions, onTransition: call.onTransition });
+    const project = await transitionEntity("project", call.params.id, body.transition, call.ctx, { store: call.store, permissions: call.permissions, onTransition: call.onTransition });
+    if (body.transition !== "open") return project;
+    const zoho = await call.zoho().catch(() => null);
+    const activation = await activateOnOpening(call.store, call.ctx, zoho?.crm ?? null, { projectId: call.params.id, onTransition: call.onTransition });
+    return { ...project, activation };
   });
 }

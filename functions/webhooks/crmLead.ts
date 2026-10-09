@@ -10,6 +10,8 @@ import { processOnce } from "../integrations/idempotency";
 // D-9: a CRM lead reaching the trigger status creates the franchisee and a DRAFT application.
 export const DEFAULT_CRM_TRIGGER_STATUS = "Pre-Qualified";
 const CLOSED_APP_STATES = ["REJECTED", "WITHDRAWN"];
+/** Written to the lead's FOS_Application_Status when the lead cannot become an application yet. */
+export const NEEDS_CONTACT = "NEEDS_CONTACT_DETAILS";
 
 export type LeadOutcome =
   | { action: "duplicate" }
@@ -36,6 +38,13 @@ export async function handleCrmLead(
   const res = await processOnce(store, ctx.tenantId, { source: "CRM", eventId: `lead:${modified}`, recordId: args.leadId, payload: { id: args.leadId, modified } }, async () => {
     const trigger = args.triggerStatus ?? DEFAULT_CRM_TRIGGER_STATUS;
     if (lead.Lead_Status !== trigger) return { action: "ignored", reason: `Lead status is ${lead.Lead_Status ?? "empty"}, not ${trigger}.` } as LeadOutcome;
+    // A franchisee FOS cannot reach (no email, no phone) would carry blanks into Sign and Books.
+    if (!text(lead.Email) && !text(lead.Mobile) && !text(lead.Phone)) {
+      if (lead[CRM_LEAD_FIELDS.applicationStatus] !== NEEDS_CONTACT) {
+        await crm.updateLead(args.leadId, { [CRM_LEAD_FIELDS.applicationStatus]: NEEDS_CONTACT }).catch(() => undefined);
+      }
+      return { action: "ignored", reason: "The lead has no email or phone; it is marked NEEDS_CONTACT_DETAILS in CRM." } as LeadOutcome;
+    }
     return upsertFromLead(store, ctx, crm, args.leadId, lead, args.sleep);
   });
   return res.duplicate ? { action: "duplicate" } : res.result;
