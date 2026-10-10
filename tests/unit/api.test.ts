@@ -212,3 +212,54 @@ describe("franchise pipeline through the API", () => {
   });
 });
 
+
+describe("approval delegation", () => {
+  async function pending() {
+    const s = await setup();
+    const fr = await s.call("mgr", "POST", "/franchisees", { display_name: "Wanda" });
+    const app = await s.call("mgr", "POST", "/applications", { franchisee_id: String(fr.data.ROWID) });
+    const id = String(app.data.ROWID);
+    const fm = await s.store.insert("feasibility_models", { tenant_id: s.a.tenantId, application_id: id, site_id: "1", status: "CALCULATED", passed: true, initial_investment: 100 });
+    await s.store.update("franchise_applications", id, { status: "FEASIBILITY_REVIEW", site_id: "1", feasibility_id: String(fm.ROWID) });
+    const started = await s.call("mgr", "POST", `/applications/${id}/start-approval`);
+    return { ...s, approvalId: String(started.data.approval.ROWID) };
+  }
+  const window = (fromH: number, toH: number) => ({ starts_at: new Date(Date.now() + fromH * 3_600_000).toISOString(), ends_at: new Date(Date.now() + toH * 3_600_000).toISOString() });
+
+  it("lets a delegate decide the delegator's step until it is revoked", async () => {
+    const { call, approvalId } = await pending();
+    const people = await call("mgr", "GET", "/approvals/delegates");
+    const fin = people.data.find((p: any) => p.email === "fin@x.test");
+    expect(people.data.map((p: any) => p.email)).not.toContain("mgr@x.test");
+    expect((await call("fin", "GET", "/approvals")).data).toHaveLength(0);
+
+    const d = await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(-1, 72) });
+    expect(d.status).toBe(201);
+    expect(d.data.state).toBe("ACTIVE");
+    expect((await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(24, 48) })).error?.fields).toHaveProperty("starts_at");
+    expect((await call("fin", "GET", "/approvals")).data.map((i: any) => String(i.ROWID))).toEqual([approvalId]);
+    const listed = await call("fin", "GET", "/approvals/delegations");
+    expect(listed.data[0].delegator.email).toBe("mgr@x.test");
+
+    // Only the delegator (or a super admin) can end it.
+    expect((await call("fin", "POST", `/approvals/delegations/${d.data.ROWID}/revoke`)).error?.code).toBe("ACCESS_DENIED");
+    expect((await call("mgr", "POST", `/approvals/delegations/${d.data.ROWID}/revoke`)).data.state).toBe("REVOKED");
+    expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
+
+    await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(-1, 24) });
+    expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).data.outcome).toBe("ADVANCED");
+  });
+
+  it("only hands over a role the delegator holds, to staff, for a bounded window", async () => {
+    const { call, addUser, a } = await pending();
+    const people = (await call("legal", "GET", "/approvals/delegates")).data;
+    const id = (email: string) => people.find((p: any) => p.email === email).ROWID;
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "FINANCE_MANAGER", ...window(0, 24) })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "LEGAL_MANAGER", ...window(24, 1) })).error?.fields).toHaveProperty("ends_at");
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "LEGAL_MANAGER", ...window(0, 24 * 91) })).error?.fields).toHaveProperty("ends_at");
+    const fr = await call("mgr", "POST", "/franchisees", { display_name: "Pietro" });
+    const portal = await addUser(a, "FRANCHISEE", "pietro", String(fr.data.ROWID));
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: String(portal.ROWID), role: "LEGAL_MANAGER", ...window(0, 24) })).error?.fields).toHaveProperty("delegate_user_id");
+    expect((await call("pietro", "GET", "/approvals/delegations")).error?.code).toBe("ACCESS_DENIED");
+  });
+});

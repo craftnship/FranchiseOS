@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { actsAs, api, hasRole, Row } from "../api";
 import { useAction, useFranchiseeNames, useLoad } from "../hooks";
 import { ConfirmDialog } from "../components/forms";
+import { DelegationsPanel } from "./Delegations";
 import { DataTable, date, Icon, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
 
 type Decision = "approve" | "return" | "reject";
@@ -105,6 +106,8 @@ export function Approvals() {
             { key: "_act", label: "", render: (i) => <DecisionButtons compact approval={{ ...i, steps: JSON.parse(String(i.steps_json ?? "[]")) }} onDone={(m) => { setNotice(`${i.entity?.code ?? "Approval"}: ${m}`); load.reload(); }} /> },
           ]} />
       )}</Loaded>
+      <div style={{ height: "1.25rem" }} />
+      <DelegationsPanel onChange={load.reload} />
     </>
   );
 }
