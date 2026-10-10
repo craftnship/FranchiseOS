@@ -1,11 +1,12 @@
-import { BooksInvoiceState, ZohoBooksClient } from "./clients";
+import { BooksBill, BooksInvoiceState, ZohoBooksClient } from "./clients";
 import { ProviderError } from "./retry";
 import { ZohoHttp } from "./zohoHttp";
 
 // Zoho Books v3 adapter (D-17). Every call is scoped by organization_id.
 
 interface BooksInvoice { invoice_id?: string; invoice_number?: string; reference_number?: string; status?: string; total?: number; balance?: number; due_date?: string; last_payment_date?: string }
-interface BooksRes { code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
+interface BooksBillRow { bill_id?: string; bill_number?: string; reference_number?: string; vendor_name?: string; date?: string; status?: string; total?: number; balance?: number }
+interface BooksRes { bills?: BooksBillRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
 
 function check(res: BooksRes | undefined, what: string): BooksRes {
   if (!res || (res.code !== undefined && res.code !== 0)) throw new ProviderError(`Books ${what} failed: ${res?.code ?? "no response"} ${res?.message ?? ""}`.trim(), 400, false);
@@ -66,6 +67,21 @@ export class HttpBooksClient implements ZohoBooksClient {
     const inv = check(await this.http.request<BooksRes>("GET", this.url(`/invoices/${encodeURIComponent(id)}`)), "invoice read").invoice;
     if (!inv?.invoice_id) throw new ProviderError(`Books invoice ${id} not found`, 404, false);
     return { id: String(inv.invoice_id), number: String(inv.invoice_number ?? ""), status: String(inv.status ?? "unknown"), total: Number(inv.total ?? 0), balance: Number(inv.balance ?? 0), due_date: inv.due_date ?? null, last_payment_date: inv.last_payment_date || null };
+  }
+
+  // Needs the ZohoBooks.bills.READ scope. search_text also matches bill numbers and vendor names,
+  // so only bills whose reference number carries the text are kept.
+  async listBills(text: string): Promise<BooksBill[]> {
+    const out: BooksBill[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const res = check(await this.http.request<BooksRes>("GET", this.url("/bills", { search_text: text, per_page: "200", page: String(page), sort_column: "date", sort_order: "D" })), "bill search");
+      for (const b of res.bills ?? []) {
+        if (!b.bill_id || !String(b.reference_number ?? "").toUpperCase().includes(text.toUpperCase())) continue;
+        out.push({ id: String(b.bill_id), number: String(b.bill_number ?? ""), reference: String(b.reference_number ?? ""), vendor: String(b.vendor_name ?? ""), date: b.date || null, status: String(b.status ?? "unknown"), total: Number(b.total ?? 0), balance: Number(b.balance ?? 0) });
+      }
+      if (!res.page_context?.has_more_page) break;
+    }
+    return out;
   }
 }
 

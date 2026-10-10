@@ -11,8 +11,8 @@ Run these on a computer with Node 20+ and the repo cloned.
    The file is gitignored; never commit it.
    - `fos_api` and `fos_webhooks`: `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`
      (a Self Client from api-console.zoho.in; refresh token with scopes
-     `ZohoCRM.modules.leads.ALL,ZohoCRM.modules.accounts.ALL,ZohoCRM.modules.contacts.ALL,ZohoCRM.modules.attachments.ALL,ZohoSign.documents.ALL,ZohoSign.templates.ALL,ZohoBooks.contacts.ALL,ZohoBooks.invoices.ALL,ZohoProjects.portals.READ,ZohoProjects.projects.ALL,ZohoProjects.tasklists.ALL,ZohoProjects.tasks.ALL`;
-     the Sign, Books and Projects scopes are needed from Step 5 on)
+     `ZohoCRM.modules.leads.ALL,ZohoCRM.modules.accounts.ALL,ZohoCRM.modules.contacts.ALL,ZohoCRM.modules.attachments.ALL,ZohoSign.documents.ALL,ZohoSign.templates.ALL,ZohoBooks.contacts.ALL,ZohoBooks.invoices.ALL,ZohoBooks.bills.READ,ZohoProjects.portals.READ,ZohoProjects.projects.ALL,ZohoProjects.tasklists.ALL,ZohoProjects.tasks.ALL`;
+     the Sign, Books and Projects scopes are needed from Step 5 on; `ZohoBooks.bills.READ` from the capex budget on)
    - `fos_webhooks`: `FOS_CRM_WEBHOOK_SECRET`, a long random string (letters and digits)
   - `fos_webhooks` (optional): `FOS_SIGN_WEBHOOK_SECRET`, the secret key set on the Zoho Sign webhook.
     When set, every Sign callback must carry a valid `X-ZS-WEBHOOK-SIGNATURE`.
@@ -175,3 +175,23 @@ settings so the test agreement route stops answering.
 - Data Store: `licences` table (created in Development on 2026-10-10, id 62105000000060469).
 - Existing open projects get their register the first time someone opens the project page or the
   opening is attempted.
+
+## Capex budget
+
+- Each opening project gets a capex budget: the feasibility investment split into nine categories
+  (civil and interiors 30%, kitchen equipment 25%, furniture 10%, signage 5%, IT and POS 5%,
+  licences and deposits 3%, opening stock 5%, launch marketing 7%, contingency 10%), rounded to the
+  nearest ₹1,000. A tenant replaces the split with `settings_json.capex_categories`
+  (`code`, `name`, `share`). Staff with `project.write` change any line's budget.
+- Actuals:
+  - Zoho Books vendor bills whose reference number contains the project code, e.g.
+    `PROJ-000012 KITCHEN`. The word after the code picks the category; without one the bill goes
+    to Other until staff move it. Voided and draft bills don't count. The project page has
+    "Sync from Books", and `fos_jobs` pulls bills daily in the two-way sync step.
+  - Spend recorded by staff, or by the franchisee from the portal with the invoice attached
+    (stored in Stratus under `tenants/<t>/projects/<p>/capex/`). Staff can void a recorded entry.
+- When a category with a budget, or the total, goes over budget, finance, the franchise manager and
+  the project manager get one notice. `settings_json.capex_tolerance_pct` allows a margin first.
+- Books needs `ZohoBooks.bills.READ` on the refresh token used by `fos_api` and `fos_jobs`. Until
+  the token has it, "Sync from Books" says so and recorded spend still works.
+- Data Store: `capex_lines` and `capex_spend` (created in Development on 2026-10-10).

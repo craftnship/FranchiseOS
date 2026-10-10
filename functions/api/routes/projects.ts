@@ -10,6 +10,7 @@ import { refreshFee } from "../../workflows/fees";
 import { transitionEntity } from "../../workflows/transition";
 import { assertLicencesReady, ensureLicences, LICENCE_STATES, updateLicence } from "../../workflows/licences";
 import { logActivity } from "../../common/audit";
+import { capexFor, OTHER, recordSpend, setBudget, syncBills, updateSpend } from "../../workflows/capex";
 import { MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES, safeFileName } from "../../common/files";
 import { randomUUID } from "crypto";
 import { Call, page, parse, Router } from "../router";
@@ -48,6 +49,38 @@ const licenceSchema = z.object({
 }).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
 const newLicenceSchema = z.object({ name: z.string().trim().min(2).max(200), authority: z.string().trim().max(200).optional(), mandatory: z.boolean().default(false) }).strict();
 const certificateSchema = z.object({ file_name: z.string().trim().min(1).max(200), content_type: z.string().max(100), data_base64: z.string().min(1) }).strict();
+
+const fileSchema = certificateSchema;
+const budgetSchema = z.object({ budget: z.number().nonnegative().max(1e10).optional(), notes: z.string().trim().max(2000).nullable().optional() }).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
+const spendSchema = z.object({
+  category: z.string().min(1).max(40), vendor: z.string().trim().min(2).max(200), spend_date: z.string().date(), amount: z.number().positive().max(1e10),
+  reference: z.string().trim().max(100).optional(), notes: z.string().trim().max(2000).optional(), invoice: fileSchema.optional(),
+}).strict();
+const spendChangeSchema = z.object({ category: z.string().min(1).max(40).optional(), void: z.literal(true).optional(), notes: z.string().trim().max(2000).nullable().optional() }).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
+
+/** Checks and stores an uploaded file under `prefix`; returns its file_ref. */
+async function storeFile(call: Call, prefix: string, file: z.infer<typeof certificateSchema>): Promise<string> {
+  if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet.");
+  if (!UPLOAD_TYPES[file.content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
+  const data = Buffer.from(file.data_base64, "base64");
+  if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
+  if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
+  const key = `tenants/${call.ctx.tenantId}/projects/${call.params.id}/${prefix}/${randomUUID()}/${safeFileName(file.file_name)}`;
+  await call.files.put(key, data, file.content_type);
+  return `${STRATUS_PREFIX}${key}`;
+}
+
+async function signedUrl(call: Call, ref: string, missing: string) {
+  if (!ref.startsWith(STRATUS_PREFIX)) throw new AppError("NOT_FOUND", missing);
+  if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
+  return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
+}
+
+async function getSpend(call: Call): Promise<Row> {
+  const s = await mustGet(call.repo, "capex_spend", call.params.spendId, "NOT_FOUND");
+  if (String(s.project_id) !== call.params.id) throw new AppError("NOT_FOUND");
+  return s;
+}
 
 async function getLicence(call: Call): Promise<Row> {
   const l = await mustGet(call.repo, "licences", call.params.licId, "NOT_FOUND");
@@ -128,23 +161,62 @@ export function projectRoutes(r: Router): void {
     await getProject(call); // portal users only reach their own project
     if (!isPortalUser(call.ctx)) await authorize(call.ctx, "project.write", call.permissions);
     const licence = await getLicence(call);
-    const { file_name, content_type, data_base64 } = parse(certificateSchema, call.body);
-    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet.");
-    if (!UPLOAD_TYPES[content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
-    const data = Buffer.from(data_base64, "base64");
-    if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
-    if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
-    const key = `tenants/${call.ctx.tenantId}/projects/${call.params.id}/licences/${randomUUID()}/${safeFileName(file_name)}`;
-    await call.files.put(key, data, content_type);
-    return updateLicence(call.store, call.ctx, licence, { file_ref: `${STRATUS_PREFIX}${key}` }, today(call));
+    const file_ref = await storeFile(call, "licences", parse(certificateSchema, call.body));
+    return updateLicence(call.store, call.ctx, licence, { file_ref }, today(call));
   }, 201);
 
   r.on("GET", "/projects/:id/licences/:licId/certificate", null, async (call) => {
     await getProject(call);
-    const ref = String((await getLicence(call)).file_ref ?? "");
-    if (!ref.startsWith(STRATUS_PREFIX)) throw new AppError("NOT_FOUND", "No certificate uploaded.");
-    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
-    return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
+    return signedUrl(call, String((await getLicence(call)).file_ref ?? ""), "No certificate uploaded.");
+  });
+
+  // Capex budget vs actual. Everyone on the project sees it; staff set budgets and recategorise; the
+  // franchisee records spend with an invoice; Books bills arrive by sync.
+  r.on("GET", "/projects/:id/capex", null, async (call) => {
+    const project = await getProject(call);
+    const { summary, lines, spend } = await capexFor(call.store, call.ctx, project);
+    const books = await call.zoho().then((z) => !!z?.books?.listBills).catch(() => false);
+    return { ...summary, lines, spend, books_connected: books, project_code: project.project_code };
+  });
+
+  r.on("PATCH", "/projects/:id/capex/lines/:lineId", "project.write", async (call) => {
+    const project = await getProject(call);
+    const line = await mustGet(call.repo, "capex_lines", call.params.lineId, "NOT_FOUND");
+    if (String(line.project_id) !== call.params.id) throw new AppError("NOT_FOUND");
+    return setBudget(call.store, call.ctx, project, line, parse(budgetSchema, call.body));
+  });
+
+  r.on("POST", "/projects/:id/capex/spend", null, async (call) => {
+    const project = await getProject(call);
+    const portal = isPortalUser(call.ctx);
+    if (!portal) await authorize(call.ctx, "project.write", call.permissions);
+    const { invoice, ...body } = parse(spendSchema, call.body);
+    if (body.spend_date > today(call)) throw new AppError("VALIDATION_FAILED", "The date can't be in the future.", { spend_date: "can't be in the future" });
+    if (portal && !invoice) throw new AppError("VALIDATION_FAILED", "Attach the invoice.", { invoice: "required" });
+    const file_ref = invoice ? await storeFile(call, "capex", invoice) : undefined;
+    return recordSpend(call.store, call.ctx, project, { ...body, category: body.category || OTHER, file_ref }, portal ? "PORTAL" : "MANUAL");
+  }, 201);
+
+  r.on("PATCH", "/projects/:id/capex/spend/:spendId", "project.write", async (call) => {
+    const project = await getProject(call);
+    return updateSpend(call.store, call.ctx, project, await getSpend(call), parse(spendChangeSchema, call.body));
+  });
+
+  r.on("GET", "/projects/:id/capex/spend/:spendId/invoice", null, async (call) => {
+    await getProject(call);
+    return signedUrl(call, String((await getSpend(call)).file_ref ?? ""), "No invoice attached.");
+  });
+
+  r.on("POST", "/projects/:id/capex/sync", "project.write", async (call) => {
+    const project = await getProject(call);
+    const books = (await call.zoho().catch(() => null))?.books;
+    if (!books?.listBills) throw new AppError("ZOHO_SYNC_FAILED", "Zoho Books is not connected for this tenant.");
+    try {
+      return await syncBills(call.store, call.ctx, books, project);
+    } catch (e) {
+      if (e instanceof AppError) throw e;
+      throw new AppError("ZOHO_SYNC_FAILED", "Couldn't read bills from Zoho Books. The Books connection may need the bills permission (ZohoBooks.bills.READ).");
+    }
   });
 
   // Live readiness from the checklist (§20, D-7); nothing is written.

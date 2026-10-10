@@ -54,7 +54,12 @@ export interface ZohoBooksClient {
   /** Emails the invoice to the given addresses, or only marks it sent when there are none. */
   sendInvoice(id: string, to: string[]): Promise<void>;
   getInvoice(id: string): Promise<BooksInvoiceState>;
+  /** Vendor bills whose reference number contains `text` (the project code), newest first. Optional: a client without it has no capex actuals. */
+  listBills?(text: string): Promise<BooksBill[]>;
 }
+
+/** Books bill status: draft, open, overdue, partially_paid, paid, void. */
+export interface BooksBill { id: string; number: string; reference: string; vendor: string; date: string | null; status: string; total: number; balance: number }
 
 /** Books invoice status: draft, sent, viewed, overdue, partially_paid, paid, void. */
 export interface BooksInvoiceState { id: string; number: string; status: string; total: number; balance: number; due_date: string | null; last_payment_date?: string | null }

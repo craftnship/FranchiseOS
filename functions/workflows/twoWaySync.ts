@@ -4,9 +4,10 @@ import { Store } from "../common/store";
 import { ZohoClients } from "../integrations/tenantClients";
 import { syncTenantContacts } from "./crmContacts";
 import { syncTenantFees } from "./fees";
+import { syncTenantBills } from "./capex";
 
 /**
- * job_two_way_sync (daily, after job_project_risk): Books fee payments and CRM contact edits come
+ * job_two_way_sync (daily, after job_project_risk): Books fee payments, Books capex bills and CRM contact edits come
  * back into FOS for every active tenant. A tenant without Zoho, or a failing one, is skipped.
  */
 export async function runTwoWaySyncJob(
@@ -14,7 +15,7 @@ export async function runTwoWaySyncJob(
   zohoFor: (tenantId: string) => Promise<ZohoClients | null>,
   opts: { now: Date; requestId: string; mailer?: Mailer },
 ) {
-  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, contacts_updated: 0, failed: 0 };
+  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, bills_added: 0, contacts_updated: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
@@ -25,6 +26,8 @@ export async function runTwoWaySyncJob(
       if (zoho.books) {
         const f = await syncTenantFees(store, ctx, zoho.books, zoho.crm, opts.now);
         out.fees_checked += f.checked; out.fees_paid += f.paid; out.failed += f.failed;
+        const b = await syncTenantBills(store, ctx, zoho.books);
+        out.bills_added += b.added; out.failed += b.failed;
       }
       const c = await syncTenantContacts(store, ctx, zoho.crm);
       out.contacts_updated += c.updated; out.failed += c.failed;

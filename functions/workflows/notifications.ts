@@ -239,6 +239,16 @@ const RULES: Record<string, Rule> = {
       title: `Franchise fee overdue on ${code}`, body: `${await franchiseeName(repo, row?.franchisee_id)} owes ₹${toNum(e.metadata?.balance).toLocaleString("en-IN")} on invoice ${e.metadata?.invoice ?? ""}`.trim() + ".",
       link: linkTo("agreement", e.entityId), dedupe: `fee-overdue:${e.entityId}:${row?.fee_due_date ?? ""}` };
   },
+  "capex:overrun": async (_s, _c, e, repo) => {
+    const { code } = await codeOf(repo, "project", e.entityId);
+    const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
+    const total = e.metadata?.total as { budget: number; actual: number } | null;
+    const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+    const title = total ? `${code} is over its capex budget` : cats.length === 1 ? `${cats[0].name} is over budget on ${code}` : `${cats.length} capex categories are over budget on ${code}`;
+    const parts = [...(total ? [`Total ${inr(total.actual)} spent against ${inr(total.budget)}`] : []), ...cats.map((c) => `${c.name} ${inr(c.actual)} against ${inr(c.budget)}`)];
+    return { kind: "capex.overrun", entityType: "project", entityId: e.entityId, roles: ["FINANCE_MANAGER", "FRANCHISE_MANAGER", "PROJECT_MANAGER"],
+      title, body: `${parts.join("; ")}.`, link: linkTo("project", e.entityId) };
+  },
   "territory:expired": async (_s, _c, e, repo) => {
     const { code, row } = await codeOf(repo, "territory", e.entityId);
     return { kind: "territory.expired", entityType: "territory", entityId: e.entityId, roles: ["FRANCHISE_MANAGER", "REGIONAL_MANAGER"],

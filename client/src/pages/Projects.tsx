@@ -6,6 +6,7 @@ import { ConfirmDialog, Dialog, Field, Form, FormError } from "../components/for
 import { DataTable, date, Donut, Icon, inr, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
 import { StatusPath } from "./Applications";
 import { LicencePanel, missingLicences } from "../components/Licences";
+import { CapexPanel } from "../components/Capex";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -133,6 +134,7 @@ export function ProjectDetail() {
             }} />
           </Panel>
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
+          <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />
           {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
             onOpen={(date) => act.run("open", () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: "open", actual_opening_date: date } }), "The store is open. The franchisee is now active.").then((r) => r && setOpening(false))} />}
           {editing && <TaskDialog item={editing} staff={(p.staff ?? []) as Row[]} linked={!!(p.zoho_project_id && editing.external_task_id)} busy={!!act.busy} error={act.error}
