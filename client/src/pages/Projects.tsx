@@ -206,7 +206,9 @@ export function Checklist({ items, actions }: { items: Row[]; actions?: (item: R
       { key: "weight", label: "Weight", align: "right", sort: (i) => Number(i.weight ?? 0) },
       { key: "status", label: "Status", render: (i) => {
         const overdue = i.status !== "COMPLETED" && i.due_date && String(i.due_date).slice(0, 10) < today;
-        return <span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}</span>;
+        // Zoho's own status name (Delayed, To be Tested…) when it says more than the FOS status.
+        const zoho = i.external_status && !["open", "closed", label(i.status).toLowerCase()].includes(String(i.external_status).toLowerCase()) ? String(i.external_status) : null;
+        return <><span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}</span>{zoho && <span className="cell-sub">{zoho} in Zoho</span>}</>;
       } },
       { key: "due_date", label: "Due", render: (i) => date(i.due_date) },
       ...(actions ? [{ key: "_act", label: "", render: actions }] : []),

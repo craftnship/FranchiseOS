@@ -249,10 +249,16 @@ describe("project task sync (FOS-057)", () => {
     const rows = await s.store.findMany("opening_checklists", {});
     await s.store.update("opening_checklists", String(rows.find((r) => r.external_task_id === s.tasks[1].id)!.ROWID), { status: "BLOCKED" });
     const res = await s.call("pm", "POST", `/projects/${project}/sync`);
-    expect(res.data.sync).toEqual({ checked: QSR_PROJECT_TEMPLATE.length, updated: 1, missing: 0 });
+    expect(res.data.sync).toEqual({ checked: QSR_PROJECT_TEMPLATE.length, updated: QSR_PROJECT_TEMPLATE.length, missing: 0 }); // the first sync also records every Zoho status name
     const detail = await s.call("pm", "GET", `/projects/${project}`);
     expect(detail.data.checklist.find((r: any) => r.external_task_id === s.tasks[0].id).status).toBe("COMPLETED");
     expect(detail.data.checklist.find((r: any) => r.external_task_id === s.tasks[1].id).status).toBe("BLOCKED");
+
+    // Zoho's other statuses come through as in progress, with their name kept for display.
+    s.tasks[2].status = "To be Tested";
+    await s.call("pm", "POST", `/projects/${project}/sync`);
+    expect((await s.call("pm", "GET", `/projects/${project}`)).data.checklist.find((r: any) => r.external_task_id === s.tasks[2].id))
+      .toMatchObject({ status: "IN_PROGRESS", external_status: "To be Tested" });
   });
 
   it("marks a task done or reopens it in Zoho first, so a sync agrees; owners and due dates follow", async () => {
@@ -298,8 +304,11 @@ describe("project task sync (FOS-057)", () => {
   it("maps task states", () => {
     expect(checklistStatus({ closed: true }, "BLOCKED")).toBe("COMPLETED");
     expect(checklistStatus({ closed: false, percent: 30 }, "OPEN")).toBe("IN_PROGRESS");
-    expect(checklistStatus({ closed: false }, "COMPLETED")).toBe("IN_PROGRESS");
-    expect(checklistStatus({ closed: false }, "OPEN")).toBe("OPEN");
+    expect(checklistStatus({ closed: false, status: "Open" }, "COMPLETED")).toBe("OPEN");
+    expect(checklistStatus({ closed: false, status: "Open" }, "OPEN")).toBe("OPEN");
+    expect(checklistStatus({ closed: false, status: "In Progress" }, "OPEN")).toBe("IN_PROGRESS");
+    expect(checklistStatus({ closed: false, status: "Delayed" }, "OPEN")).toBe("IN_PROGRESS");
+    expect(checklistStatus({ closed: false, status: "To be Tested" }, "BLOCKED")).toBe("BLOCKED");
   });
 });
 

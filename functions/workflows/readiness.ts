@@ -174,7 +174,8 @@ export async function updateChecklistItem(
     }
   }
   const patch: Row = {
-    ...(status ? { status } : {}),
+    // Zoho's own status name is refreshed by the next sync; until then the FOS status speaks for it.
+    ...(status ? { status, ...(linked ? { external_status: null } : {}) } : {}),
     ...(due ? { due_date: due } : {}),
     ...(change.owner_user_id !== undefined ? { owner_user_id: change.owner_user_id } : {}),
   };
