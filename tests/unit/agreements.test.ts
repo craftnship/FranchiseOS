@@ -142,6 +142,8 @@ describe("send agreement (FOS-045, FOS-046)", () => {
 describe("Sign callback and onboarding (Step 5 exit test)", () => {
   it("a signed callback replayed three times creates exactly one project with all tasks", async () => {
     const s = await setup();
+    const ter = await s.store.insert("territories", { tenant_id: s.tid, territory_code: "TER-000001", tenant_code_key: `${s.tid}:TER-000001`, name: "Saket", status: "RESERVED" });
+    await s.store.insert("territory_reservations", { tenant_id: s.tid, territory_id: ter.ROWID, application_id: s.app.ROWID, status: "ACTIVE", expires_at: "2026-01-01T00:00:00Z", active_lock_key: `${s.tid}:${ter.ROWID}` });
     await s.call("mgr", "POST", `/applications/${s.app.ROWID}/agreement`);
     s.setSignStatus("completed");
     const results = [await s.signCallback("9001"), await s.signCallback("9001"), await s.signCallback("9001")];
@@ -159,6 +161,8 @@ describe("Sign callback and onboarding (Step 5 exit test)", () => {
     expect((await s.call("mgr", "POST", `/applications/${s.app.ROWID}/transition`, { transition: "activate" })).error?.code).toBe("INVALID_TRANSITION");
     expect((await s.store.findOne("franchisees", { ROWID: s.fr.ROWID! }))!).toMatchObject({ zoho_account_id: expect.any(String), zoho_books_customer_id: expect.any(String) });
     expect((await s.store.findMany("franchise_projects", {}))[0]).toMatchObject({ project_code: "PROJ-000001", status: "PLANNING", site_id: "77" });
+    // The reserved territory is now the franchisee's for good.
+    expect((await s.store.findOne("territories", { ROWID: ter.ROWID! }))!.status).toBe("ALLOCATED");
   });
 
   it("a run killed half way is finished by the retry, on the same project", async () => {

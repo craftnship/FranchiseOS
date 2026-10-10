@@ -27,6 +27,9 @@ const createSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
 }).strict();
+// Edits; status moves only between AVAILABLE and BLOCKED (reservations own the other states).
+const updateSchema = createSchema.partial().extend({ status: z.enum(["AVAILABLE", "BLOCKED"]).optional() }).strict()
+  .refine((v) => Object.keys(v).length > 0, "Nothing to change.");
 const searchSchema = z.object({
   city: z.string().trim().optional(),
   state: z.string().trim().optional(),
@@ -58,6 +61,27 @@ export function territoryRoutes(r: Router): void {
     await logActivity(call.store, call.ctx, { entityType: "territory", entityId: String(row.ROWID), action: "create" });
     return row;
   }, 201);
+
+  r.on("PATCH", "/territories/:id", "territory.write", async (call) => {
+    const { population_index, market_index, status, ...body } = parse(updateSchema, call.body);
+    const territory = await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND");
+    const change: Record<string, unknown> = { ...body };
+    if (status && status !== territory.status) {
+      if (!["AVAILABLE", "BLOCKED"].includes(String(territory.status))) {
+        throw new AppError("TERRITORY_NOT_AVAILABLE", `${territory.territory_code} is ${String(territory.status).toLowerCase()}; release it before blocking.`);
+      }
+      change.status = status;
+    }
+    // A new score needs all four indices; population and market indices are not stored.
+    const indices = [population_index, market_index, body.income_index ?? territory.income_index, body.competition_index ?? territory.competition_index];
+    if (population_index !== undefined && market_index !== undefined && indices.every((v) => v !== undefined && v !== null && v !== "")) {
+      change.opportunity_score = opportunityScore({ population: population_index, market_size: market_index, income_index: toNum(indices[2]), competition_index: toNum(indices[3]) });
+    }
+    const row = await call.repo.update("territories", call.params.id, change);
+    const action = change.status === "BLOCKED" ? "territory:block" : change.status === "AVAILABLE" ? "territory:unblock" : "update";
+    await logActivity(call.store, call.ctx, { entityType: "territory", entityId: call.params.id, action, metadata: { fields: Object.keys(change) } });
+    return row;
+  });
 
   r.on("POST", "/territories/search", "territory.reserve", async (call) => {
     const q = parse(searchSchema, call.body);

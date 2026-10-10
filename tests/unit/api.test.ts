@@ -218,6 +218,20 @@ describe("franchise pipeline through the API", () => {
     expect((await call("mgr", "GET", `/applications/${winner}`)).data.territory_id).toBeNull();
     expect((await call("mgr", "POST", "/territories/search", { city: "Pune" })).data).toHaveLength(1);
   });
+
+  it("edits, blocks and unblocks a territory, but never one that is reserved", async () => {
+    const { store, call } = await setup();
+    const ter = await call("mgr", "POST", "/territories", { name: "Pune East", city: "Pune" });
+    const id = ter.data.ROWID;
+    const edited = await call("mgr", "PATCH", `/territories/${id}`, { name: "Pune East (Kharadi)", population_index: 80, market_index: 70, income_index: 60, competition_index: 40 });
+    expect(edited.data).toMatchObject({ name: "Pune East (Kharadi)", opportunity_score: 69 });
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "BLOCKED" })).data.status).toBe("BLOCKED");
+    expect((await call("mgr", "POST", "/territories/search", { city: "Pune" })).data).toHaveLength(0);
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "AVAILABLE" })).data.status).toBe("AVAILABLE");
+    await store.update("territories", String(id), { status: "RESERVED" });
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "BLOCKED" })).error?.code).toBe("TERRITORY_NOT_AVAILABLE");
+    expect((await call("mgr", "PATCH", `/territories/${id}`, {})).error?.code).toBe("VALIDATION_FAILED");
+  });
 });
 
 

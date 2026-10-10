@@ -128,3 +128,14 @@ settings so the test agreement route stops answering.
   franchisees list (`POST /franchisees/:id/sync-crm`). Opening a project page also refreshes its fee.
 - Blank CRM values never overwrite FOS data. Every change is in the activity log
   (`fee:paid`, `fee:status`, `update:crm`).
+
+## Territories
+
+- Managers with `territory.write` (Franchise Manager, Regional Manager) add, edit, block and unblock
+  territories on the Territories page (`POST /territories`, `PATCH /territories/:id`). Only an
+  available territory can be blocked; a reserved one is released first.
+- Signing an agreement marks the application's reserved territory ALLOCATED.
+- `fos_jobs` runs a third daily step: reservations of signed applications become allocations, those
+  of rejected or withdrawn applications are freed, and reservations past `reservation_days` (30)
+  lapse while the application is still before the site stage. Later stages keep their hold.
+- Not linked to CRM Territory Management, which is off in the pilot CRM.

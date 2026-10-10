@@ -12,6 +12,7 @@ import { ProviderError } from "../integrations/retry";
 import { CRM_ACCOUNT_FIELDS, CRM_LEAD_FIELDS } from "../integrations/crmSync";
 import { DEFAULTS } from "../../database/seed/defaults";
 import { buildOpeningProject, TemplateTask } from "./projectCreation";
+import { allocateTerritory } from "./territoryReservation";
 import { transitionEntity, TransitionDeps } from "./transition";
 
 // Agreement and onboarding (plan Step 5, FOS-045..056). Sending creates the agreement and its Zoho
@@ -240,6 +241,8 @@ export async function onboardSignedAgreement(
     await logActivity(store, ctx, { entityType: "project", entityId: String(project.ROWID), action: "create:agreement", metadata: { agreement_id: args.agreementId } });
   }
   if (app.status === "AGREEMENT_SIGNED") app = await transitionEntity("application", appId, "start_onboarding", ctx, deps);
+  // The reserved territory now belongs to this franchisee.
+  await allocateTerritory(store, ctx, appId);
 
   const pending: string[] = [];
   const failures: string[] = [];
