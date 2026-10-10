@@ -4,7 +4,7 @@ import { api, ApiError, can, Row } from "../api";
 import { useFranchiseeNames, useLoad } from "../hooks";
 import { DataTable, date, ErrorState, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
 
-const FUNNEL = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING", "APPROVED", "AGREEMENT_PENDING", "AGREEMENT_SIGNED", "ONBOARDING", "ACTIVE"];
+export const FUNNEL = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING", "APPROVED", "AGREEMENT_PENDING", "AGREEMENT_SIGNED", "ONBOARDING", "ACTIVE"];
 const STATUSES = [...FUNNEL, "ON_HOLD", "REJECTED", "WITHDRAWN"];
 const VIEWS: [string, string][] = [
   ["All", ""],
@@ -59,63 +59,6 @@ export function StatusPath({ steps, current }: { steps: string[]; current: strin
   const at = steps.indexOf(current);
   if (at < 0) return null;
   return <div className="path">{steps.map((s, i) => <div key={s} className={`step ${i < at ? "done" : i === at ? "current" : ""}`}>{label(s)}</div>)}</div>;
-}
-
-export function ApplicationDetail() {
-  const { id } = useParams();
-  const load = useLoad(() => api<Row>("GET", `/applications/${id}`), [id]);
-  const agreements = useLoad(() => api<Row[]>("GET", "/agreements", { query: { application_id: id } }), [id]);
-  const sites = useLoad(() => api<Row[]>("GET", "/sites", { query: { application_id: id } }), [id]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<ApiError | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const send = async () => {
-    setBusy(true); setError(null);
-    try {
-      const r = await api<Row>("POST", `/applications/${id}/agreement`);
-      setNotice(r.sent ? `Agreement ${r.agreement.agreement_code} sent for signature.` : `Agreement ${r.agreement.agreement_code} was already sent.`);
-      load.reload(); agreements.reload();
-    } catch (e) { setError(e as ApiError); } finally { setBusy(false); }
-  };
-  return (
-    <Loaded load={load}>{(a) => {
-      const canSend = can("agreement.write") && (a.status === "APPROVED" || a.status === "AGREEMENT_PENDING");
-      return (
-        <>
-          <PageHeader title={a.application_code} badges={<Pill value={a.status} />} crumbs={[["Expansion"], ["Applications", "/applications"], [a.application_code]]}
-            subtitle={[a.preferred_city, a.preferred_state, a.application_type].filter(Boolean).join(" · ")}
-            actions={canSend && <button className="btn" onClick={send} disabled={busy}><Icon name="send" size={16} />{busy ? "Sending…" : a.status === "APPROVED" ? "Send franchise agreement" : "Resend agreement"}</button>} />
-          {notice && <div className="notice ok"><Icon name="check" />{notice}</div>}
-          {error && <ErrorState error={error} />}
-          <dl className="summary">
-            <div><dt>Investment capacity</dt><dd>{a.investment_capacity ? inr(Number(a.investment_capacity)) : "—"}</dd></div>
-            <div><dt>Qualification</dt><dd>{a.qualification_score ?? "—"}{a.qualification_class && <span className="badge info"><i />Class {a.qualification_class}</span>}</dd></div>
-            <div><dt>Risk score</dt><dd>{a.risk_score ?? "—"}</dd></div>
-            <div><dt>Created</dt><dd>{date(a.CREATEDTIME)}</dd></div>
-          </dl>
-          {FUNNEL.includes(a.status) && <Panel title="Progress"><StatusPath steps={FUNNEL} current={a.status} /></Panel>}
-          <div className="row c2">
-            <Panel title="Application details">
-              <Facts items={[
-                ["Application", a.application_code], ["Format", a.application_type], ["Country", a.preferred_country], ["State", a.preferred_state], ["City", a.preferred_city],
-                ["Status", <Pill value={a.status} />], ...(a.held_from ? [["Held from", label(a.held_from)] as [string, string]] : []), ["Last updated", date(a.MODIFIEDTIME)],
-              ]} />
-            </Panel>
-            <Panel title="Related records" flush>
-              <table className="grid">
-                <thead><tr><th><span className="th-sort">Record</span></th><th><span className="th-sort">Detail</span></th><th><span className="th-sort">Status</span></th></tr></thead>
-                <tbody>
-                  {(sites.data ?? []).map((s) => <tr key={`s${s.ROWID}`}><td><span className="code">{s.site_code}</span><span className="cell-sub">Site</span></td><td>{[s.address_line_1, s.city].filter(Boolean).join(", ") || "—"}</td><td><Pill value={s.status} /></td></tr>)}
-                  {(agreements.data ?? []).map((g) => <tr key={`g${g.ROWID}`}><td><Link className="code" to={`/agreements/${g.ROWID}`}>{g.agreement_code}</Link><span className="cell-sub">Agreement</span></td><td>{g.signed_at ? `Signed ${date(g.signed_at)}` : `Sent ${date(g.CREATEDTIME)}`}</td><td><Pill value={g.status} /></td></tr>)}
-                  {!sites.data?.length && !agreements.data?.length && <tr><td colSpan={3} className="grid-empty">No site or agreement yet.</td></tr>}
-                </tbody>
-              </table>
-            </Panel>
-          </div>
-        </>
-      );
-    }}</Loaded>
-  );
 }
 
 export function Agreements() {

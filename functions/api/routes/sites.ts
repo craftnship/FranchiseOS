@@ -6,7 +6,7 @@ import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { toBool, toNum } from "../../common/values";
 import { DEFAULT_SITE_TEMPLATE, scoreSite, TemplateItem } from "../../scoring/site";
-import { allowedTransitions, findRule } from "../../workflows/stateMachines";
+import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
 import { assertOwner, defined, mustGet, ownerFilter } from "./shared";
@@ -82,7 +82,10 @@ export function siteRoutes(r: Router): void {
   r.on("GET", "/sites/:id", null, async (call) => {
     const site = await getSite(call);
     const evaluations = isPortalUser(call.ctx) ? [] : await call.repo.findMany("site_evaluations", { site_id: String(site.ROWID) }, { orderBy: "CREATEDTIME", desc: true, limit: 20 });
-    return { ...site, evaluations, allowed_transitions: allowedTransitions("site", String(site.status)) };
+    const transitions = transitionsFrom("site", String(site.status))
+      .filter((t) => !t.permission?.startsWith("system.") && !["evaluated", "approve"].includes(t.transition));
+    const evaluation_template = isPortalUser(call.ctx) ? [] : (await siteTemplate(call)).items;
+    return { ...site, evaluations, allowed_transitions: allowedTransitions("site", String(site.status)), transitions, evaluation_template };
   });
 
   r.on("PATCH", "/sites/:id", "site.write", async (call) => {

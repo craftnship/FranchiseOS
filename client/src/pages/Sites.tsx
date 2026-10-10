@@ -13,7 +13,7 @@ export function Sites() {
       <Loaded load={load}>{(rows) => {
         const statuses = [...new Set(rows.map((s) => String(s.status)))].sort();
         return (
-          <DataTable rows={rows} searchKeys={["site_code", "city", "state", "address_line_1", "status"]}
+          <DataTable rows={rows} href={(s) => `/sites/${s.ROWID}`} searchKeys={["site_code", "city", "state", "address_line_1", "status"]}
             toolbar={<div className="chips">{["", ...(status && !statuses.includes(status) ? [status] : []), ...statuses].map((s) => <button key={s} className={`chip ${status === s ? "on" : ""}`} onClick={() => setParams(s ? { status: s } : {})}>{s ? label(s) : "All"}</button>)}</div>}
             columns={[
               { key: "site_code", label: "Site", render: (s) => <span className="code">{s.site_code}</span> },

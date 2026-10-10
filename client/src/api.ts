@@ -28,6 +28,9 @@ let current: Me | null = null;
 export const setCurrentUser = (me: Me | null) => { current = me; };
 /** Hides actions the signed-in user cannot take; the API enforces the same rule. */
 export const can = (permission: string) => !!current?.permissions && (current.permissions.includes("*") || current.permissions.includes(permission));
+/** True for SUPER_ADMIN or a user holding the role; delegations are checked by the API. */
+export const actsAs = (role: string) => !!current && (current.roles.includes("SUPER_ADMIN") || current.roles.includes(role));
+export const hasRole = (role: string) => !!current?.roles.includes(role);
 export type Row = Record<string, any>;
 export interface Kpi { value: number | null; drill?: { path: string; query: Record<string, string> } }
 

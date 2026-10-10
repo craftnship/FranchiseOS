@@ -115,6 +115,9 @@ describe("franchise pipeline through the API", () => {
     const siteId = String(site.data.ROWID);
     expect((await call("mgr", "GET", `/applications/${id}`)).data.status).toBe("SITE_SUBMITTED");
     for (const t of ["screen", "schedule_visit", "start_evaluation"]) await call("mgr", "POST", `/sites/${siteId}/transition`, { transition: t });
+    const evaluating = await call("mgr", "GET", `/sites/${siteId}`);
+    expect(evaluating.data.evaluation_template.map((i: any) => i.code)).toContain("footfall");
+    expect(evaluating.data.transitions.map((t: any) => t.transition)).not.toContain("evaluated");
     const ev = await call("mgr", "POST", `/sites/${siteId}/evaluate`, { ratings: siteRatings });
     expect(ev.data.site.status).toBe("FEASIBILITY");
     expect(ev.data.evaluation.recommendation).toBe("RECOMMEND");
@@ -144,6 +147,14 @@ describe("franchise pipeline through the API", () => {
     expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
     const inbox = await call("mgr", "GET", "/approvals");
     expect(inbox.data.map((i: any) => String(i.ROWID))).toEqual([approvalId]);
+    expect(inbox.data[0].entity.code).toBe(app.data.application_code);
+    const pending = await call("mgr", "GET", `/applications/${id}`);
+    expect(pending.data.approval.steps).toHaveLength(4);
+    expect(pending.data.feasibility.passed).toBe(true);
+    expect(pending.data.territory.city).toBe("Chennai");
+    expect(pending.data.transitions.map((t: any) => t.transition)).toEqual(expect.arrayContaining(["reject", "withdraw", "hold"]));
+    expect(pending.data.transitions.map((t: any) => t.transition)).not.toContain("approve");
+    expect((await call("pepper", "GET", `/applications/${id}`)).data.approval).toBeUndefined();
     for (const [user, step] of [["mgr", 1], ["fin", 2], ["legal", 3]] as const) {
       expect((await call(user, "POST", `/approvals/${approvalId}/approve`, { step })).data.outcome).toBe("ADVANCED");
     }

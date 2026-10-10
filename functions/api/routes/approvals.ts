@@ -43,11 +43,16 @@ export function approvalRoutes(r: Router): void {
     const pending = await call.repo.findMany("approval_instances", { status: "PENDING" }, { orderBy: "step_due_at", limit: 300 });
     const roles = new Set([...call.ctx.roles, ...(await delegatedRoles(call))]);
     const all = q.scope === "all" && (call.ctx.roles.includes("SUPER_ADMIN") || call.ctx.roles.includes("FRANCHISE_DIRECTOR"));
-    return pending
+    const shown = pending
       .map((i) => ({ ...i, current: currentStep(i), overdue: new Date(String(i.step_due_at)) < call.now }))
       // SUPER_ADMIN can decide any step (audited override), so every pending approval is theirs.
       .filter((i) => all || call.ctx.roles.includes("SUPER_ADMIN") || (i.current && roles.has(i.current.approver_role)))
       .slice(q.offset, q.offset + q.limit);
+    // The record being decided, so the inbox can name it.
+    return Promise.all(shown.map(async (i: Row) => {
+      const entity = i.entity_type === "application" ? await call.repo.findOne("franchise_applications", { ROWID: String(i.entity_id) }) : null;
+      return { ...i, entity: entity && { ROWID: entity.ROWID, code: entity.application_code, city: entity.preferred_city, status: entity.status, franchisee_id: entity.franchisee_id } };
+    }));
   });
 
   r.on("GET", "/approvals/:id", null, async (call) => {

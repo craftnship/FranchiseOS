@@ -2,11 +2,12 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api, isPortal, Me, Row } from "../api";
 import { Icon, label, Pill } from "./ui";
+import { useLoad } from "../hooks";
 
 type NavItem = [to: string, text: string, icon: string];
 const STAFF_NAV: [string, NavItem[]][] = [
   ["Overview", [["/", "Dashboard", "dashboard"]]],
-  ["Expansion", [["/applications", "Applications", "applications"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
+  ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"]]],
   ["Operations", [["/projects", "Opening projects", "projects"]]],
 ];
@@ -21,7 +22,7 @@ function searchHref(r: Row): string {
   if (r.type === "agreement") return `/agreements/${r.id}`;
   if (r.type === "franchisee") return `/applications?franchisee_id=${r.id}`;
   if (r.type === "territory") return "/territories";
-  if (r.type === "site") return "/sites";
+  if (r.type === "site") return `/sites/${r.id}`;
   return "/";
 }
 
@@ -71,6 +72,9 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
   const role = me.roles[0] ?? "USER";
+  // Approvals waiting on this user, refreshed as they move around the app.
+  const waiting = useLoad(() => (portal ? Promise.resolve([]) : api<Row[]>("GET", "/approvals", { query: { limit: "100" } })), [loc.pathname]);
+  const counts: Record<string, number> = { "/approvals": waiting.data?.length ?? 0 };
   const initials = role.split("_").map((w) => w[0]).join("").slice(0, 2);
   return (
     <div className={`app ${open ? "nav-open" : ""}`}>
@@ -83,7 +87,7 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           {groups.map(([group, items]) => (
             <div key={group} className="nav-group">
               <div className="nav-label">{group}</div>
-              {items.map(([to, text, icon]) => <NavLink key={to} to={to} end={to === "/" || to === "/portal"}><Icon name={icon} />{text}</NavLink>)}
+              {items.map(([to, text, icon]) => <NavLink key={to} to={to} end={to === "/" || to === "/portal"}><Icon name={icon} />{text}{counts[to] > 0 && <span className="nav-count">{counts[to]}</span>}</NavLink>)}
             </div>
           ))}
         </nav>

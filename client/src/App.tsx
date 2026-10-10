@@ -6,7 +6,10 @@ import { ErrorState } from "./components/ui";
 import { Sites } from "./pages/Sites";
 import { Territories } from "./pages/Territories";
 import { Dashboard } from "./pages/Dashboard";
-import { AgreementDetail, Agreements, ApplicationDetail, Applications } from "./pages/Applications";
+import { AgreementDetail, Agreements, Applications } from "./pages/Applications";
+import { ApplicationDetail } from "./pages/ApplicationDetail";
+import { Approvals } from "./pages/Approvals";
+import { SiteDetail } from "./pages/SiteDetail";
 import { Franchisees } from "./pages/Franchisees";
 import { ProjectDetail, Projects } from "./pages/Projects";
 import { PortalAgreement, PortalHome, PortalTasks } from "./pages/Portal";
@@ -62,6 +65,8 @@ export function App() {
               <Route path="/franchisees" element={<Franchisees />} />
               <Route path="/territories" element={<Territories />} />
               <Route path="/sites" element={<Sites />} />
+              <Route path="/sites/:id" element={<SiteDetail />} />
+              <Route path="/approvals" element={<Approvals />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
           )}

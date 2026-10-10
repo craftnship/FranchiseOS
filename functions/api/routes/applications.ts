@@ -7,7 +7,7 @@ import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
 import { DEFAULT_QUALIFICATION_WEIGHTS, DEFAULT_THRESHOLDS, scoreQualification, territoryAvailabilityRating } from "../../scoring/qualification";
 import { startApproval } from "../../workflows/approvals";
-import { allowedTransitions, findRule } from "../../workflows/stateMachines";
+import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
 import { Call, page, parse, Router } from "../router";
@@ -78,11 +78,32 @@ export function applicationRoutes(r: Router): void {
     return row;
   }, 201);
 
+  // Everything the application page needs in one call: documents, the transitions a person can trigger
+  // (with the permission each needs), and for staff the territory, feasibility and latest approval.
   r.on("GET", "/applications/:id", null, async (call) => {
     const app = await getApp(call);
-    const documents = await call.repo.findMany("application_documents", { application_id: String(app.ROWID) });
+    const id = String(app.ROWID);
+    const documents = await call.repo.findMany("application_documents", { application_id: id });
     const allowed_transitions = allowedTransitions("application", String(app.status));
-    return { ...app, documents, allowed_transitions };
+    const transitions = transitionsFrom("application", String(app.status))
+      .filter((t) => !t.permission?.startsWith("system.") && !["submit", "start_approval"].includes(t.transition));
+    const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
+    const required_documents = (settings(tenant).required_documents as string[] | undefined) ?? DEFAULT_REQUIRED_DOCUMENTS;
+    const score_breakdown = app.score_breakdown_json ? JSON.parse(String(app.score_breakdown_json)) : null;
+    const base = { ...app, documents, allowed_transitions, transitions, required_documents, score_breakdown };
+    if (isPortalUser(call.ctx)) return base;
+    const territory = app.territory_id ? await call.repo.findOne("territories", { ROWID: String(app.territory_id) }) : null;
+    const feasibility = app.feasibility_id ? await call.repo.findOne("feasibility_models", { ROWID: String(app.feasibility_id) }) : null;
+    const latest = (await call.repo.findMany("approval_instances", { entity_type: "application", entity_id: id }, { orderBy: "CREATEDTIME", desc: true, limit: 1 }))[0];
+    const approval = latest ? {
+      ...latest,
+      steps: JSON.parse(String(latest.steps_json)),
+      actions: await call.repo.findMany("approval_actions", { approval_id: String(latest.ROWID) }, { orderBy: "acted_at" }),
+    } : null;
+    return {
+      ...base, territory, approval,
+      feasibility: feasibility && { ...feasibility, fail_reasons: feasibility.fail_reasons_json ? JSON.parse(String(feasibility.fail_reasons_json)) : [] },
+    };
   });
 
   r.on("PATCH", "/applications/:id", null, async (call) => {
