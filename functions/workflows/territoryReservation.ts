@@ -1,5 +1,5 @@
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { logActivity } from "../common/audit";
 import { log } from "../common/logger";
@@ -95,11 +95,11 @@ export async function expireReservations(store: Store, ctx: TenantContext, now: 
 }
 
 /** Runs expireReservations for every active tenant; a failing tenant is logged and skipped. */
-export async function runReservationJob(store: Store, opts: { now: Date; requestId: string }) {
+export async function runReservationJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
   const out = { tenants: 0, expired: 0, released: 0, allocated: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
-    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId };
+    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
     out.tenants++;
     try {
       const r = await expireReservations(store, ctx, opts.now);

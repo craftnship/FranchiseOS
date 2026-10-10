@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
 import { log } from "../common/logger";
 import { authorize, PermissionLookup } from "../common/rbac";
@@ -39,6 +39,8 @@ export interface ApiDeps {
   zoho?: ZohoFactory;
   /** Where uploaded documents are stored; absent until a Stratus bucket is configured. */
   files?: FileStorage;
+  /** Sends notification emails; absent until a sender is configured. */
+  mailer?: Mailer;
 }
 
 export interface Call {
@@ -101,7 +103,7 @@ export class Router {
       const m = this.match(req.method, normalizePath(req.path));
       if (m === null) throw new AppError("NOT_FOUND", "Route not found.");
       if (m === "method") throw new AppError("INVALID_REQUEST", "Method not allowed on this route.");
-      const ctx = await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId });
+      const ctx: TenantContext = { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
       const permissions = deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
       if (m.route.permission) await authorize(ctx, m.route.permission, permissions);
       const data = await m.route.handler({

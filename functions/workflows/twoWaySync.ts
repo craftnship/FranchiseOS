@@ -1,4 +1,4 @@
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { Store } from "../common/store";
 import { ZohoClients } from "../integrations/tenantClients";
@@ -12,12 +12,12 @@ import { syncTenantFees } from "./fees";
 export async function runTwoWaySyncJob(
   store: Store,
   zohoFor: (tenantId: string) => Promise<ZohoClients | null>,
-  opts: { now: Date; requestId: string },
+  opts: { now: Date; requestId: string; mailer?: Mailer },
 ) {
   const out = { tenants: 0, fees_checked: 0, fees_paid: 0, contacts_updated: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
-    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId };
+    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
     const zoho = await zohoFor(tenantId).catch(() => null);
     if (!zoho) continue;
     out.tenants++;

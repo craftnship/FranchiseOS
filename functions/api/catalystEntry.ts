@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { CatalystStore } from "../common/catalystStore";
 import { StratusFileStorage } from "../common/files";
+import { mailerFromEnv } from "../common/mailer";
 import { newRequestId } from "../common/response";
 import { IdentityUser } from "../common/tenant";
 import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
@@ -80,7 +81,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       // Document uploads are on once FOS_STRATUS_BUCKET names the bucket.
       const bucket = process.env.FOS_STRATUS_BUCKET?.trim();
       const files = bucket ? new StratusFileStorage(admin.stratus().bucket(bucket)) : undefined;
-      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files };
+      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files, mailer: mailerFromEnv(admin) };
     })(),
   );
   send(res, result.status, result.body);

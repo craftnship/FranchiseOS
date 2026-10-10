@@ -63,6 +63,61 @@ function Search() {
   );
 }
 
+const ago = (iso: unknown) => {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(String(iso))) / 60000));
+  if (!iso || Number.isNaN(mins)) return "";
+  return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`;
+};
+
+/** Inbox in the top bar: unread count, newest 20, refreshed every minute and on opening. */
+function Bell() {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{ items: Row[]; unread: number }>({ items: [], unread: 0 });
+  const box = useRef<HTMLDivElement>(null);
+  const nav = useNavigate();
+  const refresh = () => api<{ items: Row[]; unread: number }>("GET", "/notifications", { query: { limit: "20" } }).then(setData).catch(() => {});
+  useEffect(() => { refresh(); const t = setInterval(refresh, 60_000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    if (!open) return;
+    refresh();
+    const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const go = async (n: Row) => {
+    setOpen(false);
+    if (n.status !== "READ") await api("POST", `/notifications/${n.ROWID}/read`).catch(() => {});
+    if (n.link) nav(String(n.link));
+    refresh();
+  };
+  const readAll = async () => { await api("POST", "/notifications/read-all").catch(() => {}); refresh(); };
+  return (
+    <div className="bell" ref={box}>
+      <button className="icon-btn" onClick={() => setOpen((o) => !o)} aria-label={`Notifications${data.unread ? `, ${data.unread} unread` : ""}`} aria-expanded={open}>
+        <Icon name="bell" />{data.unread > 0 && <span className="bell-count">{data.unread > 99 ? "99+" : data.unread}</span>}
+      </button>
+      {open && (
+        <div className="bell-panel" role="dialog" aria-label="Notifications">
+          <div className="bell-head"><strong>Notifications</strong>{data.unread > 0 && <button className="btn ghost sm" onClick={readAll}>Mark all read</button>}</div>
+          {data.items.length === 0 ? <div className="state">Nothing yet. Approvals, signings, risks and reminders show up here.</div> : (
+            <ul>
+              {data.items.map((n) => (
+                <li key={String(n.ROWID)} className={n.status === "READ" ? "" : "unread"}>
+                  <button onClick={() => go(n)}>
+                    <span className="bell-title">{n.title}</span>
+                    {n.body && <span className="bell-body">{n.body}</span>}
+                    <span className="bell-time">{ago(n.created_at)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const signOut = () => { const c = (window as any).catalyst; if (c?.auth?.signOut) c.auth.signOut("/app/"); else window.location.href = "/__catalyst/auth/logout"; };
 
 export function Layout({ me, children }: { me: Me; children: ReactNode }) {
@@ -100,6 +155,7 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
         <header className="topbar">
           <button className="icon-btn menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Menu"><Icon name="menu" /></button>
           {!portal ? <Search /> : <div className="grow" />}
+          <Bell />
           <div className="user">
             <span className="avatar">{initials}</span>
             <span className="user-meta"><strong>{label(role)}</strong><small>Tenant {me.tenant_id.slice(-6)}</small></span>

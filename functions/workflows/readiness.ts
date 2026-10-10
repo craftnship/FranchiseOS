@@ -1,5 +1,5 @@
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { log } from "../common/logger";
 import { Row, Store, TenantRepo } from "../common/store";
@@ -106,12 +106,12 @@ export async function refreshReadiness(
 export async function runProjectRiskJob(
   store: Store,
   projectsFor: (tenantId: string) => Promise<ZohoProjectsClient | null>,
-  opts: { today: string; now?: Date; requestId: string },
+  opts: { today: string; now?: Date; requestId: string; mailer?: Mailer },
 ): Promise<{ projects: number; synced: number; at_risk: number; failed: number }> {
   const out = { projects: 0, synced: 0, at_risk: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
-    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId };
+    const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
     const repo = new TenantRepo(store, tenantId);
     const projects = await projectsFor(tenantId).catch(() => null);
     for (const state of ACTIVE_PROJECT_STATES) {

@@ -45,6 +45,7 @@ const ICONS: Record<string, string> = {
   send: "M2 21 23 12 2 3v7l15 2-15 2v7z",
   check: "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z",
   sort: "M7 10l5-5 5 5H7zm0 4h10l-5 5-5-5z",
+  bell: "M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4a1.5 1.5 0 0 0-3 0v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1l-2-2z",
 };
 
 export function Icon({ name, size = 18 }: { name: keyof typeof ICONS | string; size?: number }) {

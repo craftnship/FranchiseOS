@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { readBody, send } from "../api/catalystEntry";
 import { CatalystStore } from "../common/catalystStore";
+import { mailerFromEnv } from "../common/mailer";
 import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
 import { handleWebhook } from "./router";
 
@@ -22,10 +23,11 @@ export async function handleWebhookRequest(req: IncomingMessage, res: ServerResp
     return;
   }
   // Admin scope: there is no end user on a webhook call.
-  const store = new CatalystStore(sdk.initialize(req, { scope: "admin" }));
+  const app = sdk.initialize(req, { scope: "admin" });
+  const store = new CatalystStore(app);
   const result = await handleWebhook(
     { method: req.method ?? "POST", path: url.pathname, headers: req.headers, query: Object.fromEntries(url.searchParams), body, rawBody: raw },
-    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), zoho: zohoFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET, signSecret: process.env.FOS_SIGN_WEBHOOK_SECRET || undefined },
+    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), zoho: zohoFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET, signSecret: process.env.FOS_SIGN_WEBHOOK_SECRET || undefined, mailer: mailerFromEnv(app) },
   );
   send(res, result.status, result.body);
 }

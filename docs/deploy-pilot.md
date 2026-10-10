@@ -139,3 +139,21 @@ settings so the test agreement route stops answering.
   of rejected or withdrawn applications are freed, and reservations past `reservation_days` (30)
   lapse while the application is still before the site stage. Later stages keep their hold.
 - Not linked to CRM Territory Management, which is off in the pilot CRM.
+
+## Notifications
+
+- Every signed-in user has an inbox (the bell in the top bar). Events: an approval step waiting
+  for you, an approval decided, a new application from CRM, an agreement signed, declined or
+  expired, a project at risk or opened, a fee paid or overdue, a reservation lapsed, a task assigned.
+- `fos_jobs` runs a fourth daily step, reminders: approvals past their SLA (escalated once to the
+  step's escalation role), overdue tasks to their owners, projects past their target opening date,
+  agreements unsigned after 7 days, and territory holds lapsing within 5 days. Each reminder is
+  delivered once (a daily one once per day).
+- Recipients are the active users holding the event's roles, plus active approval delegates; the
+  person who acted is left out. When nobody holds a role, the tenant's super admins get it.
+- Email: add and verify a sender in the console (Cloud Scale > Mail), then set `FOS_MAIL_FROM` to
+  that address for `fos_api`, `fos_webhooks` and `fos_jobs` in `env.local.json`. Without it, the
+  inbox still works and no email is sent. Tenant settings: `notify_email` (false turns email off),
+  `app_url` (the link in emails; defaults to the Development web app).
+- Data Store: `notifications` has `title`, `body`, `link`, `read_at`, `created_at` and a unique
+  `dedupe_key` (created in Development on 2026-10-10).
