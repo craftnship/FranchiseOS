@@ -89,6 +89,18 @@ describe("approval engine (§19, §29, FOS-031/034/043)", () => {
     await actOnApproval(store, ctx(["FRANCHISE_MANAGER"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: 1 });
     expect(await code(actOnApproval(store, ctx(["FRANCHISE_MANAGER"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: 1 }))).toBe("APPROVAL_ALREADY_COMPLETED");
   });
+  it("SUPER_ADMIN can decide every step, and each override is recorded", async () => {
+    const store = newStore();
+    await seedWorkflow(store);
+    const inst = await startApproval(store, ctx(["SUPER_ADMIN"]), { entityType: "application", entityId: "A1", workflowCode: "FRANCHISE_APPROVAL", facts: { initial_investment: 3_000_000 } });
+    const outcomes = [];
+    for (let i = 1; i <= 4; i++) outcomes.push((await actOnApproval(store, ctx(["SUPER_ADMIN"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: i })).outcome);
+    expect(outcomes).toEqual(["ADVANCED", "ADVANCED", "ADVANCED", "APPROVED"]);
+    const actions = await store.findMany("approval_actions", { approval_id: inst.ROWID! });
+    expect(actions.map((a) => a.comments)).toContain("[Super admin override for FINANCE_MANAGER]");
+    const logs = await store.findMany("activity_logs", { action: "approval:approve" });
+    expect(logs.every((l) => JSON.parse(String(l.metadata_json)).override === true)).toBe(true);
+  });
   it("two concurrent clicks record one decision", async () => {
     const store = newStore();
     await seedWorkflow(store);

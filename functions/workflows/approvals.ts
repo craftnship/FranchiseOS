@@ -75,11 +75,15 @@ export async function startApproval(
   return instance;
 }
 
-/** True if the actor holds the role directly or through an active delegation (FOS-043). */
-async function canActAs(store: Store, ctx: TenantContext, role: string, now: Date): Promise<boolean> {
-  if (ctx.roles.includes(role)) return true;
+/**
+ * How the actor may decide a step for `role`: holding it, through an active delegation (FOS-043),
+ * or as SUPER_ADMIN overriding the chain (MVP: one admin can run every step; each use is audited).
+ */
+async function actingBasis(store: Store, ctx: TenantContext, role: string, now: Date): Promise<"role" | "delegation" | "override" | null> {
+  if (ctx.roles.includes(role)) return "role";
   const delegations = await store.findMany("approval_delegations", { tenant_id: ctx.tenantId, delegate_user_id: ctx.userId, role, status: "ACTIVE" });
-  return delegations.some((d) => new Date(String(d.starts_at)) <= now && now <= new Date(String(d.ends_at)));
+  if (delegations.some((d) => new Date(String(d.starts_at)) <= now && now <= new Date(String(d.ends_at)))) return "delegation";
+  return ctx.roles.includes("SUPER_ADMIN") ? "override" : null;
 }
 
 /** Approve / reject / return on the current step. Only the current authorised approver can act (FOS-034). */
@@ -102,7 +106,9 @@ export async function actOnApproval(
   const pinned = steps(instance);
   const idx = pinned.findIndex((s) => s.sequence === args.stepSequence);
   const step = pinned[idx];
-  if (!(await canActAs(store, ctx, step.approver_role, now))) throw new AppError("APPROVAL_NOT_ALLOWED");
+  const basis = await actingBasis(store, ctx, step.approver_role, now);
+  if (!basis) throw new AppError("APPROVAL_NOT_ALLOWED");
+  const override = basis === "override";
 
   try {
     // Unique per (approval, step): a concurrent second click cannot record two decisions.
@@ -112,7 +118,7 @@ export async function actOnApproval(
       step_id: step.step_id,
       actor_user_id: ctx.userId,
       action: args.action,
-      comments: args.comments ?? "",
+      comments: override ? `[Super admin override for ${step.approver_role}] ${args.comments ?? ""}`.trim() : args.comments ?? "",
       acted_at: now.toISOString(),
       action_key: `${args.approvalId}:${step.sequence}`,
     });
@@ -132,7 +138,7 @@ export async function actOnApproval(
     patch = { status: outcome, completed_at: now.toISOString(), active_key: `closed:${args.approvalId}` };
   }
   const updated = await repo.update("approval_instances", args.approvalId, patch);
-  await logActivity(store, ctx, { entityType: String(instance.entity_type), entityId: String(instance.entity_id), action: `approval:${args.action.toLowerCase()}`, metadata: { approval_id: args.approvalId, step: step.sequence, outcome } });
+  await logActivity(store, ctx, { entityType: String(instance.entity_type), entityId: String(instance.entity_id), action: `approval:${args.action.toLowerCase()}`, metadata: { approval_id: args.approvalId, step: step.sequence, outcome, ...(override ? { override: true, acting_for: step.approver_role } : {}) } });
   return { outcome, instance: updated };
 }
 

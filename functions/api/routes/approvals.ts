@@ -45,7 +45,8 @@ export function approvalRoutes(r: Router): void {
     const all = q.scope === "all" && (call.ctx.roles.includes("SUPER_ADMIN") || call.ctx.roles.includes("FRANCHISE_DIRECTOR"));
     return pending
       .map((i) => ({ ...i, current: currentStep(i), overdue: new Date(String(i.step_due_at)) < call.now }))
-      .filter((i) => all || (i.current && roles.has(i.current.approver_role)))
+      // SUPER_ADMIN can decide any step (audited override), so every pending approval is theirs.
+      .filter((i) => all || call.ctx.roles.includes("SUPER_ADMIN") || (i.current && roles.has(i.current.approver_role)))
       .slice(q.offset, q.offset + q.limit);
   });
 
