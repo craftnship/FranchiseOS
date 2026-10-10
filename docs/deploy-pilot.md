@@ -104,3 +104,11 @@ settings so the test agreement route stops answering.
   `NEEDS_CONTACT_DETAILS`. Adding an email or phone and saving the lead imports it.
 - The project page reads the fee invoice from Books and warns while it is unpaid. It never blocks work.
 - Data Store: `franchisees.zoho_contact_id` (varchar). CRM: the five `FOS_*` fields on Accounts.
+
+## Document uploads and delegation
+
+- Stratus: create a **protected** bucket `fos-docs-62105` (Cloud Scale → Stratus). Opening Stratus in the console once is also what lets tools manage it later.
+- `fos_api` env var: `FOS_STRATUS_BUCKET=fos-docs-62105`. Without it the app keeps working and documents can only be added as links.
+- `fos_api` now uses `zcatalyst-sdk-node` 3.x (Stratus needs it); `npm run package:functions` installs it.
+- Files are stored under `tenants/<tenant>/applications/<application>/…` and opened through 5-minute signed links. Uploads are PDF, JPG, PNG or WebP, up to 5 MB.
+- Delegation needs no setup: managers use Approvals → Delegations.

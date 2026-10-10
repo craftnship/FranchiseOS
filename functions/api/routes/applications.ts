@@ -5,6 +5,7 @@ import { nextBusinessId } from "../../common/ids";
 import { isPortalUser, authorize } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
+import { documentKey, MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES } from "../../common/files";
 import { DEFAULT_QUALIFICATION_WEIGHTS, DEFAULT_THRESHOLDS, scoreQualification, territoryAvailabilityRating } from "../../scoring/qualification";
 import { startApproval } from "../../workflows/approvals";
 import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
@@ -25,6 +26,15 @@ const patchSchema = z.object(editable).strict();
 const documentSchema = z.object({
   document_type: z.string().trim().min(1).max(50),
   file_ref: z.string().trim().min(1).max(500),
+  document_number: z.string().trim().max(100).optional(),
+  issue_date: z.string().date().optional(),
+  expiry_date: z.string().date().optional(),
+}).strict();
+const uploadSchema = z.object({
+  document_type: z.string().trim().min(1).max(50),
+  file_name: z.string().trim().min(1).max(200),
+  content_type: z.string().max(100),
+  data_base64: z.string().min(1),
   document_number: z.string().trim().max(100).optional(),
   issue_date: z.string().date().optional(),
   expiry_date: z.string().date().optional(),
@@ -90,7 +100,7 @@ export function applicationRoutes(r: Router): void {
     const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
     const required_documents = (settings(tenant).required_documents as string[] | undefined) ?? DEFAULT_REQUIRED_DOCUMENTS;
     const score_breakdown = app.score_breakdown_json ? JSON.parse(String(app.score_breakdown_json)) : null;
-    const base = { ...app, documents, allowed_transitions, transitions, required_documents, score_breakdown };
+    const base = { ...app, documents, allowed_transitions, transitions, required_documents, score_breakdown, uploads_enabled: !!call.files };
     if (isPortalUser(call.ctx)) return base;
     const territory = app.territory_id ? await call.repo.findOne("territories", { ROWID: String(app.territory_id) }) : null;
     const feasibility = app.feasibility_id ? await call.repo.findOne("feasibility_models", { ROWID: String(app.feasibility_id) }) : null;
@@ -125,6 +135,35 @@ export function applicationRoutes(r: Router): void {
     await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "document:add", metadata: { document_type: body.document_type } });
     return row;
   }, 201);
+
+  // The file comes base64-encoded in the JSON body (same-origin, so the sign-in cookie covers it)
+  // and goes to Stratus under the tenant's and application's prefix.
+  r.on("POST", "/applications/:id/documents/upload", null, async (call) => {
+    const { data_base64, file_name, content_type, ...meta } = parse(uploadSchema, call.body);
+    const app = await getApp(call);
+    await authorize(call.ctx, isPortalUser(call.ctx) ? "application.submit" : "application.review", call.permissions);
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet. Add a link to the file instead.");
+    if (!UPLOAD_TYPES[content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
+    const data = Buffer.from(data_base64, "base64");
+    if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
+    if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
+    const key = documentKey(call.ctx.tenantId, String(app.ROWID), file_name);
+    await call.files.put(key, data, content_type);
+    const row = await call.repo.insert("application_documents", { ...meta, file_ref: `${STRATUS_PREFIX}${key}`, application_id: String(app.ROWID), verification_status: "PENDING" });
+    await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "document:upload", metadata: { document_type: meta.document_type, bytes: data.length } });
+    return row;
+  }, 201);
+
+  // A short-lived link to the stored file; a document added as a link just returns that link.
+  r.on("GET", "/applications/:id/documents/:docId/download", null, async (call) => {
+    await getApp(call);
+    const doc = await mustGet(call.repo, "application_documents", call.params.docId, "NOT_FOUND");
+    if (String(doc.application_id) !== call.params.id) throw new AppError("NOT_FOUND");
+    const ref = String(doc.file_ref ?? "");
+    if (!ref.startsWith(STRATUS_PREFIX)) return { url: ref };
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
+    return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
+  });
 
   r.on("POST", "/applications/:id/documents/:docId/verify", "application.review", async (call) => {
     const body = parse(verifySchema, call.body);

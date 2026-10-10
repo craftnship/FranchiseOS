@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import { CatalystStore } from "../common/catalystStore";
+import { StratusFileStorage } from "../common/files";
 import { newRequestId } from "../common/response";
 import { IdentityUser } from "../common/tenant";
 import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
@@ -8,12 +9,14 @@ import { buildRouter } from "./app";
 // Entry point of the fos_api Advanced I/O function. API Gateway forwards /api/v1/* here with
 // Catalyst Authentication enforced; the user comes from the SDK, never from the request body.
 
-const MAX_BODY_BYTES = 1_000_000;
+// Room for a 5 MB document upload sent base64-encoded.
+const MAX_BODY_BYTES = 7_500_000;
 const router = buildRouter();
 
 interface CatalystSdk {
   initialize(req: IncomingMessage, opts?: { scope?: string }): {
     userManagement(): { getCurrentUser(): Promise<{ user_id: string | number; email_id: string }> };
+    stratus(): { bucket(name: string): ConstructorParameters<typeof StratusFileStorage>[0] };
   } & ConstructorParameters<typeof CatalystStore>[0];
 }
 
@@ -44,7 +47,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
     const raw = ["POST", "PUT", "PATCH"].includes(req.method ?? "") ? await readBody(req) : "";
     body = raw ? JSON.parse(raw) : {};
   } catch {
-    send(res, 400, { success: false, error: { code: "INVALID_REQUEST", message: "Request body must be valid JSON under 1 MB." }, meta: { request_id: requestId } });
+    send(res, 400, { success: false, error: { code: "INVALID_REQUEST", message: "Request body must be valid JSON under 7.5 MB." }, meta: { request_id: requestId } });
     return;
   }
 
@@ -71,9 +74,13 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
     (() => {
       // Admin scope for data: the signed-in user only identifies the caller. Catalyst's App User
       // role is read-only on every table; FranchiseOS enforces tenant isolation and RBAC itself.
-      const store = new CatalystStore(sdk.initialize(req, { scope: "admin" }));
+      const admin = sdk.initialize(req, { scope: "admin" });
+      const store = new CatalystStore(admin);
       const creds = zohoCredentialsFromEnv();
-      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds) };
+      // Document uploads are on once FOS_STRATUS_BUCKET names the bucket.
+      const bucket = process.env.FOS_STRATUS_BUCKET?.trim();
+      const files = bucket ? new StratusFileStorage(admin.stratus().bucket(bucket)) : undefined;
+      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files };
     })(),
   );
   send(res, result.status, result.body);

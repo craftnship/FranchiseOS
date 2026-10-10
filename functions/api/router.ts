@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
 import { TenantContext } from "../common/context";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
@@ -36,6 +37,8 @@ export interface ApiDeps {
   crm?: CrmFactory;
   /** Builds all of the tenant's Zoho clients (Sign, Books, Projects); null when not connected. */
   zoho?: ZohoFactory;
+  /** Where uploaded documents are stored; absent until a Stratus bucket is configured. */
+  files?: FileStorage;
 }
 
 export interface Call {
@@ -51,6 +54,7 @@ export interface Call {
   onTransition: NonNullable<TransitionDeps["onTransition"]>;
   /** The tenant's Zoho clients, or null when Zoho is not connected. */
   zoho: () => Promise<ZohoClients | null>;
+  files: FileStorage | null;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -114,6 +118,7 @@ export class Router {
           await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
         },
         zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
+        files: deps.files ?? null,
       });
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {

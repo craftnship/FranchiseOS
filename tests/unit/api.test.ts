@@ -3,12 +3,14 @@ import { buildRouter } from "../../functions/api/app";
 import { ApiRequest } from "../../functions/api/router";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { newStore } from "./helpers";
+import { MemoryFileStorage } from "../../functions/common/files";
 
 const router = buildRouter();
 type Body = { success: boolean; data?: any; error?: { code: string; fields?: Record<string, string> } };
 
-async function setup() {
+async function setup(opts: { files?: boolean } = { files: true }) {
   const store = newStore();
+  const files = opts.files ? new MemoryFileStorage() : undefined;
   const a = await bootstrapTenant(store, { tenantCode: "STARK", name: "Stark Industries", zohoDc: "IN" });
   const b = await bootstrapTenant(store, { tenantCode: "OTHER", name: "Other Co", zohoDc: "IN" });
   const addUser = async (tenant: typeof a, role: string, ext: string, franchiseeId?: string) =>
@@ -17,10 +19,10 @@ async function setup() {
   await addUser(b, "FRANCHISE_DIRECTOR", "other-dir");
   const call = async (ext: string | null, method: string, path: string, body?: unknown, query?: Record<string, string>) => {
     const req: ApiRequest = { method, path: `/api/v1${path}`, body, query, identity: ext ? { externalUserId: ext, email: `${ext}@x.test` } : null };
-    const res = await router.handle(req, { store });
+    const res = await router.handle(req, { store, files });
     return { status: res.status, ...(res.body as Body) };
   };
-  return { store, a, b, addUser, call };
+  return { store, a, b, addUser, call, files };
 }
 
 const ratings = { financial_capacity: 90, business_experience: 80, industry_experience: 70, investment_readiness: 85, time_commitment: 90, profile_quality: 80 };
@@ -261,5 +263,50 @@ describe("approval delegation", () => {
     const portal = await addUser(a, "FRANCHISEE", "pietro", String(fr.data.ROWID));
     expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: String(portal.ROWID), role: "LEGAL_MANAGER", ...window(0, 24) })).error?.fields).toHaveProperty("delegate_user_id");
     expect((await call("pietro", "GET", "/approvals/delegations")).error?.code).toBe("ACCESS_DENIED");
+  });
+});
+
+describe("document uploads", () => {
+  const pdf = Buffer.from("%PDF-1.4 test").toString("base64");
+  async function draft(opts?: { files?: boolean }) {
+    const s = await setup(opts);
+    const fr = await s.call("mgr", "POST", "/franchisees", { display_name: "Natasha" });
+    await s.addUser(s.a, "FRANCHISEE", "nat", String(fr.data.ROWID));
+    const app = await s.call("nat", "POST", "/applications", { application_type: "UNIT" });
+    return { ...s, id: String(app.data.ROWID) };
+  }
+
+  it("stores the file under the tenant and application, and downloads it through a signed link", async () => {
+    const { call, files, id, a, addUser } = await draft();
+    expect((await call("nat", "GET", `/applications/${id}`)).data.uploads_enabled).toBe(true);
+    const up = await call("nat", "POST", `/applications/${id}/documents/upload`, { document_type: "ID_PROOF", file_name: "My Aadhaar (front).pdf", content_type: "application/pdf", data_base64: pdf });
+    expect(up.status).toBe(201);
+    expect(up.data.file_ref).toMatch(new RegExp(`^stratus:tenants/${a.tenantId}/applications/${id}/[\\w-]+/My_Aadhaar_front_.pdf$`));
+    expect([...files!.objects.values()][0].data.toString()).toBe("%PDF-1.4 test");
+    const link = await call("nat", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`);
+    expect(link.data.url).toBe(`memory://${up.data.file_ref.slice("stratus:".length)}`);
+
+    // Staff can fetch it; another franchisee cannot.
+    expect((await call("mgr", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`)).data.url).toMatch(/^memory:/);
+    const other = await call("mgr", "POST", "/franchisees", { display_name: "Clint" });
+    await addUser(a, "FRANCHISEE", "clint", String(other.data.ROWID));
+    expect((await call("clint", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`)).error?.code).toBe("APPLICATION_NOT_FOUND");
+  });
+
+  it("rejects unsupported, empty and oversized files", async () => {
+    const { call, id } = await draft();
+    const base = { document_type: "ID_PROOF", file_name: "x.pdf" };
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/zip", data_base64: pdf })).error?.fields).toHaveProperty("file");
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/pdf", data_base64: "====" })).error?.fields).toHaveProperty("file");
+    const big = Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64");
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/pdf", data_base64: big })).error?.fields?.file).toBe("too large");
+  });
+
+  it("says uploads are off when no bucket is configured", async () => {
+    const { call, id } = await draft({ files: false });
+    expect((await call("nat", "GET", `/applications/${id}`)).data.uploads_enabled).toBe(false);
+    const res = await call("nat", "POST", `/applications/${id}/documents/upload`, { document_type: "ID_PROOF", file_name: "x.pdf", content_type: "application/pdf", data_base64: pdf });
+    expect(res.status).toBe(503);
+    expect(res.error?.code).toBe("FILE_STORAGE_UNAVAILABLE");
   });
 });

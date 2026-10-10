@@ -246,7 +246,7 @@ function DocumentsPanel({ a, onAdd, onVerify, busy }: { a: Row; onAdd?: () => vo
       })}</div>
       <DataTable rows={docs} empty="No documents yet." columns={[
         { key: "document_type", label: "Document", render: (d) => <>{label(d.document_type)}{d.document_number && <span className="cell-sub">{d.document_number}</span>}</> },
-        { key: "file_ref", label: "File", render: (d) => /^https?:\/\//.test(String(d.file_ref)) ? <a href={d.file_ref} target="_blank" rel="noreferrer">Open</a> : <span className="muted">{d.file_ref}</span> },
+        { key: "file_ref", label: "File", render: (d) => <DocumentLink a={a} d={d} /> },
         { key: "expiry_date", label: "Expires", render: (d) => date(d.expiry_date) },
         { key: "verification_status", label: "Status", render: (d) => <>{<Pill value={d.verification_status} tone={d.verification_status === "PENDING" ? "warn" : undefined} />}{d.rejection_reason && <span className="cell-sub">{d.rejection_reason}</span>}</> },
         ...(review ? [{ key: "_act", label: "", render: (d: Row) => d.verification_status === "PENDING" && (
@@ -383,29 +383,82 @@ function ScoreDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; onS
   );
 }
 
+const MAX_UPLOAD_MB = 5;
+const UPLOAD_ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
+
+/** Reads a file as base64 without the data: prefix. */
+const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(",", 2)[1] ?? "");
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(file);
+});
+
 function DocumentDialog({ a, required, onClose, onSaved }: { a: Row; required: string[]; onClose: () => void; onSaved: (d: Row) => void }) {
   const docs = (a.documents ?? []) as Row[];
   const firstMissing = required.find((t) => !docs.some((d) => d.document_type === t && d.verification_status !== "REJECTED"));
   const f = useFields({ document_type: firstMissing ?? DOC_TYPES[0], file_ref: "", document_number: "", issue_date: "", expiry_date: "" });
+  const [mode, setMode] = useState<"upload" | "link">(a.uploads_enabled ? "upload" : "link");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const act = useAction();
+  const pick = (picked: File | null) => {
+    setFile(null); setFileError(null);
+    if (!picked) return;
+    if (!UPLOAD_ACCEPT.split(",").includes(picked.type)) { setFileError("Choose a PDF, JPG, PNG or WebP file."); return; }
+    if (picked.size > MAX_UPLOAD_MB * 1024 * 1024) { setFileError(`This file is ${(picked.size / 1024 / 1024).toFixed(1)} MB. Files can be up to ${MAX_UPLOAD_MB} MB.`); return; }
+    setFile(picked);
+  };
+  const meta = () => ({ document_type: f.values.document_type, document_number: f.text("document_number"), issue_date: f.text("issue_date"), expiry_date: f.text("expiry_date") });
   const save = async () => {
-    const r = await act.run("doc", () => api<Row>("POST", `/applications/${a.ROWID}/documents`, { body: {
-      document_type: f.values.document_type, file_ref: f.values.file_ref.trim(), document_number: f.text("document_number"), issue_date: f.text("issue_date"), expiry_date: f.text("expiry_date"),
-    } }));
+    const r = await act.run("doc", async () => mode === "upload"
+      ? api<Row>("POST", `/applications/${a.ROWID}/documents/upload`, { body: { ...meta(), file_name: file!.name, content_type: file!.type, data_base64: await toBase64(file!) } })
+      : api<Row>("POST", `/applications/${a.ROWID}/documents`, { body: { ...meta(), file_ref: f.values.file_ref.trim() } }));
     if (r) onSaved(r);
   };
+  const ready = mode === "upload" ? !!file : !!f.values.file_ref.trim();
   return (
-    <Dialog title="Add a document" subtitle="Link the file where it is stored, for example WorkDrive or Zoho CRM." onClose={onClose}>
-      <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={!!act.busy || !f.values.file_ref.trim()}>{act.busy ? "Adding…" : "Add document"}</button></>}>
+    <Dialog title="Add a document" subtitle={mode === "upload" ? `PDF, JPG, PNG or WebP, up to ${MAX_UPLOAD_MB} MB.` : "Link the file where it is stored, for example WorkDrive or Zoho CRM."} onClose={onClose}>
+      <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={!!act.busy || !ready}>{act.busy ? (mode === "upload" ? "Uploading…" : "Adding…") : "Add document"}</button></>}>
+        {a.uploads_enabled && (
+          <div className="chips span" role="tablist">
+            <button type="button" className={`chip ${mode === "upload" ? "on" : ""}`} onClick={() => setMode("upload")}>Upload a file</button>
+            <button type="button" className={`chip ${mode === "link" ? "on" : ""}`} onClick={() => setMode("link")}>Add a link</button>
+          </div>
+        )}
         <Field label="Type"><select {...f.bind("document_type")}>{DOC_TYPES.map((t) => <option key={t} value={t}>{label(t)}{required.includes(t) ? " (required)" : ""}</option>)}</select></Field>
         <Field label="Document number"><input {...f.bind("document_number")} /></Field>
-        <Field label="File link" span error={act.error?.fields?.file_ref}><input {...f.bind("file_ref")} placeholder="https://workdrive.zoho.in/…" autoFocus /></Field>
+        {mode === "upload"
+          ? <Field label="File" span error={fileError ?? act.error?.fields?.file} hint={file ? `${file.name} · ${(file.size / 1024).toFixed(0)} KB` : undefined}>
+              <input type="file" accept={UPLOAD_ACCEPT} onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+            </Field>
+          : <Field label="File link" span error={act.error?.fields?.file_ref}><input {...f.bind("file_ref")} placeholder="https://workdrive.zoho.in/…" autoFocus /></Field>}
         <Field label="Issued"><input type="date" {...f.bind("issue_date")} /></Field>
         <Field label="Expires"><input type="date" {...f.bind("expiry_date")} /></Field>
         <div className="span"><FormError error={act.error} /></div>
       </Form>
     </Dialog>
   );
+}
+
+/** Opens a stored document through a short-lived link, or a linked document directly. */
+function DocumentLink({ a, d }: { a: Row; d: Row }) {
+  const ref = String(d.file_ref ?? "");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (/^https?:\/\//.test(ref)) return <a href={ref} target="_blank" rel="noreferrer">Open link</a>;
+  if (!ref.startsWith("stratus:")) return <span className="muted">{ref || "—"}</span>;
+  const name = ref.split("/").pop();
+  const open = async () => {
+    // Opened first so the browser treats it as a click, then pointed at the signed link.
+    const win = window.open("", "_blank");
+    setBusy(true); setFailed(false);
+    try {
+      const r = await api<Row>("GET", `/applications/${a.ROWID}/documents/${d.ROWID}/download`);
+      if (win) win.location.href = r.url; else window.location.href = r.url;
+    } catch { win?.close(); setFailed(true); } finally { setBusy(false); }
+  };
+  return <><button className="btn ghost sm" onClick={open} disabled={busy}>{busy ? "Opening…" : "Download"}</button><span className="cell-sub">{failed ? "Couldn't open it. Try again." : name}</span></>;
 }
 
 function SiteDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; onSaved: (s: Row) => void }) {
