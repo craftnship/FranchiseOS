@@ -38,7 +38,8 @@ const application: Rule[] = [
   { from: ["APPROVED"], transition: "send_agreement", to: "AGREEMENT_PENDING", permission: "agreement.write" },
   { from: ["AGREEMENT_PENDING"], transition: "agreement_signed", to: "AGREEMENT_SIGNED", permission: "system.sign" },
   { from: ["AGREEMENT_SIGNED"], transition: "start_onboarding", to: "ONBOARDING", permission: "system.project" },
-  { from: ["ONBOARDING"], transition: "activate", to: "ACTIVE", permission: "application.activate" },
+  // A franchise goes live when its store opens (activateOnOpening), never by hand.
+  { from: ["ONBOARDING"], transition: "activate", to: "ACTIVE", permission: "system.opening" },
   { from: APP_OPEN, transition: "withdraw", to: "WITHDRAWN", permission: "application.withdraw" },
   { from: APP_OPEN, transition: "hold", to: "ON_HOLD", permission: "application.review",
     sideFields: (e) => ({ held_from: e.status }) },

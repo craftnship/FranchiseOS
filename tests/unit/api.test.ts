@@ -103,9 +103,15 @@ describe("franchise pipeline through the API", () => {
     const ter = await call("mgr", "POST", "/territories", { name: "Chennai Central", city: "Chennai", franchise_type: "QSR", population_index: 80, market_index: 70, income_index: 60, competition_index: 40 });
     expect(ter.data.opportunity_score).toBeGreaterThan(0);
     await call("mgr", "POST", `/applications/${id}/transition`, { transition: "start_review" });
+    // Below the qualified threshold, qualifying needs a written reason.
+    const low = await call("mgr", "POST", `/applications/${id}/score`, { ratings: { ...ratings, financial_capacity: 40, business_experience: 40, investment_readiness: 40, time_commitment: 50 } });
+    expect(["NURTURE", "LOW"]).toContain(low.data.qualification_class);
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify" })).error?.fields).toEqual({ override_reason: "required below the qualified threshold" });
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "start_review", override_reason: "Strong local partner" })).error?.code).toBe("VALIDATION_FAILED");
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify", override_reason: "Strong local partner with an existing outlet" })).data.status).toBe("QUALIFIED");
+    expect((await store.findMany("activity_logs", { entity_id: id, action: "qualify:override" }))).toHaveLength(1);
     const scored = await call("mgr", "POST", `/applications/${id}/score`, { ratings });
     expect(scored.data.qualification_class).toBe("HOT");
-    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify" })).data.status).toBe("QUALIFIED");
 
     // Reserve, then site.
     const found = await call("mgr", "POST", "/territories/search", { city: "Chennai" });

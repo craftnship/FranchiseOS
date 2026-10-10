@@ -385,7 +385,7 @@ export async function activateOnOpening(
   if (project.status !== "OPENED") throw new AppError("INVALID_TRANSITION", `Project is ${project.status}, not opened.`);
   let app = await repo.getById("franchise_applications", String(project.application_id));
   if (app.status === "ONBOARDING") {
-    app = await transitionEntity("application", String(app.ROWID), "activate", ctx, { store, permissions: async () => new Set(["application.activate"]), onTransition: args.onTransition });
+    app = await transitionEntity("application", String(app.ROWID), "activate", ctx, { store, permissions: async () => new Set(["system.opening"]), onTransition: args.onTransition });
   }
   let franchisee = await repo.getById("franchisees", String(project.franchisee_id));
   if (franchisee.status !== "ACTIVE") {

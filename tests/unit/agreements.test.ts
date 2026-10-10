@@ -152,6 +152,8 @@ describe("Sign callback and onboarding (Step 5 exit test)", () => {
     const agreement = (await s.store.findOne("agreements", { zoho_sign_request_id: "9001" }))!;
     expect(agreement).toMatchObject({ status: "SIGNED", effective_date: "2026-10-09", expiry_date: "2031-10-08" });
     expect((await s.store.findOne("franchise_applications", { ROWID: s.app.ROWID! }))!.status).toBe("ONBOARDING");
+    // Going live follows the store opening; it can't be done by hand.
+    expect((await s.call("mgr", "POST", `/applications/${s.app.ROWID}/transition`, { transition: "activate" })).error?.code).toBe("INVALID_TRANSITION");
     expect((await s.store.findOne("franchisees", { ROWID: s.fr.ROWID! }))!).toMatchObject({ zoho_account_id: expect.any(String), zoho_books_customer_id: expect.any(String) });
     expect((await s.store.findMany("franchise_projects", {}))[0]).toMatchObject({ project_code: "PROJ-000001", status: "PLANNING", site_id: "77" });
   });

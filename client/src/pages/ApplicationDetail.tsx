@@ -30,7 +30,7 @@ const SIDE: Record<string, { text: string; danger?: boolean; confirm: string; bo
 const truthy = (v: unknown) => v === true || String(v) === "true";
 const pct = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : `${+Number(v).toFixed(1)}%`);
 
-type Open = null | "score" | "doc" | "site" | "feasibility" | "recalc" | `confirm:${string}` | "release";
+type Open = null | "score" | "doc" | "site" | "feasibility" | "recalc" | `confirm:${string}` | "release" | "qualify";
 
 export function ApplicationDetail() {
   const { id } = useParams();
@@ -123,6 +123,11 @@ export function ApplicationDetail() {
               body={<p className="muted" style={{ margin: 0 }}>The territory becomes available to other applications again.</p>}
               onConfirm={() => act.run("release", () => api("POST", `/territories/${a.territory.ROWID}/release`, { body: {} }), `${a.territory.territory_code} released.`).then((r) => r && setOpen(null))} />
           )}
+          {open === "qualify" && (
+            <ConfirmDialog title={`Qualify ${a.application_code} anyway?`} confirm="Qualify anyway" comment="required" busy={!!act.busy} error={act.error} onClose={close}
+              body={<p className="muted" style={{ margin: 0 }}>The score is {a.qualification_score} ({label(a.qualification_class).toLowerCase()}), below the qualified threshold. Say why it should go ahead; the reason is kept in the activity log.</p>}
+              onConfirm={(reason) => act.run("qualify", () => api<Row>("POST", `/applications/${id}/transition`, { body: { transition: "qualify", override_reason: reason } }), "Marked qualified, with your reason on record.").then((r) => r && setOpen(null))} />
+          )}
           {confirmKey && SIDE[confirmKey] && (
             <ConfirmDialog title={`${SIDE[confirmKey].text} ${a.application_code}?`} confirm={SIDE[confirmKey].confirm} danger={SIDE[confirmKey].danger} busy={!!act.busy} error={act.error} onClose={close}
               body={<p className="muted" style={{ margin: 0 }}>{SIDE[confirmKey].body}</p>}
@@ -160,9 +165,14 @@ function NextStep({ a, busy, can_, setOpen, transition, submit, startApproval, s
       break;
     case "UNDER_REVIEW":
       title = a.qualification_score == null ? "Score the applicant" : "Qualify the applicant";
-      body = a.qualification_score == null ? "Rate the applicant on each criterion. You can reserve a territory at the same time." : `Scored ${a.qualification_score} (${label(a.qualification_class)}). Mark them qualified to move on.`;
+      body = a.qualification_score == null ? "Rate the applicant on each criterion. You can reserve a territory at the same time." : ["HOT", "QUALIFIED"].includes(a.qualification_class) ? `Scored ${a.qualification_score} (${label(a.qualification_class)}). Mark them qualified to move on.` : `Scored ${a.qualification_score} (${label(a.qualification_class)}), below the qualified threshold. Rescore, reject, or qualify anyway with a reason.`;
       if (can("application.review")) buttons.push(btn("score", a.qualification_score == null ? "Score applicant" : "Rescore", () => setOpen("score"), { secondary: a.qualification_score != null }));
-      if (can_("qualify")) buttons.push(btn("qualify", "Mark qualified", () => transition("qualify", "Marked qualified."), { disabled: a.qualification_score == null }));
+      if (can_("qualify")) {
+        const below = a.qualification_score != null && !["HOT", "QUALIFIED"].includes(a.qualification_class);
+        buttons.push(below
+          ? btn("qualify", "Qualify anyway…", () => setOpen("qualify"), { secondary: true })
+          : btn("qualify", "Mark qualified", () => transition("qualify", "Marked qualified."), { disabled: a.qualification_score == null }));
+      }
       break;
     case "QUALIFIED":
       title = a.territory ? "Ask for a site" : "Reserve a territory";
@@ -183,7 +193,7 @@ function NextStep({ a, busy, can_, setOpen, transition, submit, startApproval, s
     case "FEASIBILITY_REVIEW":
       if (!f || f.status !== "CALCULATED") { title = "Calculate the feasibility"; body = "Run the model on the inputs to see ROI and payback."; }
       else if (!truthy(f.passed)) { title = "Feasibility does not pass yet"; body = (f.fail_reasons as string[] | undefined)?.join(" ") || "Adjust the inputs and recalculate."; }
-      else { title = "Start the approval"; body = `ROI ${pct(f.roi_pct)}, payback ${f.payback_months} months. Send it to the approval chain.`; }
+      else { title = "Start the approval"; body = `ROI ${pct(f.roi_pct)}, payback ${f.payback_months} months.${(f.warnings ?? []).length ? " These look unusually good, so check the assumptions below first." : ""} Send it to the approval chain.`; }
       if (f && truthy(f.passed) && f.status === "CALCULATED" && can("approval.start")) buttons = [btn("approval", "Start approval", startApproval)];
       break;
     case "APPROVAL_PENDING":
@@ -199,9 +209,10 @@ function NextStep({ a, busy, can_, setOpen, transition, submit, startApproval, s
     case "AGREEMENT_SIGNED": title = "Onboarding is starting"; body = "CRM, Books and the opening project are being set up."; break;
     case "ONBOARDING":
       title = "Open the store";
-      body = "Track the opening project. Activate the franchise once the store is trading.";
-      buttons.push(<Link key="p" className="btn secondary" to="/projects">Opening projects</Link>);
-      if (can_("activate")) buttons.push(btn("activate", "Activate franchise", () => transition("activate", "The franchise is active.")));
+      body = a.project
+        ? `${a.project.project_code} is ${label(a.project.status).toLowerCase()}${a.project.target_opening_date ? `, targeting ${date(a.project.target_opening_date)}` : ""}. The franchise goes live when the project is marked opened.`
+        : "The franchise goes live when its opening project is marked opened.";
+      buttons.push(<Link key="p" className="btn" to={a.project ? `/projects/${a.project.ROWID}` : "/projects"}>{a.project ? "Open the project" : "Opening projects"}</Link>);
       break;
     case "ACTIVE": title = "This franchise is live"; body = "Nothing is waiting."; break;
     case "ON_HOLD":
@@ -332,6 +343,7 @@ function FeasibilityPanel({ a, busy, onCreate, onEdit, onCalculate, onScenarios 
     </span>}>
       <div className="stack">
         {calculated && !truthy(f.passed) && (f.fail_reasons as string[]).length > 0 && <div className="notice bad" style={{ margin: 0 }}><Icon name="alert" />{(f.fail_reasons as string[]).join(" ")}</div>}
+        {calculated && (f.warnings ?? []).length > 0 && <div className="notice warn" style={{ margin: 0 }}><Icon name="alert" />{(f.warnings as string[]).join(" ")}</div>}
         <Facts items={[
           ["Initial investment", inr(Number(f.initial_investment))], ["Monthly revenue", inr(Number(f.monthly_revenue))], ["Gross margin", pct(f.gross_margin_pct)],
           ["Fixed opex / month", inr(Number(f.monthly_fixed_opex))], ["Royalty", pct(f.royalty_pct)], ["Marketing fund", pct(f.marketing_fund_pct)],
@@ -507,7 +519,7 @@ function FeasibilityDialog({ a, edit, onClose, onSaved }: { a: Row; edit: boolea
       const model = edit ? m : await api<Row>("POST", "/feasibility", { body: { application_id: String(a.ROWID), ...inputs } });
       return api<Row>("POST", `/feasibility/${model.ROWID}/calculate`, { body: edit ? inputs : {} });
     });
-    if (r) onSaved(truthy(r.passed) ? `Feasibility passes: ROI ${pct(r.roi_pct)}, payback ${r.payback_months} months.` : `Feasibility does not pass: ${(r.result?.fail_reasons ?? []).join(" ")}`);
+    if (r) onSaved(truthy(r.passed) ? `Feasibility passes: ROI ${pct(r.roi_pct)}, payback ${r.payback_months} months.${(r.warnings ?? []).length ? " The numbers look unusually good, so check the assumptions." : ""}` : `Feasibility does not pass: ${(r.result?.fail_reasons ?? []).join(" ")}`);
   };
   return (
     <Dialog title={edit ? "Edit feasibility inputs" : "Build the feasibility model"} subtitle="Saving calculates ROI, payback and EBITDA against the tenant's thresholds." onClose={onClose}>

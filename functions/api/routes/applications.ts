@@ -11,6 +11,7 @@ import { startApproval } from "../../workflows/approvals";
 import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
+import { modelWarnings } from "../../scoring/feasibility";
 import { Call, page, parse, Router } from "../router";
 import { assertOwner, defined, listByStatus, mustGet, ownerFilter, settings } from "./shared";
 
@@ -42,7 +43,9 @@ const uploadSchema = z.object({
 const verifySchema = z.object({ verification_status: z.enum(["VERIFIED", "REJECTED"]), rejection_reason: z.string().trim().max(1000).optional() }).strict()
   .refine((b) => b.verification_status !== "REJECTED" || !!b.rejection_reason, { message: "A reason is required.", path: ["rejection_reason"] });
 const scoreSchema = z.object({ ratings: z.record(z.number().min(0).max(100)) }).strict();
-const transitionSchema = z.object({ transition: z.string().min(1).max(40) }).strict();
+const transitionSchema = z.object({ transition: z.string().min(1).max(40), override_reason: z.string().trim().min(10).max(1000).optional() }).strict();
+/** Classes that qualify without an override (§18). */
+const QUALIFYING_CLASSES = ["HOT", "QUALIFIED"];
 
 const EDITABLE_STATES = ["DRAFT", "UNDER_REVIEW", "ON_HOLD"];
 
@@ -110,9 +113,11 @@ export function applicationRoutes(r: Router): void {
       steps: JSON.parse(String(latest.steps_json)),
       actions: await call.repo.findMany("approval_actions", { approval_id: String(latest.ROWID) }, { orderBy: "acted_at" }),
     } : null;
+    const project = (await call.repo.findMany("franchise_projects", { application_id: id }, { limit: 1 }))[0];
     return {
       ...base, territory, approval,
-      feasibility: feasibility && { ...feasibility, fail_reasons: feasibility.fail_reasons_json ? JSON.parse(String(feasibility.fail_reasons_json)) : [] },
+      project: project ? { ROWID: project.ROWID, project_code: project.project_code, status: project.status, target_opening_date: project.target_opening_date } : null,
+      feasibility: feasibility && { ...feasibility, fail_reasons: feasibility.fail_reasons_json ? JSON.parse(String(feasibility.fail_reasons_json)) : [], warnings: modelWarnings(feasibility) },
     };
   });
 
@@ -207,13 +212,22 @@ export function applicationRoutes(r: Router): void {
   // Generic user-driven transitions (start_review, qualify, require_site, hold, resume, withdraw, reject…).
   // Engine-driven transitions (system.*) are never reachable from the API.
   r.on("POST", "/applications/:id/transition", null, async (call) => {
-    const { transition } = parse(transitionSchema, call.body);
+    const { transition, override_reason } = parse(transitionSchema, call.body);
     const app = await getApp(call);
     const rule = findRule("application", String(app.status), transition);
+    if (transition === "activate") throw new AppError("INVALID_TRANSITION", "A franchise becomes active when its opening project is marked opened.");
     if (rule?.permission.startsWith("system.") || transition === "submit" || transition === "start_approval") {
       throw new AppError("INVALID_TRANSITION", `Use the dedicated endpoint for ${transition}.`);
     }
-    return transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
+    if (override_reason && transition !== "qualify") throw new AppError("VALIDATION_FAILED", "override_reason goes with qualify.", { override_reason: "unexpected" });
+    // Below the qualified threshold, qualifying needs a written reason, kept in the activity log.
+    const below = transition === "qualify" && app.qualification_score != null && !QUALIFYING_CLASSES.includes(String(app.qualification_class));
+    if (below && !override_reason) {
+      throw new AppError("VALIDATION_FAILED", `The score is ${app.qualification_score} (${String(app.qualification_class).toLowerCase()}), below the qualified threshold. Give a reason to qualify anyway.`, { override_reason: "required below the qualified threshold" });
+    }
+    const updated = await transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
+    if (below) await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "qualify:override", metadata: { score: app.qualification_score, class: app.qualification_class, reason: override_reason } });
+    return updated;
   });
 
   r.on("POST", "/applications/:id/start-approval", "approval.start", async (call) => {

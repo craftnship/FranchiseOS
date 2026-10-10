@@ -3,7 +3,7 @@ import { AppError } from "../../common/errors";
 import { logActivity } from "../../common/audit";
 import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
-import { calculateFeasibility, calculateScenarios, DEFAULT_FEASIBILITY_THRESHOLDS, DEFAULT_SCENARIOS, FeasibilityInput, FeasibilityThresholds } from "../../scoring/feasibility";
+import { calculateFeasibility, calculateScenarios, DEFAULT_FEASIBILITY_THRESHOLDS, DEFAULT_SCENARIOS, FeasibilityInput, FeasibilityThresholds, modelWarnings, plausibilityWarnings } from "../../scoring/feasibility";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, parse, Router } from "../router";
 import { mustGet, settings } from "./shared";
@@ -74,7 +74,7 @@ export function feasibilityRoutes(r: Router): void {
       call.repo.findMany("feasibility_inputs", { feasibility_id: call.params.id }),
       call.repo.findMany("feasibility_scenarios", { feasibility_id: call.params.id }),
     ]);
-    return { ...model, fail_reasons: model.fail_reasons_json ? JSON.parse(String(model.fail_reasons_json)) : [], line_items, scenarios };
+    return { ...model, fail_reasons: model.fail_reasons_json ? JSON.parse(String(model.fail_reasons_json)) : [], warnings: modelWarnings(model), line_items, scenarios };
   });
 
   // Optional input overrides, then the D-15 model with tenant thresholds.
@@ -90,7 +90,7 @@ export function feasibilityRoutes(r: Router): void {
       passed: result.passed, fail_reasons_json: JSON.stringify(result.fail_reasons), status: "CALCULATED",
     });
     await logActivity(call.store, call.ctx, { entityType: "feasibility", entityId: call.params.id, action: "calculate", metadata: { passed: result.passed, roi_pct: result.roi_pct } });
-    return { ...row, result };
+    return { ...row, warnings: plausibilityWarnings(result), result };
   });
 
   // Scenario rows are upserted by name so re-running replaces rather than duplicates.
