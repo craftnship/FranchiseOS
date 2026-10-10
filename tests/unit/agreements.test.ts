@@ -17,7 +17,8 @@ type Body = { success: boolean; data?: any; error?: { code: string; message?: st
 const router = buildRouter();
 const sleep = async () => {};
 
-function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
+function fakes(opts: { failTaskNumber?: number; failBooks?: number; failTaskUpdates?: boolean } = {}) {
+  const rescheduled: string[] = [];
   const calls: Record<string, number> = { send: 0, account: 0, customer: 0, invoice: 0, project: 0, tasklist: 0, task: 0, leadUpdate: 0, accountUpdate: 0, attach: 0, invoiceSent: 0 };
   const invoices: Record<string, { status: string; to: string[] }> = {};
   let signStatus = "inprogress";
@@ -65,9 +66,15 @@ function fakes(opts: { failTaskNumber?: number; failBooks?: number } = {}) {
     updateTask: async () => {},
     addDependency: async () => { throw new Error("not used"); },
     listTasks: async () => tasks.map((t) => ({ ...t })),
+    setTaskClosed: async (_p, tid, closed) => {
+      if (opts.failTaskUpdates) throw new ProviderError("Projects down", 503);
+      const t = tasks.find((x) => x.id === tid)!;
+      t.closed = closed; t.status = closed ? "Closed" : "Open";
+    },
+    rescheduleTask: async (_p, tid, due) => { rescheduled.push(`${tid}:${due}`); },
   };
   const clients: ZohoClients = { crm, sign, books, projects };
-  return { clients, calls, tasks, invoices, setSignStatus: (s: string) => { signStatus = s; } };
+  return { clients, calls, rescheduled, tasks, invoices, setSignStatus: (s: string) => { signStatus = s; } };
 }
 
 async function setup(settings: Record<string, unknown> = { franchise_fee: 250000 }, fakeOpts: Parameters<typeof fakes>[0] = {}) {
@@ -246,6 +253,46 @@ describe("project task sync (FOS-057)", () => {
     expect(detail.data.checklist.find((r: any) => r.external_task_id === s.tasks[1].id).status).toBe("BLOCKED");
   });
 
+  it("marks a task done or reopens it in Zoho first, so a sync agrees; owners and due dates follow", async () => {
+    const s = await setup();
+    await s.call("mgr", "POST", `/applications/${s.app.ROWID}/agreement`);
+    s.setSignStatus("completed");
+    const project = (await s.signCallback("9001")).data.result.project_id;
+    const detail = (await s.call("pm", "GET", `/projects/${project}`)).data;
+    const item = detail.checklist.find((r: any) => r.external_task_id === s.tasks[0].id);
+    expect(detail.staff.map((p: any) => p.email)).toContain("pm@x.test");
+    expect(detail.staff.map((p: any) => p.email)).not.toContain("pepper@x.test");
+    const path = `/projects/${project}/checklist/${item.ROWID}`;
+
+    const done = await s.call("pm", "PATCH", path, { done: true });
+    expect(done.data).toMatchObject({ zoho: true, item: { status: "COMPLETED" } });
+    expect(s.tasks[0].closed).toBe(true);
+    await s.call("pm", "POST", `/projects/${project}/sync`);
+    expect((await s.store.findOne("opening_checklists", { ROWID: String(item.ROWID) }))!.status).toBe("COMPLETED");
+
+    expect((await s.call("pm", "PATCH", path, { done: false })).data.item.status).toBe("OPEN");
+    expect(s.tasks[0].closed).toBe(false);
+
+    const pm = detail.staff.find((p: any) => p.email === "pm@x.test");
+    const moved = await s.call("pm", "PATCH", path, { owner_user_id: pm.ROWID, due_date: "2026-12-01" });
+    expect(moved.data.item).toMatchObject({ owner_user_id: pm.ROWID, due_date: "2026-12-01" });
+    expect(s.rescheduled).toEqual([`${s.tasks[0].id}:2026-12-01`]);
+    expect((await s.call("pm", "GET", `/projects/${project}`)).data.checklist.find((r: any) => r.ROWID === item.ROWID).owner.email).toBe("pm@x.test");
+    expect((await s.call("pm", "PATCH", path, { owner_user_id: "nobody" })).error?.fields).toEqual({ owner_user_id: "not an active staff member" });
+    expect((await s.call("pm", "PATCH", path, {})).error?.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("changes nothing in FOS when Zoho refuses to close the task", async () => {
+    const s = await setup(undefined, { failTaskUpdates: true });
+    await s.call("mgr", "POST", `/applications/${s.app.ROWID}/agreement`);
+    s.setSignStatus("completed");
+    const project = (await s.signCallback("9001")).data.result.project_id;
+    const item = (await s.call("pm", "GET", `/projects/${project}`)).data.checklist[0];
+    const res = await s.call("pm", "PATCH", `/projects/${project}/checklist/${item.ROWID}`, { done: true });
+    expect(res.error?.code).toBe("ZOHO_SYNC_FAILED");
+    expect((await s.store.findOne("opening_checklists", { ROWID: String(item.ROWID) }))!.status).toBe(item.status);
+  });
+
   it("maps task states", () => {
     expect(checklistStatus({ closed: true }, "BLOCKED")).toBe("COMPLETED");
     expect(checklistStatus({ closed: false, percent: 30 }, "OPEN")).toBe("IN_PROGRESS");
@@ -307,6 +354,17 @@ describe("Zoho adapters", () => {
     expect(await projects.createTask("P1", { name: "Lease", tasklist_id: "L1", end_date: "2026-11-01" })).toEqual({ id: "T1" });
     expect(sent[1].url).toBe("https://projectsapi.zoho.in/api/v3/portal/42/projects/P1/tasks");
     expect(JSON.parse(sent[1].body!)).toEqual({ name: "Lease", end_date: "2026-11-01", tasklist: { id: "L1" } });
+  });
+
+  it("Projects: closes tasks by the configured status and moves both dates when rescheduling", async () => {
+    const { http, sent } = recorder([{}, { tasks: [{ id: "T1", start_date: "2026-10-23T15:59:59.000Z", end_date: "2026-10-24T15:59:59.000Z" }] }, {}]);
+    const projects = new HttpProjectsClient(http, "https://projectsapi.zoho.in/api/v3", "42", "Z1", { closed: "188" });
+    await projects.setTaskClosed("P1", "T1", true);
+    expect(sent[0]).toMatchObject({ method: "PATCH", url: "https://projectsapi.zoho.in/api/v3/portal/42/projects/P1/tasks/T1" });
+    expect(JSON.parse(sent[0].body!)).toEqual({ status: { id: "188" } });
+    await expect(projects.setTaskClosed("P1", "T1", false)).rejects.toThrow("projects_open_status_id");
+    await projects.rescheduleTask("P1", "T1", "2026-10-20");
+    expect(JSON.parse(sent[2].body!)).toEqual({ start_date: "2026-10-19T15:59:59Z", end_date: "2026-10-20T15:59:59Z" });
   });
 });
 

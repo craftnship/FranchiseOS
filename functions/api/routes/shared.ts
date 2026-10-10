@@ -59,3 +59,15 @@ export async function listByStatus(repo: TenantRepo, table: string, status: stri
   rows.sort((a, b) => String(b.CREATEDTIME ?? "").localeCompare(String(a.CREATEDTIME ?? "")));
   return rows.slice(page.offset, page.offset + page.limit);
 }
+
+export const PORTAL_ROLES = ["FRANCHISEE", "FRANCHISEE_STAFF", "VENDOR"];
+
+/** Every user of the tenant by id, with their role code; `active` means active staff (not a portal user). */
+export async function staffDirectory(call: Call): Promise<Map<string, { ROWID: string; name: string | null; email: string; role: string; active: boolean }>> {
+  const [users, roles] = await Promise.all([call.repo.findMany("users", {}, { limit: 500 }), call.repo.findMany("roles", {}, { limit: 100 })]);
+  const roleCode = new Map(roles.map((x) => [String(x.ROWID), String(x.code)]));
+  return new Map(users.map((u) => [String(u.ROWID), {
+    ROWID: String(u.ROWID), name: u.name ? String(u.name) : null, email: String(u.email),
+    role: roleCode.get(String(u.role_id)) ?? "", active: u.status === "ACTIVE" && !u.franchisee_id,
+  }]));
+}

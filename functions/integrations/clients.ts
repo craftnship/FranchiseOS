@@ -13,6 +13,10 @@ export interface ZohoProjectsClient {
   updateTask(projectId: string, taskId: string, data: object): Promise<void>;
   addDependency(projectId: string, predecessorTaskId: string, successorTaskId: string): Promise<void>;
   listTasks(projectId: string): Promise<TaskState[]>;
+  /** Closes or reopens a task by moving it to the portal's closed or open status. */
+  setTaskClosed(projectId: string, taskId: string, closed: boolean): Promise<void>;
+  /** Moves a task so it ends on `dueDate` (YYYY-MM-DD), keeping its length. */
+  rescheduleTask(projectId: string, taskId: string, dueDate: string): Promise<void>;
 }
 
 export interface ZohoCrmClient {

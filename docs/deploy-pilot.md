@@ -46,6 +46,8 @@ What each piece reads, so the signed-agreement flow can run end to end:
 | Books organization | `tenant_integrations.org_id` | 60091318927 |
 | Projects portal | `tenant_integrations.portal_id` | 60091315097 |
 | Projects owner | tenant `settings_json.projects_owner_zpuid` | the portal user who owns opening projects |
+| Task open status | tenant `settings_json.projects_open_status_id` (used by Reopen) | 481772000000000185 |
+| Task closed status | tenant `settings_json.projects_closed_status_id` (used by Mark done) | 481772000000000188 |
 | Franchise fee | tenant `settings_json.franchise_fee` (0 skips the invoice) | 500000 |
 | Fee payment terms | tenant `settings_json.books_payment_terms` (days) | 15 (default) |
 | Fee tax | tenant `settings_json.books_tax_id` (a Books tax id, e.g. GST 18%) | unset: no tax |

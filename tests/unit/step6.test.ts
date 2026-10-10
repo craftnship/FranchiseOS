@@ -98,6 +98,7 @@ describe("readiness and risk (FOS-058, D-7)", () => {
       createProject: async () => ({ id: "x" }), getProject: async (id) => ({ id }), createTaskList: async () => ({ id: "x" }),
       createTask: async () => ({ id: "x" }), updateTask: async () => {}, addDependency: async () => {},
       listTasks: async () => [{ id: "T1", status: "Closed", closed: true }, { id: "T2", status: "Closed", closed: true }, { id: "T3", status: "Closed", closed: true }],
+      setTaskClosed: async () => {}, rescheduleTask: async () => {},
     };
     const res = await runProjectRiskJob(s.store, async () => projects, { today: TODAY, now: NOW, requestId: "REQ-job" });
     expect(res).toEqual({ projects: 2, synced: 1, at_risk: 1, failed: 0 });

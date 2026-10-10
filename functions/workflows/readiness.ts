@@ -142,3 +142,44 @@ export async function setChecklistBlocked(store: Store, ctx: TenantContext, proj
   await logActivity(store, ctx, { entityType: "checklist", entityId: itemId, action: blocked ? "checklist:blocked" : "checklist:unblocked", metadata: { project_id: projectId, reason: reason ?? null } });
   return updated;
 }
+
+export interface ChecklistChange { done?: boolean; owner_user_id?: string | null; due_date?: string }
+
+/**
+ * Marks a checklist item done or reopens it, assigns its owner, or moves its due date. Zoho Projects
+ * stays the source of truth for task progress, so for a linked task the change is made there first
+ * and nothing is written in FOS if Zoho refuses it; the next sync then agrees with FOS.
+ */
+export async function updateChecklistItem(
+  store: Store, ctx: TenantContext, projects: ZohoProjectsClient | null, projectId: string, itemId: string, change: ChecklistChange,
+): Promise<{ item: Row; zoho: boolean }> {
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const project = await repo.findOne("franchise_projects", { ROWID: projectId });
+  const item = await repo.findOne("opening_checklists", { ROWID: itemId, project_id: projectId });
+  if (!project || !item) throw new AppError("NOT_FOUND", "Checklist item not found.");
+  const wasDone = item.status === "COMPLETED";
+  const status = change.done === undefined || change.done === wasDone ? undefined : change.done ? "COMPLETED" : "OPEN";
+  const due = change.due_date && change.due_date !== String(item.due_date ?? "").slice(0, 10) ? change.due_date : undefined;
+
+  const linked = !!(project.zoho_project_id && item.external_task_id);
+  if (linked && (status || due)) {
+    if (!projects) throw new AppError("ZOHO_SYNC_FAILED", "Zoho Projects is not connected, so the task can't be updated there.");
+    const zp = String(project.zoho_project_id), task = String(item.external_task_id);
+    try {
+      if (status) await projects.setTaskClosed(zp, task, status === "COMPLETED");
+      if (due) await projects.rescheduleTask(zp, task, due);
+    } catch (e) {
+      log("warn", "checklist.zoho_update_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, item_id: itemId, error: String((e as Error)?.message ?? e).slice(0, 300) });
+      throw new AppError("ZOHO_SYNC_FAILED", `Zoho Projects didn't accept the change: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+    }
+  }
+  const patch: Row = {
+    ...(status ? { status } : {}),
+    ...(due ? { due_date: due } : {}),
+    ...(change.owner_user_id !== undefined ? { owner_user_id: change.owner_user_id } : {}),
+  };
+  const updated = Object.keys(patch).length ? await repo.update("opening_checklists", itemId, patch) : item;
+  const action = status === "COMPLETED" ? "checklist:completed" : status ? "checklist:reopened" : "checklist:updated";
+  if (Object.keys(patch).length) await logActivity(store, ctx, { entityType: "checklist", entityId: itemId, action, metadata: { project_id: projectId, ...patch, zoho: linked && !!(status || due) } });
+  return { item: updated, zoho: linked && !!(status || due) };
+}

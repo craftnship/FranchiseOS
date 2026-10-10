@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { ReactNode, useCallback, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
-import { useFranchiseeNames, useLoad } from "../hooks";
-import { DataTable, date, Donut, ErrorState, Icon, inr, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
+import { useAction, useFranchiseeNames, useLoad } from "../hooks";
+import { ConfirmDialog, Dialog, Field, Form, FormError } from "../components/forms";
+import { DataTable, date, Donut, Icon, inr, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
 import { StatusPath } from "./Applications";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
@@ -77,37 +78,34 @@ export function ProjectDetail() {
   const { id } = useParams();
   const project = useLoad(() => api<Row>("GET", `/projects/${id}`), [id]);
   const readiness = useLoad(() => api<Row>("GET", `/projects/${id}/readiness`), [id]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<ApiError | null>(null);
-  const run = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key); setError(null);
-    try { await fn(); project.reload(); readiness.reload(); } catch (e) { setError(e as ApiError); } finally { setBusy(null); }
-  };
-  const transition = (t: string) => run(t, () => {
-    const body: Row = { transition: t };
-    if (t === "open") {
-      const d = window.prompt("Opening date (YYYY-MM-DD)", new Date().toISOString().slice(0, 10));
-      if (!d) return Promise.resolve();
-      body.actual_opening_date = d;
-    }
-    return api("POST", `/projects/${id}/transition`, { body });
-  });
+  const reload = useCallback(() => { project.reload(); readiness.reload(); }, [project.reload, readiness.reload]);
+  const act = useAction(reload);
+  const [opening, setOpening] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [blocking, setBlocking] = useState<Row | null>(null);
+  const transition = (t: string) => act.run(t, () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: t } }), (r) => `${TRANSITION_LABEL[t]} done. The project is ${label(r.status).toLowerCase()}.`);
+  const patch = (item: Row, body: Row, done: string) => act.run(`i${item.ROWID}`, () => api<Row>("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body }), (r) => `${item.item}: ${done}${r.zoho ? " Zoho Projects is updated too." : ""}`);
   return (
     <Loaded load={project}>{(p) => {
       const d = daysTo(p.target_opening_date);
-      const done = (p.checklist as Row[]).filter((i) => i.status === "COMPLETED").length;
+      const items = p.checklist as Row[];
+      const done = items.filter((i) => i.status === "COMPLETED").length;
+      const writable = can("project.write") && !["OPENED", "CLOSED"].includes(p.status);
       return (
         <>
           <PageHeader title={p.project_code} badges={<><Pill value={p.status} />{p.delayed && <Pill value="Delayed" tone="bad" />}</>}
             crumbs={[["Operations"], ["Opening projects", "/projects"], [p.project_code]]}
             subtitle={p.zoho_project_id ? "Linked to Zoho Projects" : "Not linked to Zoho Projects"}
             actions={<>
-              {can("project.write") && p.zoho_project_id && <button className="btn secondary" onClick={() => run("sync", () => api("POST", `/projects/${id}/sync`))} disabled={!!busy}><Icon name="sync" size={16} />{busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
+              {can("project.write") && p.zoho_project_id && <button className="btn secondary" onClick={() => act.run("sync", () => api<Row>("POST", `/projects/${id}/sync`), (r) => r.sync ? `Synced from Zoho Projects: ${r.sync.updated} task${r.sync.updated === 1 ? "" : "s"} changed.` : "Readiness refreshed.")} disabled={!!act.busy}><Icon name="sync" size={16} />{act.busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
               {(p.allowed_transitions as string[]).filter((t) => TRANSITION_LABEL[t]).map((t) => (
-                <button key={t} className={t === "close" ? "btn secondary" : "btn"} onClick={() => transition(t)} disabled={!!busy}>{TRANSITION_LABEL[t]}</button>
+                <button key={t} className={t === "close" ? "btn secondary" : "btn"} disabled={!!act.busy} onClick={() => (t === "open" ? setOpening(true) : transition(t))}>
+                  {t === "open" && <Icon name="store" size={16} />}{act.busy === t ? "Working…" : TRANSITION_LABEL[t]}
+                </button>
               ))}
             </>} />
-          {error && <ErrorState error={error} />}
+          {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
+          {act.error && !opening && !editing && !blocking && <FormError error={act.error} />}
           <FeeNotice fee={p.fee} />
           <dl className="summary">
             <div><dt>Readiness</dt><dd>{p.readiness_score ?? "—"}%<Pill value={p.readiness_rag} /></dd></div>
@@ -117,29 +115,101 @@ export function ProjectDetail() {
           </dl>
           {PATH.includes(p.status) && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
           <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
-          <Panel title="Opening checklist" action={<span className="muted">{done} of {p.checklist.length} complete</span>} flush>
-            <Checklist items={p.checklist} busy={busy} onToggle={!can("project.write") ? undefined : (item) => run(`b${item.ROWID}`, () => api("PATCH", `/projects/${id}/checklist/${item.ROWID}`, { body: { blocked: item.status !== "BLOCKED" } }))} />
+          <Panel title="Opening checklist" action={<span className="muted">{done} of {items.length} complete</span>} flush>
+            <Checklist items={items} actions={!writable ? undefined : (i) => {
+              const busy = act.busy === `i${i.ROWID}`;
+              return (
+                <span className="panel-actions">
+                  {i.status === "COMPLETED"
+                    ? <button className="btn ghost sm" disabled={busy} onClick={() => patch(i, { done: false }, "reopened.")}>Reopen</button>
+                    : <button className="btn sm" disabled={busy} onClick={() => patch(i, { done: true }, "marked done.")}><Icon name="check" size={14} />{busy ? "Saving…" : "Mark done"}</button>}
+                  <button className="btn ghost sm" disabled={busy} onClick={() => setEditing(i)}>Edit</button>
+                  {i.status === "BLOCKED"
+                    ? <button className="btn ghost sm" disabled={busy} onClick={() => patch(i, { blocked: false }, "unblocked.")}>Unblock</button>
+                    : i.status !== "COMPLETED" && <button className="btn danger-ghost sm" disabled={busy} onClick={() => setBlocking(i)}>Flag blocked</button>}
+                </span>
+              );
+            }} />
           </Panel>
+          {opening && <OpenStoreDialog project={p} items={items} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
+            onOpen={(date) => act.run("open", () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: "open", actual_opening_date: date } }), "The store is open. The franchisee is now active.").then((r) => r && setOpening(false))} />}
+          {editing && <TaskDialog item={editing} staff={(p.staff ?? []) as Row[]} linked={!!(p.zoho_project_id && editing.external_task_id)} busy={!!act.busy} error={act.error}
+            onClose={() => { setEditing(null); act.clear(); }} onSave={(body) => patch(editing, body, "saved.").then((r) => r && setEditing(null))} />}
+          {blocking && <ConfirmDialog title={`Flag “${blocking.item}” as blocked?`} confirm="Flag blocked" danger comment="required" busy={!!act.busy} error={act.error}
+            body={<p className="muted" style={{ margin: 0 }}>A blocked mandatory task holds readiness down and moves the project to at risk until it is cleared.</p>}
+            onClose={() => { setBlocking(null); act.clear(); }} onConfirm={(reason) => patch(blocking, { blocked: true, reason }, "flagged as blocked.").then((r) => r && setBlocking(null))} />}
         </>
       );
     }}</Loaded>
   );
 }
 
-export function Checklist({ items, onToggle, busy }: { items: Row[]; onToggle?: (item: Row) => void; busy?: string | null }) {
+/** Confirms the opening date and says what opening does, with any tasks still open. */
+function OpenStoreDialog({ project, items, busy, error, onOpen, onClose }: { project: Row; items: Row[]; busy: boolean; error: ApiError | null; onOpen: (date: string) => void; onClose: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [day, setDay] = useState(today);
+  const open = items.filter((i) => i.status !== "COMPLETED" && (i.mandatory === true || String(i.mandatory) === "true"));
+  return (
+    <Dialog title={`Open ${project.project_code}`} subtitle="Record the day the store opened its doors." onClose={onClose}>
+      <Form onSubmit={() => day && onOpen(day)} footer={<>
+        <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
+        <button className="btn" disabled={busy || !day || day > today}><Icon name="store" size={16} />{busy ? "Opening…" : "Mark opened"}</button>
+      </>}>
+        <Field label="Opening date" hint={project.target_opening_date ? `Target was ${date(project.target_opening_date)}.` : undefined} error={day > today ? "can't be in the future" : undefined}>
+          <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required autoFocus />
+        </Field>
+        <div className="span muted">Opening makes the application and the franchisee active, and records the opening date on their CRM account.</div>
+        {open.length > 0 && <div className="span notice warn"><Icon name="alert" /><span>{open.length} mandatory task{open.length === 1 ? " is" : "s are"} still open: {open.slice(0, 4).map((i) => i.item).join(", ")}{open.length > 4 ? ", …" : ""}.</span></div>}
+        <div className="span"><FormError error={error} /></div>
+      </Form>
+    </Dialog>
+  );
+}
+
+/** Owner and due date of one checklist task. */
+function TaskDialog({ item, staff, linked, busy, error, onSave, onClose }: { item: Row; staff: Row[]; linked: boolean; busy: boolean; error: ApiError | null; onSave: (body: Row) => void; onClose: () => void }) {
+  const [owner, setOwner] = useState(String(item.owner_user_id ?? ""));
+  const [due, setDue] = useState(item.due_date ? String(item.due_date).slice(0, 10) : "");
+  const save = () => {
+    const body: Row = {};
+    if (owner !== String(item.owner_user_id ?? "")) body.owner_user_id = owner || null;
+    if (due && due !== String(item.due_date ?? "").slice(0, 10)) body.due_date = due;
+    if (Object.keys(body).length) onSave(body); else onClose();
+  };
+  return (
+    <Dialog title={String(item.item)} subtitle={label(item.category)} onClose={onClose}>
+      <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
+        <Field label="Owner" span>
+          <select value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">No owner</option>
+            {staff.map((p) => <option key={p.ROWID} value={p.ROWID}>{p.name ?? p.email}</option>)}
+          </select>
+        </Field>
+        <Field label="Due date" span hint={linked ? "The task in Zoho Projects moves to end on this day, keeping its length." : undefined}>
+          <input type="date" value={due} onChange={(e) => setDue(e.target.value)} required />
+        </Field>
+        <div className="span"><FormError error={error} /></div>
+      </Form>
+    </Dialog>
+  );
+}
+
+export function Checklist({ items, actions }: { items: Row[]; actions?: (item: Row) => ReactNode }) {
   const today = new Date().toISOString().slice(0, 10);
   if (!items.length) return <div className="state">No tasks yet.</div>;
+  const owners = items.some((i) => i.owner !== undefined);
   return (
     <DataTable rows={items} columns={[
       { key: "item", label: "Task", render: (i) => <>{i.item}{String(i.mandatory) === "true" || i.mandatory === true ? null : <span className="cell-sub">Optional</span>}</> },
       { key: "category", label: "Category", render: (i) => label(i.category) },
+      ...(owners ? [{ key: "owner", label: "Owner", sort: (i: Row) => i.owner?.name ?? i.owner?.email ?? "~", render: (i: Row) => i.owner ? (i.owner.name ?? i.owner.email) : <span className="muted">—</span> }] : []),
       { key: "weight", label: "Weight", align: "right", sort: (i) => Number(i.weight ?? 0) },
       { key: "status", label: "Status", render: (i) => {
         const overdue = i.status !== "COMPLETED" && i.due_date && String(i.due_date).slice(0, 10) < today;
         return <span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}</span>;
       } },
       { key: "due_date", label: "Due", render: (i) => date(i.due_date) },
-      ...(onToggle ? [{ key: "_act", label: "", render: (i: Row) => i.status !== "COMPLETED" && <button className={i.status === "BLOCKED" ? "btn ghost sm" : "btn danger-ghost sm"} disabled={busy === `b${i.ROWID}`} onClick={() => onToggle(i)}>{i.status === "BLOCKED" ? "Unblock" : "Flag blocked"}</button> }] : []),
+      ...(actions ? [{ key: "_act", label: "", render: actions }] : []),
     ]} />
   );
 }

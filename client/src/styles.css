@@ -278,7 +278,9 @@ select { font: inherit; height: 34px; padding: 0 .6rem; border: 1px solid var(--
   .topbar { padding: 0 1rem; gap: .5rem; }
   .content { padding: 1rem 1rem 2.5rem; }
   .user-meta, kbd { display: none; }
-  .user { padding-left: .5rem; }
+  .user { padding-left: .5rem; flex-shrink: 0; }
+  .topbar .search { min-width: 0; }
+  .topbar .menu-btn { flex-shrink: 0; }
   .kpis { gap: .6rem; }
   .kpi-value { font-size: 1.3rem; }
   .funnel li { grid-template-columns: 7.5rem 1fr 2rem; }
@@ -339,3 +341,4 @@ input:focus, textarea:focus, select:focus { outline: 0; border-color: var(--acce
   .next-action { flex-wrap: wrap; }
   .next-action .next-buttons { margin-left: 0; }
 }
+td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: flex-end; }

@@ -7,11 +7,10 @@ import { isPortalUser } from "../../common/rbac";
 import { actOnApproval, ApprovalAction, PinnedStep } from "../../workflows/approvals";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
-import { mustGet } from "./shared";
+import { mustGet, PORTAL_ROLES, staffDirectory } from "./shared";
 
 /** Roles that decide approval steps and so can be handed to someone else for a while. */
 const APPROVER_ROLES = ["FRANCHISE_MANAGER", "FINANCE_MANAGER", "LEGAL_MANAGER", "FRANCHISE_DIRECTOR"];
-const PORTAL_ROLES = ["FRANCHISEE", "FRANCHISEE_STAFF", "VENDOR"];
 const MAX_DELEGATION_DAYS = 90;
 const delegationSchema = z.object({
   delegate_user_id: z.string().min(1),
@@ -50,15 +49,6 @@ async function act(call: Call, action: ApprovalAction) {
 }
 
 /** Staff users with their role code, for naming people and picking a delegate. */
-async function staffDirectory(call: Call): Promise<Map<string, { ROWID: string; name: string | null; email: string; role: string; active: boolean }>> {
-  const [users, roles] = await Promise.all([call.repo.findMany("users", {}, { limit: 500 }), call.repo.findMany("roles", {}, { limit: 100 })]);
-  const roleCode = new Map(roles.map((x) => [String(x.ROWID), String(x.code)]));
-  return new Map(users.map((u) => [String(u.ROWID), {
-    ROWID: String(u.ROWID), name: u.name ? String(u.name) : null, email: String(u.email),
-    role: roleCode.get(String(u.role_id)) ?? "", active: u.status === "ACTIVE" && !u.franchisee_id,
-  }]));
-}
-
 /** ACTIVE delegations read as scheduled, live or expired by their window. */
 function delegationState(d: Row, now: Date): string {
   if (d.status !== "ACTIVE") return String(d.status);
