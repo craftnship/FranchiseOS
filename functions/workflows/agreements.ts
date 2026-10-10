@@ -9,8 +9,11 @@ import { toBool, toNum } from "../common/values";
 import { ZohoBooksClient, ZohoCrmClient, ZohoProjectsClient, ZohoSignClient } from "../integrations/clients";
 import { processOnce } from "../integrations/idempotency";
 import { ProviderError } from "../integrations/retry";
+import { CRM_ACCOUNT_FIELDS, CRM_LEAD_FIELDS } from "../integrations/crmSync";
 import { DEFAULTS } from "../../database/seed/defaults";
 import { buildOpeningProject, TemplateTask } from "./projectCreation";
+import { ensureLicences } from "./licences";
+import { allocateTerritory } from "./territoryReservation";
 import { transitionEntity, TransitionDeps } from "./transition";
 
 // Agreement and onboarding (plan Step 5, FOS-045..056). Sending creates the agreement and its Zoho
@@ -29,6 +32,12 @@ export interface OnboardingSettings {
   franchise_fee: number;
   projects_dependencies: boolean;
   currency: string;
+  /** Books payment terms in days for the fee invoice. */
+  books_payment_terms: number;
+  /** Books tax (e.g. GST 18%) applied to the fee line; none when unset. */
+  books_tax_id: string | null;
+  /** Email the fee invoice to the franchisee; false only marks it sent. */
+  books_email_invoice: boolean;
 }
 
 export function onboardingSettings(tenant: Row | null): OnboardingSettings {
@@ -41,6 +50,9 @@ export function onboardingSettings(tenant: Row | null): OnboardingSettings {
     franchise_fee: s.franchise_fee != null ? toNum(s.franchise_fee) : d.franchise_fee,
     projects_dependencies: s.projects_dependencies != null ? toBool(s.projects_dependencies) : d.projects_dependencies,
     currency: String(tenant?.currency ?? "INR"),
+    books_payment_terms: s.books_payment_terms != null ? toNum(s.books_payment_terms) : d.books_payment_terms,
+    books_tax_id: s.books_tax_id ? String(s.books_tax_id) : null,
+    books_email_invoice: s.books_email_invoice != null ? toBool(s.books_email_invoice) : d.books_email_invoice,
   };
 }
 
@@ -115,6 +127,8 @@ export async function sendAgreement(
 
 export interface OnboardingClients {
   crm: ZohoCrmClient | null;
+  /** For the signed PDF; without it the PDF step is skipped. */
+  sign?: ZohoSignClient | null;
   books: ZohoBooksClient | null;
   projects: ZohoProjectsClient | null;
 }
@@ -172,6 +186,8 @@ export async function handleSignEvent(
 export interface OnboardingResult {
   project_id: string;
   zoho_account_id: string | null;
+  zoho_contact_id: string | null;
+  document_ref: string | null;
   zoho_books_customer_id: string | null;
   zoho_books_invoice_id: string | null;
   zoho_project_id: string | null;
@@ -182,7 +198,8 @@ export interface OnboardingResult {
 
 /**
  * Post-signature pipeline (spec §15, D-17): agreement SIGNED, application AGREEMENT_SIGNED, opening
- * project row, application ONBOARDING, CRM account, Books customer and fee invoice, Zoho project.
+ * project row, application ONBOARDING, franchisee ACTIVE, CRM lead converted to Account + Contact,
+ * signed PDF on the Account, Books customer and fee invoice (sent), Zoho project.
  * Local state changes run first so a Zoho outage never blocks them. A failing Zoho step does not stop
  * the others; the run then throws so the event stays retryable.
  */
@@ -225,30 +242,73 @@ export async function onboardSignedAgreement(
     await logActivity(store, ctx, { entityType: "project", entityId: String(project.ROWID), action: "create:agreement", metadata: { agreement_id: args.agreementId } });
   }
   if (app.status === "AGREEMENT_SIGNED") app = await transitionEntity("application", appId, "start_onboarding", ctx, deps);
+  await ensureLicences(store, ctx, project);
+  // The reserved territory now belongs to this franchisee.
+  await allocateTerritory(store, ctx, appId);
 
   const pending: string[] = [];
+  const failures: string[] = [];
   const step = async (name: string, fn: () => Promise<void>) => {
     try { await fn(); } catch (e) {
+      const error = String((e as Error)?.message ?? e).slice(0, 300);
       pending.push(name);
-      log("warn", "onboarding.step_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, step: name, error: String((e as Error)?.message ?? e).slice(0, 300) });
+      failures.push(`${name} (${error})`);
+      log("warn", "onboarding.step_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, step: name, error });
     }
   };
 
   const franchiseeId = String(agreement.franchisee_id);
   let franchisee = await repo.getById("franchisees", franchiseeId);
   const name = String(franchisee.legal_name || franchisee.display_name || franchisee.franchise_code);
+  // A signed agreement makes the franchisee a partner, whatever happens in Zoho below.
+  if (franchisee.status !== "ACTIVE") {
+    franchisee = await repo.update("franchisees", franchiseeId, { status: "ACTIVE" });
+    await logActivity(store, ctx, { entityType: "franchisee", entityId: franchiseeId, action: "activate:signed", metadata: { agreement_id: args.agreementId } });
+  }
 
   await step("crm_account", async () => {
-    if (franchisee.zoho_account_id || !clients.crm) return;
-    const ref = await clients.crm.createAccount({ Account_Name: name, Phone: franchisee.phone ?? undefined, Description: `FranchiseOS ${franchisee.franchise_code}` });
-    franchisee = await repo.update("franchisees", franchiseeId, { zoho_account_id: ref.id });
+    const crm = clients.crm;
+    if (!crm) return;
+    if (!franchisee.zoho_account_id) {
+      // Converting keeps the lead's history on the new Account and Contact; a lead already
+      // converted or deleted falls back to a plain Account.
+      let ids: { accountId: string; contactId: string | null } | null = null;
+      if (franchisee.zoho_lead_id) {
+        ids = await crm.convertLead(String(franchisee.zoho_lead_id)).catch((e) => {
+          log("warn", "crm.lead_convert_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, error: String((e as Error)?.message ?? e).slice(0, 300) });
+          return null;
+        });
+      }
+      const accountId = ids?.accountId ?? (await crm.createAccount({ Account_Name: name, Description: `FranchiseOS ${franchisee.franchise_code}` })).id;
+      franchisee = await repo.update("franchisees", franchiseeId, { zoho_account_id: accountId, zoho_contact_id: ids?.contactId ?? null });
+    }
+    await crm.updateAccount(String(franchisee.zoho_account_id), {
+      ...(franchisee.phone ? { Phone: franchisee.phone } : {}),
+      ...(app.preferred_city ? { Billing_City: app.preferred_city } : {}),
+      ...(app.preferred_state ? { Billing_State: app.preferred_state } : {}),
+      ...(app.preferred_country ? { Billing_Country: app.preferred_country } : {}),
+      Description: `FranchiseOS ${franchisee.franchise_code}${franchisee.email ? ` · ${franchisee.email}` : ""}`,
+      [CRM_ACCOUNT_FIELDS.franchiseCode]: franchisee.franchise_code,
+      [CRM_ACCOUNT_FIELDS.applicationCode]: app.application_code,
+      [CRM_ACCOUNT_FIELDS.applicationStatus]: app.status,
+      [CRM_ACCOUNT_FIELDS.targetOpening]: project!.target_opening_date ? String(project!.target_opening_date).slice(0, 10) : null,
+    });
+  });
+
+  await step("signed_pdf", async () => {
+    if (agreement!.document_ref || !clients.sign || !clients.crm || !franchisee.zoho_account_id || !agreement!.zoho_sign_request_id) return;
+    const file = await clients.sign.downloadSigned(String(agreement!.zoho_sign_request_id));
+    const ext = file.type === "application/zip" ? "zip" : "pdf";
+    const att = await clients.crm.attachFile("Accounts", String(franchisee.zoho_account_id), { ...file, name: `${agreement!.agreement_code} signed.${ext}` });
+    agreement = await repo.update("agreements", args.agreementId, { document_ref: `crm:Accounts/${franchisee.zoho_account_id}/Attachments/${att.id}` });
   });
 
   let invoiceId = (agreement.zoho_books_invoice_id as string | null) ?? null;
+  const email = franchisee.email ? String(franchisee.email) : undefined;
   await step("books_customer", async () => {
     if (franchisee.zoho_books_customer_id || !clients.books) return;
-    const found = await clients.books.findCustomer(name);
-    const ref = found ?? await clients.books.createCustomer({ contact_name: name, company_name: franchisee.legal_name ? String(franchisee.legal_name) : undefined, email: franchisee.email ? String(franchisee.email) : undefined, phone: franchisee.phone ? String(franchisee.phone) : undefined });
+    const found = await clients.books.findCustomer(name, email);
+    const ref = found ?? await clients.books.createCustomer({ contact_name: name, company_name: franchisee.legal_name ? String(franchisee.legal_name) : undefined, email, phone: franchisee.phone ? String(franchisee.phone) : undefined });
     franchisee = await repo.update("franchisees", franchiseeId, { zoho_books_customer_id: ref.id });
   });
   if (settings.franchise_fee > 0 && clients.books && franchisee.zoho_books_customer_id && !invoiceId) {
@@ -256,11 +316,20 @@ export async function onboardSignedAgreement(
     await step("books_invoice", async () => {
       const code = String(agreement!.agreement_code);
       const ref = await books.findInvoice(code) ?? await books.createInvoice({
-        customer_id: String(franchisee.zoho_books_customer_id), reference_number: code, date: dateOnly(now),
-        line_items: [{ name: "Franchise fee", description: `Initial franchise fee, agreement ${code}`, rate: settings.franchise_fee, quantity: 1 }],
+        customer_id: String(franchisee.zoho_books_customer_id), reference_number: code, date: dateOnly(now), payment_terms: settings.books_payment_terms,
+        line_items: [{ name: "Franchise fee", description: `Initial franchise fee, agreement ${code}`, rate: settings.franchise_fee, quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) }],
       });
       invoiceId = ref.id;
       await repo.update("agreements", args.agreementId, { zoho_books_invoice_id: ref.id });
+    });
+  }
+  if (invoiceId && clients.books) {
+    const books = clients.books;
+    await step("books_invoice_send", async () => {
+      // Only a draft is sent, so a retry never emails the franchisee twice.
+      const inv = await books.getInvoice(invoiceId!);
+      if (inv.status !== "draft") return;
+      await books.sendInvoice(invoiceId!, settings.books_email_invoice && email ? [email] : []);
     });
   }
 
@@ -281,13 +350,15 @@ export async function onboardSignedAgreement(
   const result: OnboardingResult = {
     project_id: String(project.ROWID),
     zoho_account_id: (franchisee.zoho_account_id as string) ?? null,
+    zoho_contact_id: (franchisee.zoho_contact_id as string) ?? null,
+    document_ref: (agreement.document_ref as string) ?? null,
     zoho_books_customer_id: (franchisee.zoho_books_customer_id as string) ?? null,
     zoho_books_invoice_id: invoiceId,
     zoho_project_id: (after.zoho_project_id as string) ?? null,
     tasks_created: (build as { tasksCreated: number } | null)?.tasksCreated ?? 0,
     pending,
   };
-  if (pending.length) throw new ProviderError(`Onboarding incomplete: ${pending.join(", ")}`, 502);
+  if (pending.length) throw new ProviderError(`Onboarding incomplete: ${failures.join("; ")}`, 502);
   return result;
 }
 
@@ -302,4 +373,33 @@ export async function loadProjectTemplate(repo: TenantRepo, franchiseType: strin
     weight: r.weight == null ? 1 : toNum(r.weight), offset_days: toNum(r.offset_days),
     depends_on: JSON.parse(String(r.depends_on_json || "[]")) as string[],
   }));
+}
+
+/**
+ * A store that opened makes its application ACTIVE and its franchisee ACTIVE, and records the
+ * opening date on the CRM Account. CRM failures are logged, never block the opening.
+ */
+export async function activateOnOpening(
+  store: Store,
+  ctx: TenantContext,
+  crm: ZohoCrmClient | null,
+  args: { projectId: string } & Deps,
+): Promise<{ application_status: string; franchisee_status: string }> {
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const project = await repo.getById("franchise_projects", args.projectId);
+  if (project.status !== "OPENED") throw new AppError("INVALID_TRANSITION", `Project is ${project.status}, not opened.`);
+  let app = await repo.getById("franchise_applications", String(project.application_id));
+  if (app.status === "ONBOARDING") {
+    app = await transitionEntity("application", String(app.ROWID), "activate", ctx, { store, permissions: async () => new Set(["system.opening"]), onTransition: args.onTransition });
+  }
+  let franchisee = await repo.getById("franchisees", String(project.franchisee_id));
+  if (franchisee.status !== "ACTIVE") {
+    franchisee = await repo.update("franchisees", String(franchisee.ROWID), { status: "ACTIVE" });
+    await logActivity(store, ctx, { entityType: "franchisee", entityId: String(franchisee.ROWID), action: "activate:opened", metadata: { project_id: args.projectId } });
+  }
+  if (crm && franchisee.zoho_account_id) {
+    await crm.updateAccount(String(franchisee.zoho_account_id), { [CRM_ACCOUNT_FIELDS.openedOn]: String(project.actual_opening_date ?? "").slice(0, 10) || null })
+      .catch((e) => log("warn", "crm.opening_push_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, error: String((e as Error)?.message ?? e).slice(0, 300) }));
+  }
+  return { application_status: String(app.status), franchisee_status: String(franchisee.status) };
 }

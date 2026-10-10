@@ -11,6 +11,9 @@ function fakeCrm(lead: Record<string, unknown>, failUpdates = 0) {
     getAccount: async () => ({}),
     getContact: async () => ({}),
     createAccount: async () => ({ id: "A1" }),
+    updateAccount: async () => {},
+    convertLead: async () => ({ accountId: "A1", contactId: "C1" }),
+    attachFile: async () => ({ id: "F1" }),
     updateLead: async (id, data) => {
       if (failures-- > 0) throw new Error("boom");
       updates.push({ id, data });
@@ -23,6 +26,15 @@ const lead = { id: "L1", Full_Name: "Pepper Potts", Email: "p@x.test", Lead_Stat
 const sleep = async () => {};
 
 describe("CRM lead webhook (D-9)", () => {
+  it("does not create an application for a lead with no email or phone, and flags it in CRM", async () => {
+    const store = newStore();
+    const { crm, updates } = fakeCrm({ ...lead, Email: null, Mobile: null, Phone: null });
+    const res = await handleCrmLead(store, ctx(["SYSTEM"]), crm, { leadId: "L1", sleep });
+    expect(res).toMatchObject({ action: "ignored" });
+    expect(updates).toEqual([{ id: "L1", data: { FOS_Application_Status: "NEEDS_CONTACT_DETAILS" } }]);
+    expect(await store.findMany("franchise_applications", {})).toHaveLength(0);
+  });
+
   it("creates franchisee and DRAFT application once and writes status back", async () => {
     const store = newStore();
     const { crm, updates } = fakeCrm(lead);
@@ -39,9 +51,12 @@ describe("CRM lead webhook (D-9)", () => {
   it("reuses the open application on a later lead edit", async () => {
     const store = newStore();
     await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm(lead).crm, { leadId: "L1", sleep });
-    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later" }).crm, { leadId: "L1", sleep });
+    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later", Email: "pepper@new.test", Mobile: "+91 90000 00000" }).crm, { leadId: "L1", sleep });
     expect(again.action).toBe("existing");
-    expect(await store.findMany("franchisees", {})).toHaveLength(1);
+    const franchisees = await store.findMany("franchisees", {});
+    expect(franchisees).toHaveLength(1);
+    // The lead's edits come across onto the franchisee.
+    expect(franchisees[0]).toMatchObject({ display_name: "Pepper Potts", email: "pepper@new.test", phone: "+91 90000 00000" });
   });
 
   it("ignores leads not at the trigger status", async () => {

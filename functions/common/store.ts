@@ -15,6 +15,8 @@ export interface QueryOptions {
   desc?: boolean;
   limit?: number;
   offset?: number;
+  /** Case-insensitive substring match on any of these columns (global search). */
+  contains?: { columns: string[]; term: string };
 }
 
 /** Minimal persistence port. CatalystStore implements it for Data Store; MemoryStore for tests. */

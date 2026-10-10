@@ -63,7 +63,7 @@ describe("project creation saga (§15, FOS-053..056)", () => {
       },
       updateTask: async () => {},
       addDependency: async () => { calls.addDependency++; },
-      listTasks: async () => [],
+      listTasks: async () => [], setTaskClosed: async () => {}, rescheduleTask: async () => {},
     };
   }
   async function seedProject() {

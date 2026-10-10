@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { scoreQualification, classify, territoryAvailabilityRating } from "../../functions/scoring/qualification";
 import { scoreSite } from "../../functions/scoring/site";
 import { opportunityScore } from "../../functions/scoring/territory";
-import { calculateFeasibility, calculateScenarios } from "../../functions/scoring/feasibility";
+import { calculateFeasibility, calculateScenarios, plausibilityWarnings } from "../../functions/scoring/feasibility";
 import { calculateReadiness, ChecklistItem } from "../../functions/scoring/readiness";
 import { AppError } from "../../functions/common/errors";
 
@@ -63,6 +63,15 @@ describe("feasibility (§16, D-15)", () => {
     const r = calculateFeasibility({ ...base, initial_investment: 7_000_000 });
     expect(r.passed).toBe(false);
     expect(r.fail_reasons[0]).toMatch(/exceeds 36/);
+  });
+  it("warns, without failing, when the numbers look too good", () => {
+    expect(plausibilityWarnings(calculateFeasibility(base))).toEqual([]);
+    // The test run that slipped through: 50L in, 15L/month revenue.
+    const hot = calculateFeasibility({ ...base, initial_investment: 5_000_000, monthly_revenue: 1_500_000, monthly_fixed_opex: 250_000 });
+    expect(hot.passed).toBe(true);
+    const w = plausibilityWarnings(hot);
+    expect(w.join(" ")).toMatch(/ROI .* unusually high/);
+    expect(w.join(" ")).toMatch(/Payback .* unusually fast/);
   });
   it("rejects negative or zero investment", () => {
     expect(() => calculateFeasibility({ ...base, initial_investment: 0 })).toThrow(AppError);

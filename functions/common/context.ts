@@ -8,4 +8,10 @@ export interface TenantContext {
   correlationId: string;
   /** Set for portal users: the franchisee record they belong to (§25). */
   franchiseeId?: string;
+  /** Sends notification emails; absent when no sender is configured (inbox only). */
+  mailer?: Mailer;
+}
+
+export interface Mailer {
+  send(msg: { to: string; subject: string; html: string; text: string }): Promise<void>;
 }

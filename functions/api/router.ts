@@ -1,6 +1,7 @@
 import { z } from "zod";
+import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
 import { log } from "../common/logger";
 import { authorize, PermissionLookup } from "../common/rbac";
@@ -36,6 +37,10 @@ export interface ApiDeps {
   crm?: CrmFactory;
   /** Builds all of the tenant's Zoho clients (Sign, Books, Projects); null when not connected. */
   zoho?: ZohoFactory;
+  /** Where uploaded documents are stored; absent until a Stratus bucket is configured. */
+  files?: FileStorage;
+  /** Sends notification emails; absent until a sender is configured. */
+  mailer?: Mailer;
 }
 
 export interface Call {
@@ -51,6 +56,7 @@ export interface Call {
   onTransition: NonNullable<TransitionDeps["onTransition"]>;
   /** The tenant's Zoho clients, or null when Zoho is not connected. */
   zoho: () => Promise<ZohoClients | null>;
+  files: FileStorage | null;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -97,7 +103,7 @@ export class Router {
       const m = this.match(req.method, normalizePath(req.path));
       if (m === null) throw new AppError("NOT_FOUND", "Route not found.");
       if (m === "method") throw new AppError("INVALID_REQUEST", "Method not allowed on this route.");
-      const ctx = await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId });
+      const ctx: TenantContext = { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
       const permissions = deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
       if (m.route.permission) await authorize(ctx, m.route.permission, permissions);
       const data = await m.route.handler({
@@ -114,6 +120,7 @@ export class Router {
           await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
         },
         zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
+        files: deps.files ?? null,
       });
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {

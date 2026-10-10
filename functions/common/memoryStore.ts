@@ -43,6 +43,10 @@ export class MemoryStore implements Store {
 
   async findMany(table: string, where: Record<string, Primitive>, opts: QueryOptions = {}): Promise<Row[]> {
     let out = this.rows(table).filter((r) => Object.entries(where).every(([k, v]) => r[k] === v));
+    if (opts.contains?.columns.length) {
+      const term = opts.contains.term.toLowerCase();
+      out = out.filter((r) => opts.contains!.columns.some((c) => String(r[c] ?? "").toLowerCase().includes(term)));
+    }
     if (opts.orderBy) {
       const k = opts.orderBy;
       const cmp = (x: unknown, y: unknown) =>

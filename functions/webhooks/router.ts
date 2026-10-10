@@ -1,6 +1,6 @@
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { fail, newRequestId, ok } from "../common/response";
 import { Store } from "../common/store";
@@ -20,6 +20,8 @@ export interface WebhookRequest {
   headers: Record<string, string | string[] | undefined>;
   query: Record<string, string>;
   body: unknown;
+  /** The body as received; the Sign signature is computed over it. */
+  rawBody?: string;
 }
 
 export interface WebhookDeps {
@@ -30,6 +32,10 @@ export interface WebhookDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Pilot fallback when the tenant_integrations row has no webhook_secret (env FOS_CRM_WEBHOOK_SECRET). */
   fallbackSecret?: string;
+  /** Zoho Sign webhook secret key (env FOS_SIGN_WEBHOOK_SECRET). When set, Sign callbacks must carry its signature. */
+  signSecret?: string;
+  /** Sends notification emails; absent until a sender is configured. */
+  mailer?: Mailer;
 }
 
 const LEAD_ROUTE = /^\/webhooks\/crm\/lead\/([A-Za-z0-9_-]{1,40})$/;
@@ -69,7 +75,13 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
 
     const tenantId = String(tenant!.ROWID);
-    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : TEST_AGREEMENT_ROUTE.test(path) ? "SYSTEM:test" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId };
+    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : TEST_AGREEMENT_ROUTE.test(path) ? "SYSTEM:test" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId, mailer: deps.mailer };
+    if (SIGN_ROUTE.test(path) && deps.signSecret) {
+      // Zoho Sign signs each callback: base64 HMAC-SHA256 of the raw body with the webhook's secret key.
+      const expectedSig = createHmac("sha256", deps.signSecret).update(req.rawBody ?? "").digest("base64");
+      const givenSig = header(req.headers, "x-zs-webhook-signature");
+      if (!givenSig || !sameSecret(givenSig, expectedSig)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
+    }
     if (SIGN_ROUTE.test(path)) return { status: 200, body: ok(await signCallback(body, ctx, deps), requestId) };
     if (TEST_AGREEMENT_ROUTE.test(path)) return { status: 200, body: ok(await testSendAgreement(tenant!, body, ctx, deps), requestId) };
 

@@ -3,12 +3,14 @@ import { buildRouter } from "../../functions/api/app";
 import { ApiRequest } from "../../functions/api/router";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { newStore } from "./helpers";
+import { MemoryFileStorage } from "../../functions/common/files";
 
 const router = buildRouter();
 type Body = { success: boolean; data?: any; error?: { code: string; fields?: Record<string, string> } };
 
-async function setup() {
+async function setup(opts: { files?: boolean } = { files: true }) {
   const store = newStore();
+  const files = opts.files ? new MemoryFileStorage() : undefined;
   const a = await bootstrapTenant(store, { tenantCode: "STARK", name: "Stark Industries", zohoDc: "IN" });
   const b = await bootstrapTenant(store, { tenantCode: "OTHER", name: "Other Co", zohoDc: "IN" });
   const addUser = async (tenant: typeof a, role: string, ext: string, franchiseeId?: string) =>
@@ -17,10 +19,10 @@ async function setup() {
   await addUser(b, "FRANCHISE_DIRECTOR", "other-dir");
   const call = async (ext: string | null, method: string, path: string, body?: unknown, query?: Record<string, string>) => {
     const req: ApiRequest = { method, path: `/api/v1${path}`, body, query, identity: ext ? { externalUserId: ext, email: `${ext}@x.test` } : null };
-    const res = await router.handle(req, { store });
+    const res = await router.handle(req, { store, files });
     return { status: res.status, ...(res.body as Body) };
   };
-  return { store, a, b, addUser, call };
+  return { store, a, b, addUser, call, files };
 }
 
 const ratings = { financial_capacity: 90, business_experience: 80, industry_experience: 70, investment_readiness: 85, time_commitment: 90, profile_quality: 80 };
@@ -101,9 +103,15 @@ describe("franchise pipeline through the API", () => {
     const ter = await call("mgr", "POST", "/territories", { name: "Chennai Central", city: "Chennai", franchise_type: "QSR", population_index: 80, market_index: 70, income_index: 60, competition_index: 40 });
     expect(ter.data.opportunity_score).toBeGreaterThan(0);
     await call("mgr", "POST", `/applications/${id}/transition`, { transition: "start_review" });
+    // Below the qualified threshold, qualifying needs a written reason.
+    const low = await call("mgr", "POST", `/applications/${id}/score`, { ratings: { ...ratings, financial_capacity: 40, business_experience: 40, investment_readiness: 40, time_commitment: 50 } });
+    expect(["NURTURE", "LOW"]).toContain(low.data.qualification_class);
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify" })).error?.fields).toEqual({ override_reason: "required below the qualified threshold" });
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "start_review", override_reason: "Strong local partner" })).error?.code).toBe("VALIDATION_FAILED");
+    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify", override_reason: "Strong local partner with an existing outlet" })).data.status).toBe("QUALIFIED");
+    expect((await store.findMany("activity_logs", { entity_id: id, action: "qualify:override" }))).toHaveLength(1);
     const scored = await call("mgr", "POST", `/applications/${id}/score`, { ratings });
     expect(scored.data.qualification_class).toBe("HOT");
-    expect((await call("mgr", "POST", `/applications/${id}/transition`, { transition: "qualify" })).data.status).toBe("QUALIFIED");
 
     // Reserve, then site.
     const found = await call("mgr", "POST", "/territories/search", { city: "Chennai" });
@@ -115,6 +123,9 @@ describe("franchise pipeline through the API", () => {
     const siteId = String(site.data.ROWID);
     expect((await call("mgr", "GET", `/applications/${id}`)).data.status).toBe("SITE_SUBMITTED");
     for (const t of ["screen", "schedule_visit", "start_evaluation"]) await call("mgr", "POST", `/sites/${siteId}/transition`, { transition: t });
+    const evaluating = await call("mgr", "GET", `/sites/${siteId}`);
+    expect(evaluating.data.evaluation_template.map((i: any) => i.code)).toContain("footfall");
+    expect(evaluating.data.transitions.map((t: any) => t.transition)).not.toContain("evaluated");
     const ev = await call("mgr", "POST", `/sites/${siteId}/evaluate`, { ratings: siteRatings });
     expect(ev.data.site.status).toBe("FEASIBILITY");
     expect(ev.data.evaluation.recommendation).toBe("RECOMMEND");
@@ -144,6 +155,14 @@ describe("franchise pipeline through the API", () => {
     expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
     const inbox = await call("mgr", "GET", "/approvals");
     expect(inbox.data.map((i: any) => String(i.ROWID))).toEqual([approvalId]);
+    expect(inbox.data[0].entity.code).toBe(app.data.application_code);
+    const pending = await call("mgr", "GET", `/applications/${id}`);
+    expect(pending.data.approval.steps).toHaveLength(4);
+    expect(pending.data.feasibility.passed).toBe(true);
+    expect(pending.data.territory.city).toBe("Chennai");
+    expect(pending.data.transitions.map((t: any) => t.transition)).toEqual(expect.arrayContaining(["reject", "withdraw", "hold"]));
+    expect(pending.data.transitions.map((t: any) => t.transition)).not.toContain("approve");
+    expect((await call("pepper", "GET", `/applications/${id}`)).data.approval).toBeUndefined();
     for (const [user, step] of [["mgr", 1], ["fin", 2], ["legal", 3]] as const) {
       expect((await call(user, "POST", `/approvals/${approvalId}/approve`, { step })).data.outcome).toBe("ADVANCED");
     }
@@ -199,5 +218,115 @@ describe("franchise pipeline through the API", () => {
     expect((await call("mgr", "GET", `/applications/${winner}`)).data.territory_id).toBeNull();
     expect((await call("mgr", "POST", "/territories/search", { city: "Pune" })).data).toHaveLength(1);
   });
+
+  it("edits, blocks and unblocks a territory, but never one that is reserved", async () => {
+    const { store, call } = await setup();
+    const ter = await call("mgr", "POST", "/territories", { name: "Pune East", city: "Pune" });
+    const id = ter.data.ROWID;
+    const edited = await call("mgr", "PATCH", `/territories/${id}`, { name: "Pune East (Kharadi)", population_index: 80, market_index: 70, income_index: 60, competition_index: 40 });
+    expect(edited.data).toMatchObject({ name: "Pune East (Kharadi)", opportunity_score: 69 });
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "BLOCKED" })).data.status).toBe("BLOCKED");
+    expect((await call("mgr", "POST", "/territories/search", { city: "Pune" })).data).toHaveLength(0);
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "AVAILABLE" })).data.status).toBe("AVAILABLE");
+    await store.update("territories", String(id), { status: "RESERVED" });
+    expect((await call("mgr", "PATCH", `/territories/${id}`, { status: "BLOCKED" })).error?.code).toBe("TERRITORY_NOT_AVAILABLE");
+    expect((await call("mgr", "PATCH", `/territories/${id}`, {})).error?.code).toBe("VALIDATION_FAILED");
+  });
 });
 
+
+describe("approval delegation", () => {
+  async function pending() {
+    const s = await setup();
+    const fr = await s.call("mgr", "POST", "/franchisees", { display_name: "Wanda" });
+    const app = await s.call("mgr", "POST", "/applications", { franchisee_id: String(fr.data.ROWID) });
+    const id = String(app.data.ROWID);
+    const fm = await s.store.insert("feasibility_models", { tenant_id: s.a.tenantId, application_id: id, site_id: "1", status: "CALCULATED", passed: true, initial_investment: 100 });
+    await s.store.update("franchise_applications", id, { status: "FEASIBILITY_REVIEW", site_id: "1", feasibility_id: String(fm.ROWID) });
+    const started = await s.call("mgr", "POST", `/applications/${id}/start-approval`);
+    return { ...s, approvalId: String(started.data.approval.ROWID) };
+  }
+  const window = (fromH: number, toH: number) => ({ starts_at: new Date(Date.now() + fromH * 3_600_000).toISOString(), ends_at: new Date(Date.now() + toH * 3_600_000).toISOString() });
+
+  it("lets a delegate decide the delegator's step until it is revoked", async () => {
+    const { call, approvalId } = await pending();
+    const people = await call("mgr", "GET", "/approvals/delegates");
+    const fin = people.data.find((p: any) => p.email === "fin@x.test");
+    expect(people.data.map((p: any) => p.email)).not.toContain("mgr@x.test");
+    expect((await call("fin", "GET", "/approvals")).data).toHaveLength(0);
+
+    const d = await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(-1, 72) });
+    expect(d.status).toBe(201);
+    expect(d.data.state).toBe("ACTIVE");
+    expect((await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(24, 48) })).error?.fields).toHaveProperty("starts_at");
+    expect((await call("fin", "GET", "/approvals")).data.map((i: any) => String(i.ROWID))).toEqual([approvalId]);
+    const listed = await call("fin", "GET", "/approvals/delegations");
+    expect(listed.data[0].delegator.email).toBe("mgr@x.test");
+
+    // Only the delegator (or a super admin) can end it.
+    expect((await call("fin", "POST", `/approvals/delegations/${d.data.ROWID}/revoke`)).error?.code).toBe("ACCESS_DENIED");
+    expect((await call("mgr", "POST", `/approvals/delegations/${d.data.ROWID}/revoke`)).data.state).toBe("REVOKED");
+    expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
+
+    await call("mgr", "POST", "/approvals/delegations", { delegate_user_id: fin.ROWID, role: "FRANCHISE_MANAGER", ...window(-1, 24) });
+    expect((await call("fin", "POST", `/approvals/${approvalId}/approve`, { step: 1 })).data.outcome).toBe("ADVANCED");
+  });
+
+  it("only hands over a role the delegator holds, to staff, for a bounded window", async () => {
+    const { call, addUser, a } = await pending();
+    const people = (await call("legal", "GET", "/approvals/delegates")).data;
+    const id = (email: string) => people.find((p: any) => p.email === email).ROWID;
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "FINANCE_MANAGER", ...window(0, 24) })).error?.code).toBe("APPROVAL_NOT_ALLOWED");
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "LEGAL_MANAGER", ...window(24, 1) })).error?.fields).toHaveProperty("ends_at");
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: id("mgr@x.test"), role: "LEGAL_MANAGER", ...window(0, 24 * 91) })).error?.fields).toHaveProperty("ends_at");
+    const fr = await call("mgr", "POST", "/franchisees", { display_name: "Pietro" });
+    const portal = await addUser(a, "FRANCHISEE", "pietro", String(fr.data.ROWID));
+    expect((await call("legal", "POST", "/approvals/delegations", { delegate_user_id: String(portal.ROWID), role: "LEGAL_MANAGER", ...window(0, 24) })).error?.fields).toHaveProperty("delegate_user_id");
+    expect((await call("pietro", "GET", "/approvals/delegations")).error?.code).toBe("ACCESS_DENIED");
+  });
+});
+
+describe("document uploads", () => {
+  const pdf = Buffer.from("%PDF-1.4 test").toString("base64");
+  async function draft(opts?: { files?: boolean }) {
+    const s = await setup(opts);
+    const fr = await s.call("mgr", "POST", "/franchisees", { display_name: "Natasha" });
+    await s.addUser(s.a, "FRANCHISEE", "nat", String(fr.data.ROWID));
+    const app = await s.call("nat", "POST", "/applications", { application_type: "UNIT" });
+    return { ...s, id: String(app.data.ROWID) };
+  }
+
+  it("stores the file under the tenant and application, and downloads it through a signed link", async () => {
+    const { call, files, id, a, addUser } = await draft();
+    expect((await call("nat", "GET", `/applications/${id}`)).data.uploads_enabled).toBe(true);
+    const up = await call("nat", "POST", `/applications/${id}/documents/upload`, { document_type: "ID_PROOF", file_name: "My Aadhaar (front).pdf", content_type: "application/pdf", data_base64: pdf });
+    expect(up.status).toBe(201);
+    expect(up.data.file_ref).toMatch(new RegExp(`^stratus:tenants/${a.tenantId}/applications/${id}/[\\w-]+/My_Aadhaar_front_.pdf$`));
+    expect([...files!.objects.values()][0].data.toString()).toBe("%PDF-1.4 test");
+    const link = await call("nat", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`);
+    expect(link.data.url).toBe(`memory://${up.data.file_ref.slice("stratus:".length)}`);
+
+    // Staff can fetch it; another franchisee cannot.
+    expect((await call("mgr", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`)).data.url).toMatch(/^memory:/);
+    const other = await call("mgr", "POST", "/franchisees", { display_name: "Clint" });
+    await addUser(a, "FRANCHISEE", "clint", String(other.data.ROWID));
+    expect((await call("clint", "GET", `/applications/${id}/documents/${up.data.ROWID}/download`)).error?.code).toBe("APPLICATION_NOT_FOUND");
+  });
+
+  it("rejects unsupported, empty and oversized files", async () => {
+    const { call, id } = await draft();
+    const base = { document_type: "ID_PROOF", file_name: "x.pdf" };
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/zip", data_base64: pdf })).error?.fields).toHaveProperty("file");
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/pdf", data_base64: "====" })).error?.fields).toHaveProperty("file");
+    const big = Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64");
+    expect((await call("nat", "POST", `/applications/${id}/documents/upload`, { ...base, content_type: "application/pdf", data_base64: big })).error?.fields?.file).toBe("too large");
+  });
+
+  it("says uploads are off when no bucket is configured", async () => {
+    const { call, id } = await draft({ files: false });
+    expect((await call("nat", "GET", `/applications/${id}`)).data.uploads_enabled).toBe(false);
+    const res = await call("nat", "POST", `/applications/${id}/documents/upload`, { document_type: "ID_PROOF", file_name: "x.pdf", content_type: "application/pdf", data_base64: pdf });
+    expect(res.status).toBe(503);
+    expect(res.error?.code).toBe("FILE_STORAGE_UNAVAILABLE");
+  });
+});

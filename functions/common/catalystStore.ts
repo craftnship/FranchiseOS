@@ -30,6 +30,11 @@ export function literal(v: Primitive): string {
 export function buildSelect(table: string, where: Record<string, Primitive>, opts: QueryOptions = {}): string {
   const t = ident(table);
   const clauses = Object.entries(where).map(([k, v]) => (v === null ? `${ident(k)} IS NULL` : `${ident(k)} = ${literal(v)}`));
+  if (opts.contains?.columns.length) {
+    // ZCQL LIKE uses * as the wildcard; the term's own wildcards are dropped.
+    const term = opts.contains.term.replace(/[*?]/g, "");
+    clauses.push(`(${opts.contains.columns.map((c) => `${ident(c)} LIKE ${literal(`*${term}*`)}`).join(" OR ")})`);
+  }
   let q = `SELECT * FROM ${t}`;
   if (clauses.length) q += ` WHERE ${clauses.join(" AND ")}`;
   if (opts.orderBy) q += ` ORDER BY ${ident(opts.orderBy)} ${opts.desc ? "DESC" : "ASC"}`;

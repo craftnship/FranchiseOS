@@ -38,7 +38,8 @@ const application: Rule[] = [
   { from: ["APPROVED"], transition: "send_agreement", to: "AGREEMENT_PENDING", permission: "agreement.write" },
   { from: ["AGREEMENT_PENDING"], transition: "agreement_signed", to: "AGREEMENT_SIGNED", permission: "system.sign" },
   { from: ["AGREEMENT_SIGNED"], transition: "start_onboarding", to: "ONBOARDING", permission: "system.project" },
-  { from: ["ONBOARDING"], transition: "activate", to: "ACTIVE", permission: "application.activate" },
+  // A franchise goes live when its store opens (activateOnOpening), never by hand.
+  { from: ["ONBOARDING"], transition: "activate", to: "ACTIVE", permission: "system.opening" },
   { from: APP_OPEN, transition: "withdraw", to: "WITHDRAWN", permission: "application.withdraw" },
   { from: APP_OPEN, transition: "hold", to: "ON_HOLD", permission: "application.review",
     sideFields: (e) => ({ held_from: e.status }) },
@@ -95,6 +96,11 @@ export const ENTITY_TABLE: Record<EntityType, string> = {
 
 export function findRule(entityType: EntityType, fromState: string, transition: string): Rule | undefined {
   return STATE_MACHINES[entityType].find((r) => r.transition === transition && r.from.includes(fromState));
+}
+
+/** Transitions from a state with the permission each needs (undefined: no extra permission). */
+export function transitionsFrom(entityType: EntityType, fromState: string): { transition: string; permission?: string }[] {
+  return STATE_MACHINES[entityType].filter((r) => r.from.includes(fromState)).map((r) => ({ transition: r.transition, permission: r.permission }));
 }
 
 export function allowedTransitions(entityType: EntityType, fromState: string): string[] {

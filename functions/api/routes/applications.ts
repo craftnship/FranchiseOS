@@ -5,13 +5,15 @@ import { nextBusinessId } from "../../common/ids";
 import { isPortalUser, authorize } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
+import { documentKey, MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES } from "../../common/files";
 import { DEFAULT_QUALIFICATION_WEIGHTS, DEFAULT_THRESHOLDS, scoreQualification, territoryAvailabilityRating } from "../../scoring/qualification";
 import { startApproval } from "../../workflows/approvals";
-import { allowedTransitions, findRule } from "../../workflows/stateMachines";
+import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
+import { modelWarnings } from "../../scoring/feasibility";
 import { Call, page, parse, Router } from "../router";
-import { assertOwner, defined, mustGet, ownerFilter, settings } from "./shared";
+import { assertOwner, defined, listByStatus, mustGet, ownerFilter, settings } from "./shared";
 
 const editable = {
   application_type: z.enum(["UNIT", "MULTI_UNIT", "MASTER", "AREA_DEVELOPER"]).optional(),
@@ -29,10 +31,21 @@ const documentSchema = z.object({
   issue_date: z.string().date().optional(),
   expiry_date: z.string().date().optional(),
 }).strict();
+const uploadSchema = z.object({
+  document_type: z.string().trim().min(1).max(50),
+  file_name: z.string().trim().min(1).max(200),
+  content_type: z.string().max(100),
+  data_base64: z.string().min(1),
+  document_number: z.string().trim().max(100).optional(),
+  issue_date: z.string().date().optional(),
+  expiry_date: z.string().date().optional(),
+}).strict();
 const verifySchema = z.object({ verification_status: z.enum(["VERIFIED", "REJECTED"]), rejection_reason: z.string().trim().max(1000).optional() }).strict()
   .refine((b) => b.verification_status !== "REJECTED" || !!b.rejection_reason, { message: "A reason is required.", path: ["rejection_reason"] });
 const scoreSchema = z.object({ ratings: z.record(z.number().min(0).max(100)) }).strict();
-const transitionSchema = z.object({ transition: z.string().min(1).max(40) }).strict();
+const transitionSchema = z.object({ transition: z.string().min(1).max(40), override_reason: z.string().trim().min(10).max(1000).optional() }).strict();
+/** Classes that qualify without an override (§18). */
+const QUALIFYING_CLASSES = ["HOT", "QUALIFIED"];
 
 const EDITABLE_STATES = ["DRAFT", "UNDER_REVIEW", "ON_HOLD"];
 
@@ -53,8 +66,8 @@ async function requireDocuments(call: Call, app: Row): Promise<void> {
 export function applicationRoutes(r: Router): void {
   r.on("GET", "/applications", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), franchisee_id: z.string().optional() }), call.query);
-    const where = { ...(q.status ? { status: q.status } : {}), ...(q.franchisee_id ? { franchisee_id: q.franchisee_id } : {}), ...ownerFilter(call) };
-    return call.repo.findMany("franchise_applications", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset });
+    const where = { ...(q.franchisee_id ? { franchisee_id: q.franchisee_id } : {}), ...ownerFilter(call) };
+    return listByStatus(call.repo, "franchise_applications", q.status, where, q);
   });
 
   // Staff create for any franchisee; a portal user creates one for their own franchisee only.
@@ -78,11 +91,34 @@ export function applicationRoutes(r: Router): void {
     return row;
   }, 201);
 
+  // Everything the application page needs in one call: documents, the transitions a person can trigger
+  // (with the permission each needs), and for staff the territory, feasibility and latest approval.
   r.on("GET", "/applications/:id", null, async (call) => {
     const app = await getApp(call);
-    const documents = await call.repo.findMany("application_documents", { application_id: String(app.ROWID) });
+    const id = String(app.ROWID);
+    const documents = await call.repo.findMany("application_documents", { application_id: id });
     const allowed_transitions = allowedTransitions("application", String(app.status));
-    return { ...app, documents, allowed_transitions };
+    const transitions = transitionsFrom("application", String(app.status))
+      .filter((t) => !t.permission?.startsWith("system.") && !["submit", "start_approval"].includes(t.transition));
+    const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
+    const required_documents = (settings(tenant).required_documents as string[] | undefined) ?? DEFAULT_REQUIRED_DOCUMENTS;
+    const score_breakdown = app.score_breakdown_json ? JSON.parse(String(app.score_breakdown_json)) : null;
+    const base = { ...app, documents, allowed_transitions, transitions, required_documents, score_breakdown, uploads_enabled: !!call.files };
+    if (isPortalUser(call.ctx)) return base;
+    const territory = app.territory_id ? await call.repo.findOne("territories", { ROWID: String(app.territory_id) }) : null;
+    const feasibility = app.feasibility_id ? await call.repo.findOne("feasibility_models", { ROWID: String(app.feasibility_id) }) : null;
+    const latest = (await call.repo.findMany("approval_instances", { entity_type: "application", entity_id: id }, { orderBy: "CREATEDTIME", desc: true, limit: 1 }))[0];
+    const approval = latest ? {
+      ...latest,
+      steps: JSON.parse(String(latest.steps_json)),
+      actions: await call.repo.findMany("approval_actions", { approval_id: String(latest.ROWID) }, { orderBy: "acted_at" }),
+    } : null;
+    const project = (await call.repo.findMany("franchise_projects", { application_id: id }, { limit: 1 }))[0];
+    return {
+      ...base, territory, approval,
+      project: project ? { ROWID: project.ROWID, project_code: project.project_code, status: project.status, target_opening_date: project.target_opening_date } : null,
+      feasibility: feasibility && { ...feasibility, fail_reasons: feasibility.fail_reasons_json ? JSON.parse(String(feasibility.fail_reasons_json)) : [], warnings: modelWarnings(feasibility) },
+    };
   });
 
   r.on("PATCH", "/applications/:id", null, async (call) => {
@@ -104,6 +140,35 @@ export function applicationRoutes(r: Router): void {
     await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "document:add", metadata: { document_type: body.document_type } });
     return row;
   }, 201);
+
+  // The file comes base64-encoded in the JSON body (same-origin, so the sign-in cookie covers it)
+  // and goes to Stratus under the tenant's and application's prefix.
+  r.on("POST", "/applications/:id/documents/upload", null, async (call) => {
+    const { data_base64, file_name, content_type, ...meta } = parse(uploadSchema, call.body);
+    const app = await getApp(call);
+    await authorize(call.ctx, isPortalUser(call.ctx) ? "application.submit" : "application.review", call.permissions);
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet. Add a link to the file instead.");
+    if (!UPLOAD_TYPES[content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
+    const data = Buffer.from(data_base64, "base64");
+    if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
+    if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
+    const key = documentKey(call.ctx.tenantId, String(app.ROWID), file_name);
+    await call.files.put(key, data, content_type);
+    const row = await call.repo.insert("application_documents", { ...meta, file_ref: `${STRATUS_PREFIX}${key}`, application_id: String(app.ROWID), verification_status: "PENDING" });
+    await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "document:upload", metadata: { document_type: meta.document_type, bytes: data.length } });
+    return row;
+  }, 201);
+
+  // A short-lived link to the stored file; a document added as a link just returns that link.
+  r.on("GET", "/applications/:id/documents/:docId/download", null, async (call) => {
+    await getApp(call);
+    const doc = await mustGet(call.repo, "application_documents", call.params.docId, "NOT_FOUND");
+    if (String(doc.application_id) !== call.params.id) throw new AppError("NOT_FOUND");
+    const ref = String(doc.file_ref ?? "");
+    if (!ref.startsWith(STRATUS_PREFIX)) return { url: ref };
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
+    return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
+  });
 
   r.on("POST", "/applications/:id/documents/:docId/verify", "application.review", async (call) => {
     const body = parse(verifySchema, call.body);
@@ -147,13 +212,22 @@ export function applicationRoutes(r: Router): void {
   // Generic user-driven transitions (start_review, qualify, require_site, hold, resume, withdraw, reject…).
   // Engine-driven transitions (system.*) are never reachable from the API.
   r.on("POST", "/applications/:id/transition", null, async (call) => {
-    const { transition } = parse(transitionSchema, call.body);
+    const { transition, override_reason } = parse(transitionSchema, call.body);
     const app = await getApp(call);
     const rule = findRule("application", String(app.status), transition);
+    if (transition === "activate") throw new AppError("INVALID_TRANSITION", "A franchise becomes active when its opening project is marked opened.");
     if (rule?.permission.startsWith("system.") || transition === "submit" || transition === "start_approval") {
       throw new AppError("INVALID_TRANSITION", `Use the dedicated endpoint for ${transition}.`);
     }
-    return transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
+    if (override_reason && transition !== "qualify") throw new AppError("VALIDATION_FAILED", "override_reason goes with qualify.", { override_reason: "unexpected" });
+    // Below the qualified threshold, qualifying needs a written reason, kept in the activity log.
+    const below = transition === "qualify" && app.qualification_score != null && !QUALIFYING_CLASSES.includes(String(app.qualification_class));
+    if (below && !override_reason) {
+      throw new AppError("VALIDATION_FAILED", `The score is ${app.qualification_score} (${String(app.qualification_class).toLowerCase()}), below the qualified threshold. Give a reason to qualify anyway.`, { override_reason: "required below the qualified threshold" });
+    }
+    const updated = await transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
+    if (below) await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "qualify:override", metadata: { score: app.qualification_score, class: app.qualification_class, reason: override_reason } });
+    return updated;
   });
 
   r.on("POST", "/applications/:id/start-approval", "approval.start", async (call) => {

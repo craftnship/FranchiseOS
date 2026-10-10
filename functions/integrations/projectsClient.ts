@@ -16,8 +16,22 @@ function idOf(res: unknown, key: string): string {
   return String(id);
 }
 
+/** Status ids are per portal layout (tenant settings projects_open_status_id, projects_closed_status_id). */
+export interface TaskStatusIds { open?: string; closed?: string }
+
+const DAY_MS = 86_400_000;
+
+/** Shifts a Zoho date or datetime by whole days, in the same shape it came in. */
+export function shiftDate(value: string, days: number): string {
+  if (!value.includes("T")) return new Date(Date.parse(`${value}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+  return new Date(Date.parse(value) + days * DAY_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 export class HttpProjectsClient implements ZohoProjectsClient {
-  constructor(private readonly http: ZohoHttp, private readonly baseUrl: string, private readonly portalId: string, private readonly ownerZpuid?: string) {}
+  constructor(
+    private readonly http: ZohoHttp, private readonly baseUrl: string, private readonly portalId: string,
+    private readonly ownerZpuid?: string, private readonly statuses: TaskStatusIds = {},
+  ) {}
 
   private url(path: string): string { return `${this.baseUrl}/portal/${encodeURIComponent(this.portalId)}${path}`; }
 
@@ -42,6 +56,26 @@ export class HttpProjectsClient implements ZohoProjectsClient {
 
   async updateTask(projectId: string, taskId: string, data: object): Promise<void> {
     await this.http.request("PATCH", this.url(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`), data);
+  }
+
+  async setTaskClosed(projectId: string, taskId: string, closed: boolean): Promise<void> {
+    const id = closed ? this.statuses.closed : this.statuses.open;
+    const setting = closed ? "projects_closed_status_id" : "projects_open_status_id";
+    if (!id) throw new ProviderError(`Projects task status is not configured (tenant setting ${setting})`, 400, false);
+    // A closed-type status also sets is_completed and 100% in Zoho.
+    await this.updateTask(projectId, taskId, { status: { id } });
+  }
+
+  // Zoho rejects an end before the start, so both dates move by the same number of days.
+  async rescheduleTask(projectId: string, taskId: string, dueDate: string): Promise<void> {
+    const task = ((await this.http.request<Obj>("GET", this.url(`/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`))) ?? {}) as Obj;
+    const item = ((Array.isArray(task.tasks) ? task.tasks[0] : task) ?? {}) as Obj;
+    const end = item.end_date ? String(item.end_date) : null;
+    if (!end) return this.updateTask(projectId, taskId, { end_date: dueDate });
+    const days = Math.round((Date.parse(dueDate) - Date.parse(end.slice(0, 10))) / DAY_MS);
+    if (!days) return;
+    const start = item.start_date ? String(item.start_date) : null;
+    await this.updateTask(projectId, taskId, { ...(start ? { start_date: shiftDate(start, days) } : {}), end_date: shiftDate(end, days) });
   }
 
   // The V3 dependency endpoint is not verified yet (plan §8), so dependencies stay local until the

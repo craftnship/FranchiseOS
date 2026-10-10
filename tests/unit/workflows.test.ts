@@ -89,6 +89,18 @@ describe("approval engine (§19, §29, FOS-031/034/043)", () => {
     await actOnApproval(store, ctx(["FRANCHISE_MANAGER"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: 1 });
     expect(await code(actOnApproval(store, ctx(["FRANCHISE_MANAGER"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: 1 }))).toBe("APPROVAL_ALREADY_COMPLETED");
   });
+  it("SUPER_ADMIN can decide every step, and each override is recorded", async () => {
+    const store = newStore();
+    await seedWorkflow(store);
+    const inst = await startApproval(store, ctx(["SUPER_ADMIN"]), { entityType: "application", entityId: "A1", workflowCode: "FRANCHISE_APPROVAL", facts: { initial_investment: 3_000_000 } });
+    const outcomes = [];
+    for (let i = 1; i <= 4; i++) outcomes.push((await actOnApproval(store, ctx(["SUPER_ADMIN"]), { approvalId: inst.ROWID!, action: "APPROVE", stepSequence: i })).outcome);
+    expect(outcomes).toEqual(["ADVANCED", "ADVANCED", "ADVANCED", "APPROVED"]);
+    const actions = await store.findMany("approval_actions", { approval_id: inst.ROWID! });
+    expect(actions.map((a) => a.comments)).toContain("[Super admin override for FINANCE_MANAGER]");
+    const logs = await store.findMany("activity_logs", { action: "approval:approve" });
+    expect(logs.every((l) => JSON.parse(String(l.metadata_json)).override === true)).toBe(true);
+  });
   it("two concurrent clicks record one decision", async () => {
     const store = newStore();
     await seedWorkflow(store);
@@ -160,13 +172,25 @@ describe("territory reservation (§29, FOS-024, D-13)", () => {
     await releaseTerritory(store, c, { reservationId: r.ROWID!, reason: "RELEASED" });
     expect(await code(reserveTerritory(store, c, { territoryId: t.ROWID!, applicationId: "A2", reservationDays: 30 }))).toBe("OK");
   });
-  it("expires reservations past reservation_days", async () => {
+  it("the daily run expires, frees or allocates each reservation by its application's state", async () => {
     const store = newStore();
-    const t = await seedTerritory(store);
     const c = ctx(["FRANCHISE_MANAGER"]);
-    await reserveTerritory(store, c, { territoryId: t.ROWID!, applicationId: "A1", reservationDays: 30, now: new Date("2026-09-01T00:00:00Z") });
-    expect(await expireReservations(store, c, new Date("2026-10-08T00:00:00Z"))).toBe(1);
-    expect((await store.findOne("territories", { ROWID: t.ROWID! }))!.status).toBe("AVAILABLE");
+    const sept = new Date("2026-09-01T00:00:00Z");
+    const cases: Array<[string, string]> = [["QUALIFIED", "AVAILABLE"], ["FEASIBILITY", "RESERVED"], ["WITHDRAWN", "AVAILABLE"], ["ONBOARDING", "ALLOCATED"]];
+    const made = [];
+    for (const [i, [state]] of cases.entries()) {
+      const t = await store.insert("territories", { tenant_id: "T1", territory_code: `TER-00000${i + 1}`, tenant_code_key: `T1:TER-00000${i + 1}`, name: state, status: "AVAILABLE" });
+      const app = await store.insert("franchise_applications", { tenant_id: "T1", status: state, territory_id: t.ROWID });
+      await reserveTerritory(store, c, { territoryId: t.ROWID!, applicationId: app.ROWID!, reservationDays: 30, now: sept });
+      made.push({ t, app });
+    }
+    expect(await expireReservations(store, c, new Date("2026-10-08T00:00:00Z"))).toEqual({ expired: 1, released: 1, allocated: 1 });
+    for (const [i, [, want]] of cases.entries()) expect((await store.findOne("territories", { ROWID: made[i].t.ROWID! }))!.status).toBe(want);
+    // An application that lost its territory no longer points at it; the allocated one keeps it.
+    expect((await store.findOne("franchise_applications", { ROWID: made[0].app.ROWID! }))!.territory_id).toBeNull();
+    expect((await store.findOne("franchise_applications", { ROWID: made[3].app.ROWID! }))!.territory_id).toBe(made[3].t.ROWID);
+    // A second run changes nothing.
+    expect(await expireReservations(store, c, new Date("2026-10-08T00:00:00Z"))).toEqual({ expired: 0, released: 0, allocated: 0 });
   });
 });
 

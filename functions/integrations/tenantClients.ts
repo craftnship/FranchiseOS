@@ -46,10 +46,14 @@ export function zohoFactory(store: Store, app: ZohoAppCredentials | null, fetchF
       crm: new HttpCrmClient(http, endpoints.crm),
       sign: new HttpSignClient(http, endpoints.sign),
       books: row.org_id ? new HttpBooksClient(http, endpoints.books, String(row.org_id)) : null,
-      projects: row.portal_id ? new HttpProjectsClient(http, endpoints.projects, String(row.portal_id), settings.projects_owner_zpuid ? String(settings.projects_owner_zpuid) : undefined) : null,
+      projects: row.portal_id ? new HttpProjectsClient(http, endpoints.projects, String(row.portal_id), str(settings.projects_owner_zpuid),
+        { open: str(settings.projects_open_status_id), closed: str(settings.projects_closed_status_id) }) : null,
     };
   };
 }
+
+/** A setting as a string, or undefined when unset. */
+const str = (v: unknown) => (v == null || v === "" ? undefined : String(v));
 
 export function crmFactory(store: Store, app: ZohoAppCredentials | null, fetchFn?: FetchLike, env: NodeJS.ProcessEnv = process.env): CrmFactory {
   const zoho = zohoFactory(store, app, fetchFn, env);

@@ -7,11 +7,13 @@ import { ZohoProjectsClient } from "../integrations/clients";
 // progress; opening_checklists mirrors it for readiness. BLOCKED is set in FOS only, so a still-open
 // Zoho task never clears it.
 
-export function checklistStatus(task: { closed: boolean; percent?: number }, current: string): string {
+export function checklistStatus(task: { closed: boolean; status?: string; percent?: number }, current: string): string {
   if (task.closed) return "COMPLETED";
   if (current === "BLOCKED") return "BLOCKED";
-  // A reopened task, or one with progress, counts as in progress.
-  return (task.percent ?? 0) > 0 || current === "COMPLETED" || current === "IN_PROGRESS" ? "IN_PROGRESS" : "OPEN";
+  // Any open-type status other than the plain "Open" one (In Progress, Delayed, To be Tested…),
+  // or any progress, counts as in progress. The Zoho name itself is kept in external_status.
+  const started = !!task.status && task.status.trim().toLowerCase() !== "open";
+  return started || (task.percent ?? 0) > 0 ? "IN_PROGRESS" : "OPEN";
 }
 
 export async function syncProjectTasks(
@@ -32,8 +34,9 @@ export async function syncProjectTasks(
     const t = r.external_task_id ? tasks.get(String(r.external_task_id)) : undefined;
     if (!t) { missing++; continue; }
     const next = checklistStatus(t, String(r.status));
-    if (next !== r.status) {
-      await repo.update("opening_checklists", String(r.ROWID), { status: next });
+    const label = t.status || null;
+    if (next !== r.status || label !== (r.external_status ?? null)) {
+      await repo.update("opening_checklists", String(r.ROWID), { status: next, external_status: label });
       updated++;
     }
   }
