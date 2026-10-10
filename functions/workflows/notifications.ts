@@ -2,6 +2,7 @@ import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
+import { expireLicences, renewDays } from "./licences";
 
 // Notifications (spec §23): an in-app inbox per user, copied by email when a mailer is configured.
 // Events come from the activity log (notifyFromActivity), so every path that records an action,
@@ -43,6 +44,12 @@ export async function usersInRoles(store: Store, tenantId: string, roles: string
     if (role) out.push(...await store.findMany("users", { tenant_id: tenantId, role_id: String(role.ROWID), status: "ACTIVE" }));
   }
   return out;
+}
+
+/** Portal users of a franchisee, so the franchisee hears about their own store. */
+async function portalUsers(store: Store, tenantId: string, franchiseeId: unknown): Promise<string[]> {
+  if (!franchiseeId) return [];
+  return (await store.findMany("users", { tenant_id: tenantId, franchisee_id: String(franchiseeId), status: "ACTIVE" })).map((u) => String(u.ROWID));
 }
 
 async function recipients(store: Store, ctx: TenantContext, n: Notice, now: Date): Promise<Row[]> {
@@ -237,6 +244,24 @@ const RULES: Record<string, Rule> = {
     return { kind: "territory.expired", entityType: "territory", entityId: e.entityId, roles: ["FRANCHISE_MANAGER", "REGIONAL_MANAGER"],
       title: `Reservation on ${code} lapsed`, body: `${row?.name ?? "The territory"} is available again.`, link: "/territories" };
   },
+  "licence:expired": async (store, ctx, e, repo) => {
+    const l = await repo.findOne("licences", { ROWID: e.entityId });
+    if (!l) return null;
+    const { code } = await codeOf(repo, "project", String(l.project_id));
+    return { kind: "licence.expired", entityType: "project", entityId: String(l.project_id), roles: ["PROJECT_MANAGER", "FRANCHISE_MANAGER"],
+      userIds: [...(l.owner_user_id ? [String(l.owner_user_id)] : []), ...await portalUsers(store, ctx.tenantId, l.franchisee_id)],
+      title: `${l.name} has expired for ${code}`, body: `It expired on ${nice(String(l.expires_on).slice(0, 10))}. Renew it and record the new expiry date.`,
+      link: linkTo("project", String(l.project_id)), dedupe: `licence-expired:${l.ROWID}:${String(l.expires_on).slice(0, 10)}` };
+  },
+  "licence:rejected": async (store, ctx, e, repo) => {
+    const l = await repo.findOne("licences", { ROWID: e.entityId });
+    if (!l) return null;
+    const { code } = await codeOf(repo, "project", String(l.project_id));
+    return { kind: "licence.rejected", entityType: "project", entityId: String(l.project_id), roles: ["PROJECT_MANAGER"],
+      userIds: await portalUsers(store, ctx.tenantId, l.franchisee_id),
+      title: `${l.name} application was rejected for ${code}`, body: l.notes ? String(l.notes).slice(0, 300) : "Reapply and update the licence register.",
+      link: linkTo("project", String(l.project_id)) };
+  },
   "checklist:updated": async (_s, _c, e, repo) => {
     const owner = e.metadata?.owner_user_id;
     if (!owner) return null;
@@ -276,11 +301,12 @@ const UNSIGNED_DAYS = 7;
 const EXPIRY_WARN_DAYS = 5;
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
-/** One tenant's reminders: overdue approvals (escalated once), overdue tasks, late openings, unsigned agreements, holds about to lapse. */
+/** One tenant's reminders: overdue approvals (escalated once), overdue tasks, late openings, licences expiring or missing, unsigned agreements, holds about to lapse. */
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0 };
+  await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
     if (toBool(instance.escalated) || new Date(String(instance.step_due_at)) >= now) continue;
@@ -320,6 +346,40 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
     }
   }
 
+  // Licences: renewals coming up, and mandatory ones still missing within 30 days of opening.
+  const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  const projectsById = new Map((await repo.findMany("franchise_projects", {})).map((p) => [String(p.ROWID), p]));
+  const missingByProject = new Map<string, Row[]>();
+  for (const l of await repo.findMany("licences", {})) {
+    const project = projectsById.get(String(l.project_id));
+    if (!project || ["CLOSED"].includes(String(project.status))) continue;
+    if (l.status === "ISSUED" && l.expires_on) {
+      const left = (Date.parse(`${String(l.expires_on).slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
+      if (left >= 0 && left <= renewDays(tenant, String(l.licence_code))) {
+        out.licences += await deliver(store, ctx, {
+          kind: "licence.expiring", entityType: "project", entityId: String(l.project_id), roles: ["PROJECT_MANAGER"],
+          userIds: [...(l.owner_user_id ? [String(l.owner_user_id)] : []), ...await portalUsers(store, ctx.tenantId, l.franchisee_id)],
+          title: `${l.name} for ${project.project_code} expires ${nice(String(l.expires_on).slice(0, 10))}`, body: `${Math.round(left)} days left. Start the renewal with ${l.authority ?? "the authority"}.`,
+          link: linkTo("project", String(l.project_id)), dedupe: `licence-expiring:${l.ROWID}:${String(l.expires_on).slice(0, 10)}`,
+        }, now);
+      }
+    }
+    const target = project.target_opening_date ? String(project.target_opening_date).slice(0, 10) : null;
+    const soon = target && ACTIVE_PROJECTS.includes(String(project.status)) && (Date.parse(`${target}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000 <= 30;
+    if (soon && toBool(l.mandatory) && l.status !== "ISSUED") missingByProject.set(String(l.project_id), [...(missingByProject.get(String(l.project_id)) ?? []), l]);
+  }
+  const week = day(new Date(now.getTime() - ((now.getUTCDay() + 6) % 7) * 86_400_000));
+  for (const [pid, missing] of missingByProject) {
+    const project = projectsById.get(pid)!;
+    out.licences += await deliver(store, ctx, {
+      kind: "licence.missing", entityType: "project", entityId: pid, roles: ["PROJECT_MANAGER", "FRANCHISE_MANAGER"],
+      userIds: await portalUsers(store, ctx.tenantId, project.franchisee_id),
+      title: `${missing.length} mandatory licence${missing.length === 1 ? " is" : "s are"} missing for ${project.project_code}`,
+      body: `${missing.map((l) => l.name).join(", ")}. The store can't open without them; target opening ${nice(String(project.target_opening_date).slice(0, 10))}.`,
+      link: linkTo("project", pid), dedupe: `licences-missing:${pid}:${week}`,
+    }, now);
+  }
+
   for (const a of await repo.findMany("agreements", {})) {
     if (!["SENT", "VIEWED"].includes(String(a.status))) continue;
     const sent = await repo.findMany("activity_logs", { entity_type: "agreement", entity_id: String(a.ROWID), action: "transition:send" }, { limit: 1 });
@@ -350,7 +410,7 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

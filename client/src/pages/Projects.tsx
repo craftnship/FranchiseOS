@@ -5,6 +5,7 @@ import { useAction, useFranchiseeNames, useLoad } from "../hooks";
 import { ConfirmDialog, Dialog, Field, Form, FormError } from "../components/forms";
 import { DataTable, date, Donut, Icon, inr, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
 import { StatusPath } from "./Applications";
+import { LicencePanel, missingLicences } from "../components/Licences";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -131,7 +132,8 @@ export function ProjectDetail() {
               );
             }} />
           </Panel>
-          {opening && <OpenStoreDialog project={p} items={items} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
+          <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
+          {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
             onOpen={(date) => act.run("open", () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: "open", actual_opening_date: date } }), "The store is open. The franchisee is now active.").then((r) => r && setOpening(false))} />}
           {editing && <TaskDialog item={editing} staff={(p.staff ?? []) as Row[]} linked={!!(p.zoho_project_id && editing.external_task_id)} busy={!!act.busy} error={act.error}
             onClose={() => { setEditing(null); act.clear(); }} onSave={(body) => patch(editing, body, "saved.").then((r) => r && setEditing(null))} />}
@@ -145,20 +147,22 @@ export function ProjectDetail() {
 }
 
 /** Confirms the opening date and says what opening does, with any tasks still open. */
-function OpenStoreDialog({ project, items, busy, error, onOpen, onClose }: { project: Row; items: Row[]; busy: boolean; error: ApiError | null; onOpen: (date: string) => void; onClose: () => void }) {
+function OpenStoreDialog({ project, items, licences, busy, error, onOpen, onClose }: { project: Row; items: Row[]; licences: Row[]; busy: boolean; error: ApiError | null; onOpen: (date: string) => void; onClose: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const [day, setDay] = useState(today);
   const open = items.filter((i) => i.status !== "COMPLETED" && (i.mandatory === true || String(i.mandatory) === "true"));
+  const missing = missingLicences(licences, day);
   return (
     <Dialog title={`Open ${project.project_code}`} subtitle="Record the day the store opened its doors." onClose={onClose}>
       <Form onSubmit={() => day && onOpen(day)} footer={<>
         <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy || !day || day > today}><Icon name="store" size={16} />{busy ? "Opening…" : "Mark opened"}</button>
+        <button className="btn" disabled={busy || !day || day > today || missing.length > 0}><Icon name="store" size={16} />{busy ? "Opening…" : "Mark opened"}</button>
       </>}>
         <Field label="Opening date" hint={project.target_opening_date ? `Target was ${date(project.target_opening_date)}.` : undefined} error={day > today ? "can't be in the future" : undefined}>
           <input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} required autoFocus />
         </Field>
         <div className="span muted">Opening makes the application and the franchisee active, and records the opening date on their CRM account.</div>
+        {missing.length > 0 && <div className="span notice bad"><Icon name="alert" /><span>The store can't open on this day until {missing.length === 1 ? "this licence is" : "these licences are"} issued and valid: {missing.map((l) => l.name).join(", ")}.</span></div>}
         {open.length > 0 && <div className="span notice warn"><Icon name="alert" /><span>{open.length} mandatory task{open.length === 1 ? " is" : "s are"} still open: {open.slice(0, 4).map((i) => i.item).join(", ")}{open.length > 4 ? ", …" : ""}.</span></div>}
         <div className="span"><FormError error={error} /></div>
       </Form>

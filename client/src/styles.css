@@ -195,6 +195,7 @@ select { font: inherit; height: 34px; padding: 0 .6rem; border: 1px solid var(--
 .notice.ok { background: var(--good-bg); color: var(--good); }
 .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
+label.check { display: flex; gap: .5rem; align-items: center; font-weight: 500; cursor: pointer; }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

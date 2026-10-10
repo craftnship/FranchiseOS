@@ -157,3 +157,21 @@ settings so the test agreement route stops answering.
   `app_url` (the link in emails; defaults to the Development web app).
 - Data Store: `notifications` has `title`, `body`, `link`, `read_at`, `created_at` and a unique
   `dedupe_key` (created in Development on 2026-10-10).
+
+## Licences
+
+- Each opening project gets a licence register: FSSAI, trade licence, fire NOC, Shop and
+  Establishment, GST (mandatory) and signage permit (optional). A tenant replaces the list with
+  `settings_json.licence_types` (`code`, `name`, `authority`, `mandatory`, `renew_days`). Staff can
+  add a one-off licence to a project.
+- Staff with `project.write` record status, number and dates on the project page. The franchisee
+  uploads certificates from the portal's Opening tasks page; files go to Stratus under
+  `tenants/<t>/projects/<p>/licences/`.
+- The store can't be marked opened until every mandatory licence is issued and still valid on the
+  opening day (`LICENCES_MISSING`).
+- The daily reminder step marks licences past their expiry as expired, reminds before renewal
+  (`renew_days`, 45 by default), and warns weekly when mandatory licences are missing within 30
+  days of the target opening date.
+- Data Store: `licences` table (created in Development on 2026-10-10, id 62105000000060469).
+- Existing open projects get their register the first time someone opens the project page or the
+  opening is attempted.

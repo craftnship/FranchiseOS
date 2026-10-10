@@ -108,6 +108,22 @@ describe("readiness and risk (FOS-058, D-7)", () => {
   it("opening a store needs project.open and records the opening date", async () => {
     const s = await setup();
     await s.store.update("franchise_projects", String(s.project.ROWID), { status: "READY_FOR_OPENING" });
+    // The licence register blocks the opening until every mandatory licence is issued and valid.
+    const blocked = await s.call("pm", "POST", `/projects/${s.project.ROWID}/transition`, { transition: "open", actual_opening_date: "2026-10-09" });
+    expect(blocked.error?.code).toBe("LICENCES_MISSING");
+    expect(Object.keys(blocked.error?.fields ?? {}).sort()).toEqual(["FIRE_NOC", "FSSAI", "GST", "SHOP_EST", "TRADE"]);
+    expect((await s.store.findOne("franchise_projects", { ROWID: String(s.project.ROWID) }))!.actual_opening_date ?? null).toBeNull();
+    const licences = (await s.call("pm", "GET", `/projects/${s.project.ROWID}`)).data.licences;
+    expect(licences).toHaveLength(6);
+    for (const l of licences.filter((l: any) => l.mandatory)) {
+      const expires = l.licence_code === "FIRE_NOC" ? "2026-10-09" : l.licence_code === "GST" ? null : "2027-10-08";
+      expect((await s.call("pm", "PATCH", `/projects/${s.project.ROWID}/licences/${l.ROWID}`, { status: "ISSUED", licence_number: `N-${l.licence_code}`, issued_on: "2026-09-01", expires_on: expires })).data.status).toBe("ISSUED");
+    }
+    // A fire NOC that runs out on the opening day doesn't count.
+    expect((await s.call("pm", "POST", `/projects/${s.project.ROWID}/transition`, { transition: "open", actual_opening_date: "2026-10-09" })).error?.fields).toEqual({ FIRE_NOC: "expires before opening" });
+    const fire = licences.find((l: any) => l.licence_code === "FIRE_NOC");
+    expect((await s.call("pm", "PATCH", `/projects/${s.project.ROWID}/licences/${fire.ROWID}`, { expires_on: "2026-08-01" })).error?.fields).toHaveProperty("expires_on");
+    await s.call("pm", "PATCH", `/projects/${s.project.ROWID}/licences/${fire.ROWID}`, { expires_on: "2027-09-30" });
     const res = await s.call("pm", "POST", `/projects/${s.project.ROWID}/transition`, { transition: "open", actual_opening_date: "2026-10-09" });
     expect(res.data).toMatchObject({ status: "OPENED", actual_opening_date: "2026-10-09" });
     expect((await s.call("pm", "POST", `/projects/${s.project.ROWID}/transition`, { transition: "start", actual_opening_date: "2026-10-09" })).status).toBe(422);

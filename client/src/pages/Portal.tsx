@@ -3,6 +3,7 @@ import { api, Row } from "../api";
 import { useLoad } from "../hooks";
 import { date, Facts, Icon, Loaded, PageHeader, Panel, Pill, Progress } from "../components/ui";
 import { Checklist, ReadinessCard } from "./Projects";
+import { LicencePanel } from "../components/Licences";
 
 export function PortalHome() {
   const load = useLoad(() => api<Row>("GET", "/portal/home"), []);
@@ -48,7 +49,10 @@ function ProjectTasks({ id }: { id: string }) {
     <>
       <PageHeader title="Opening tasks" subtitle="Everything that has to be done before your store opens." />
       <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
-      <Loaded load={project}>{(p) => <Panel title="Checklist" flush><Checklist items={p.checklist} /></Panel>}</Loaded>
+      <Loaded load={project}>{(p) => <>
+        <Panel title="Checklist" flush><Checklist items={p.checklist} /></Panel>
+        <LicencePanel projectId={id} licences={(p.licences ?? []) as Row[]} editable={false} onChanged={project.reload} />
+      </>}</Loaded>
     </>
   );
 }

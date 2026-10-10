@@ -12,6 +12,7 @@ import { ProviderError } from "../integrations/retry";
 import { CRM_ACCOUNT_FIELDS, CRM_LEAD_FIELDS } from "../integrations/crmSync";
 import { DEFAULTS } from "../../database/seed/defaults";
 import { buildOpeningProject, TemplateTask } from "./projectCreation";
+import { ensureLicences } from "./licences";
 import { allocateTerritory } from "./territoryReservation";
 import { transitionEntity, TransitionDeps } from "./transition";
 
@@ -241,6 +242,7 @@ export async function onboardSignedAgreement(
     await logActivity(store, ctx, { entityType: "project", entityId: String(project.ROWID), action: "create:agreement", metadata: { agreement_id: args.agreementId } });
   }
   if (app.status === "AGREEMENT_SIGNED") app = await transitionEntity("application", appId, "start_onboarding", ctx, deps);
+  await ensureLicences(store, ctx, project);
   // The reserved territory now belongs to this franchisee.
   await allocateTerritory(store, ctx, appId);
 

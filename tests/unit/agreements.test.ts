@@ -417,6 +417,8 @@ describe("Phase A: close the lifecycle loop", () => {
     await s.store.update("franchisees", String(s.fr.ROWID), { status: "PROSPECT" });
     const project = (await s.store.findMany("franchise_projects", {}))[0];
     await s.store.update("franchise_projects", String(project.ROWID), { status: "READY_FOR_OPENING" });
+    // Signing created the licence register; mark them issued so the opening isn't blocked.
+    for (const l of await s.store.findMany("licences", { project_id: String(project.ROWID) })) await s.store.update("licences", String(l.ROWID), { status: "ISSUED", issued_on: "2026-09-01" });
     const updatesBefore = s.calls.accountUpdate;
 
     const res = await s.call("boss", "POST", `/projects/${project.ROWID}/transition`, { transition: "open", actual_opening_date: "2026-10-09" });

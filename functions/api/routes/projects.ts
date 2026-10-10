@@ -8,6 +8,10 @@ import { transitionsFrom } from "../../workflows/stateMachines";
 import { activateOnOpening } from "../../workflows/agreements";
 import { refreshFee } from "../../workflows/fees";
 import { transitionEntity } from "../../workflows/transition";
+import { assertLicencesReady, ensureLicences, LICENCE_STATES, updateLicence } from "../../workflows/licences";
+import { logActivity } from "../../common/audit";
+import { MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES, safeFileName } from "../../common/files";
+import { randomUUID } from "crypto";
 import { Call, page, parse, Router } from "../router";
 import { isPortalUser } from "../../common/rbac";
 import { assertOwner, fetchAll, listByStatus, mustGet, ownerFilter, PORTAL_ROLES, staffDirectory } from "./shared";
@@ -33,6 +37,23 @@ const changeSchema = z.object({
   owner_user_id: z.string().min(1).nullable().optional(),
   due_date: z.string().date().optional(),
 }).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
+
+const date = z.string().date().nullable().optional();
+const licenceSchema = z.object({
+  status: z.enum(LICENCE_STATES).optional(),
+  licence_number: z.string().trim().max(100).nullable().optional(),
+  applied_on: date, issued_on: date, expires_on: date,
+  notes: z.string().trim().max(2000).nullable().optional(),
+  owner_user_id: z.string().min(1).nullable().optional(),
+}).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
+const newLicenceSchema = z.object({ name: z.string().trim().min(2).max(200), authority: z.string().trim().max(200).optional(), mandatory: z.boolean().default(false) }).strict();
+const certificateSchema = z.object({ file_name: z.string().trim().min(1).max(200), content_type: z.string().max(100), data_base64: z.string().min(1) }).strict();
+
+async function getLicence(call: Call): Promise<Row> {
+  const l = await mustGet(call.repo, "licences", call.params.licId, "NOT_FOUND");
+  if (String(l.project_id) !== call.params.id) throw new AppError("NOT_FOUND");
+  return l;
+}
 
 async function getProject(call: Call): Promise<Row> {
   return assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
@@ -83,7 +104,47 @@ export function projectRoutes(r: Router): void {
       checklist: people ? checklist.map((i) => ({ ...i, owner: person(i.owner_user_id) })) : checklist,
       ...(people ? { staff: [...people.values()].filter((p) => p.active && !PORTAL_ROLES.includes(p.role)).map(({ ROWID, name, email }) => ({ ROWID, name, email })).sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email)) } : {}),
       fee: await feeStatus(call, project),
+      licences: await ensureLicences(call.store, call.ctx, project),
     };
+  });
+
+  // Licence register: staff record status, numbers and dates; the franchisee can upload certificates.
+  r.on("PATCH", "/projects/:id/licences/:licId", "project.write", async (call) => {
+    await getProject(call);
+    const body = parse(licenceSchema, call.body);
+    return updateLicence(call.store, call.ctx, await getLicence(call), body, today(call));
+  });
+
+  r.on("POST", "/projects/:id/licences", "project.write", async (call) => {
+    const project = await getProject(call);
+    const body = parse(newLicenceSchema, call.body);
+    const code = `CUSTOM_${randomUUID().slice(0, 8).toUpperCase()}`;
+    const row = await call.repo.insert("licences", { ...body, project_id: call.params.id, franchisee_id: project.franchisee_id ?? null, licence_code: code, status: "NOT_STARTED", licence_key: `${call.ctx.tenantId}:${call.params.id}:${code}` });
+    await logActivity(call.store, call.ctx, { entityType: "licence", entityId: String(row.ROWID), action: "create", metadata: { project_id: call.params.id, name: body.name } });
+    return row;
+  }, 201);
+
+  r.on("POST", "/projects/:id/licences/:licId/certificate", null, async (call) => {
+    await getProject(call); // portal users only reach their own project
+    if (!isPortalUser(call.ctx)) await authorize(call.ctx, "project.write", call.permissions);
+    const licence = await getLicence(call);
+    const { file_name, content_type, data_base64 } = parse(certificateSchema, call.body);
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet.");
+    if (!UPLOAD_TYPES[content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
+    const data = Buffer.from(data_base64, "base64");
+    if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
+    if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
+    const key = `tenants/${call.ctx.tenantId}/projects/${call.params.id}/licences/${randomUUID()}/${safeFileName(file_name)}`;
+    await call.files.put(key, data, content_type);
+    return updateLicence(call.store, call.ctx, licence, { file_ref: `${STRATUS_PREFIX}${key}` }, today(call));
+  }, 201);
+
+  r.on("GET", "/projects/:id/licences/:licId/certificate", null, async (call) => {
+    await getProject(call);
+    const ref = String((await getLicence(call)).file_ref ?? "");
+    if (!ref.startsWith(STRATUS_PREFIX)) throw new AppError("NOT_FOUND", "No certificate uploaded.");
+    if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
+    return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
   });
 
   // Live readiness from the checklist (§20, D-7); nothing is written.
@@ -137,6 +198,11 @@ export function projectRoutes(r: Router): void {
   r.on("POST", "/projects/:id/transition", null, async (call) => {
     await getProject(call);
     const body = parse(z.object({ transition: z.string().min(1).max(40), actual_opening_date: z.string().date().optional() }).strict(), call.body);
+    if (body.transition === "open") {
+      // Every mandatory licence must be issued and valid on the opening day.
+      const project = await getProject(call);
+      await assertLicencesReady(call.store, call.ctx, project, body.actual_opening_date ?? today(call));
+    }
     if (body.actual_opening_date) {
       // The date is written before the engine runs, so check the opener's permission here first.
       if (body.transition !== "open") throw new AppError("VALIDATION_FAILED", "actual_opening_date goes with the open transition.", { actual_opening_date: "unexpected" });
