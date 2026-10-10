@@ -291,6 +291,14 @@ describe("Zoho adapters", () => {
     await expect(books.createCustomer({ contact_name: "X" })).rejects.toThrow("1002 Invalid customer");
   });
 
+  it("Books: reuses a customer only when both email and name match", async () => {
+    const contacts = { code: 0, contacts: [{ contact_id: "C1", contact_name: "New Lead", email: "shared@x.test" }, { contact_id: "C2", contact_name: "Malhotra Foods", email: "shared@x.test" }] };
+    const { http } = recorder([contacts, contacts]);
+    const books = new HttpBooksClient(http, "https://www.zohoapis.in/books/v3", "600");
+    expect(await books.findCustomer("malhotra foods", "Shared@x.test")).toEqual({ id: "C2" });
+    expect(await books.findCustomer("Kapoor Foods", "shared@x.test")).toBeNull();
+  });
+
   it("Projects: creates tasks in a task list and reads ids from V3 responses", async () => {
     const { http, sent } = recorder([{ id: "P1" }, { tasks: [{ id: "T1" }] }]);
     const projects = new HttpProjectsClient(http, "https://projectsapi.zoho.in/api/v3", "42", "Z1");

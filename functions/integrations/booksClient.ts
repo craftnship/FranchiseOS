@@ -22,12 +22,13 @@ export class HttpBooksClient implements ZohoBooksClient {
   async findCustomer(name: string, email?: string) {
     if (email) {
       const res = check(await this.http.request<BooksRes>("GET", this.url("/contacts", { email, contact_type: "customer" })), "contact search");
-      const hit = res.contacts?.find((c) => c.email?.toLowerCase() === email.toLowerCase() && c.contact_id);
-      // With an email, a same-name customer with another email is a different business.
+      // Email and name must both match: a same-name customer with another email is a different
+      // business, and two franchisees can share one contact email (a group owner, a test inbox).
+      const hit = res.contacts?.find((c) => c.email?.toLowerCase() === email.toLowerCase() && sameName(c.contact_name, name) && c.contact_id);
       return hit ? { id: String(hit.contact_id) } : null;
     }
     const res = check(await this.http.request<BooksRes>("GET", this.url("/contacts", { contact_name: name, contact_type: "customer" })), "contact search");
-    const hit = res.contacts?.find((c) => c.contact_name === name && c.contact_id);
+    const hit = res.contacts?.find((c) => sameName(c.contact_name, name) && c.contact_id);
     return hit ? { id: String(hit.contact_id) } : null;
   }
 
@@ -66,4 +67,8 @@ export class HttpBooksClient implements ZohoBooksClient {
     if (!inv?.invoice_id) throw new ProviderError(`Books invoice ${id} not found`, 404, false);
     return { id: String(inv.invoice_id), number: String(inv.invoice_number ?? ""), status: String(inv.status ?? "unknown"), total: Number(inv.total ?? 0), balance: Number(inv.balance ?? 0), due_date: inv.due_date ?? null };
   }
+}
+
+function sameName(a: unknown, b: string): boolean {
+  return typeof a === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
