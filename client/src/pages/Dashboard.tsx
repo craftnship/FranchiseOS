@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { api, drillHref, Kpi, Row } from "../api";
-import { useLoad } from "../hooks";
+import { api, can, drillHref, Kpi, Row } from "../api";
+import { useAction, useLoad } from "../hooks";
 import { DataTable, date, Donut, Icon, inrShort, KpiTile, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
 
 type Network = Record<string, Kpi>;
@@ -12,11 +12,17 @@ export function Dashboard() {
   const risk = useLoad(() => api<Row>("GET", "/dashboard/risk"), []);
   const territories = useLoad(() => api<Row>("GET", "/dashboard/territories"), []);
   const reload = () => [network, pipeline, openings, risk, territories].forEach((l) => l.reload());
+  const fees = useAction(network.reload);
+  // Fee figures are refreshed daily from Books; this checks the unpaid ones now.
+  const checkFees = () => fees.run("fees", () => api<Row>("POST", "/fees/sync"),
+    (r) => (r.paid ? `${r.paid} fee${r.paid === 1 ? "" : "s"} newly paid in Books.` : r.checked ? `Checked ${r.checked} unpaid fee${r.checked === 1 ? "" : "s"} in Books; nothing new.` : "No unpaid fees to check."));
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   return (
     <>
       <PageHeader title="Network overview" subtitle={`Expansion pipeline, store openings and readiness · ${today}`}
-        actions={<><Link className="btn secondary" to="/projects?delayed=true"><Icon name="clock" size={16} />Delayed openings</Link><button className="btn" onClick={reload}><Icon name="sync" size={16} />Refresh</button></>} />
+        actions={<><Link className="btn secondary" to="/projects?delayed=true"><Icon name="clock" size={16} />Delayed openings</Link>{can("dashboard.view") && <button className="btn secondary" onClick={checkFees} disabled={!!fees.busy}><Icon name="money" size={16} />{fees.busy ? "Checking…" : "Check fees in Books"}</button>}<button className="btn" onClick={reload}><Icon name="sync" size={16} />Refresh</button></>} />
+      {fees.notice && <div className="notice ok"><Icon name="check" />{fees.notice}</div>}
+      {fees.error && <div className="notice bad"><Icon name="alert" />{fees.error.message}</div>}
 
       <Loaded load={network}>{(n) => (
         <div className="kpis">
@@ -28,6 +34,8 @@ export function Dashboard() {
           <KpiTile label="Delayed openings" kpi={n.delayed_openings} icon="clock" tone="bad" hint="Past target opening date" />
           <KpiTile label="Network readiness" kpi={n.network_health} format={(v) => `${v}%`} icon="pulse" tone="warn" hint="Average readiness of openings" />
           <KpiTile label="Average payback" kpi={n.average_payback_months} format={(v) => `${v} mo`} icon="clock" tone="accent" hint="Across approved feasibility models" />
+          {n.fees_collected && <KpiTile label="Fees collected" kpi={n.fees_collected} format={inrShort} icon="money" tone="good" hint="Franchise fees paid in Books" />}
+          {n.fees_outstanding && <KpiTile label="Fees outstanding" kpi={n.fees_outstanding} format={inrShort} icon="money" tone={n.fees_overdue?.value ? "bad" : "warn"} hint={n.fees_overdue?.value ? `${n.fees_overdue.value} overdue` : "Invoiced, not yet paid"} />}
         </div>
       )}</Loaded>
 

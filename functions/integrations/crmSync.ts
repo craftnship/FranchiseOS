@@ -21,6 +21,8 @@ export const CRM_ACCOUNT_FIELDS = {
   applicationStatus: "FOS_Application_Status",
   targetOpening: "FOS_Target_Opening",
   openedOn: "FOS_Opened_On",
+  feeStatus: "FOS_Fee_Status",
+  feePaidOn: "FOS_Fee_Paid_On",
 } as const;
 
 export type CrmFactory = (tenantId: string) => Promise<ZohoCrmClient | null>;

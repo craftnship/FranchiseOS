@@ -114,3 +114,17 @@ settings so the test agreement route stops answering.
 - `fos_api` now uses `zcatalyst-sdk-node` 3.x (Stratus needs it); `npm run package:functions` installs it.
 - Files are stored under `tenants/<tenant>/applications/<application>/…` and opened through 5-minute signed links. Uploads are PDF, JPG, PNG or WebP, up to 5 MB.
 - Delegation needs no setup: managers use Approvals → Delegations.
+
+## Two-way sync: fee payments and CRM edits
+
+- `fos_jobs` now runs a second daily step after the risk job: every signed agreement whose fee is
+  not settled is read from Books, and every CRM-linked franchisee is refreshed from its lead (before
+  signing) or its Contact and Account (after). Deploy `fos_jobs` with `fos_api`.
+- Data Store: `agreements` has `fee_status`, `fee_total`, `fee_balance`, `fee_due_date`,
+  `fee_paid_on` and `fee_checked_at` (created in Development on 2026-10-10).
+- CRM Accounts have `FOS_Fee_Status` (text) and `FOS_Fee_Paid_On` (date), written when the fee
+  status changes.
+- On demand: "Check fees in Books" on the dashboard (`POST /fees/sync`) and "Refresh from CRM" on the
+  franchisees list (`POST /franchisees/:id/sync-crm`). Opening a project page also refreshes its fee.
+- Blank CRM values never overwrite FOS data. Every change is in the activity log
+  (`fee:paid`, `fee:status`, `update:crm`).

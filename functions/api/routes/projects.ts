@@ -6,6 +6,7 @@ import { syncProjectTasks } from "../../workflows/projectSync";
 import { computeReadiness, refreshReadiness, setChecklistBlocked, updateChecklistItem } from "../../workflows/readiness";
 import { transitionsFrom } from "../../workflows/stateMachines";
 import { activateOnOpening } from "../../workflows/agreements";
+import { refreshFee } from "../../workflows/fees";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
 import { isPortalUser } from "../../common/rbac";
@@ -38,20 +39,24 @@ async function getProject(call: Call): Promise<Row> {
 }
 
 /**
- * The franchise fee invoice behind a project, read live from Books. An unpaid fee is a warning
- * only; it never blocks work. Null when there is no invoice; status "unknown" when Books is unreachable.
+ * The franchise fee invoice behind a project, refreshed from Books and stored on the agreement
+ * (fees.ts). An unpaid fee is a warning only; it never blocks work. Null when there is no invoice;
+ * when Books is unreachable the last stored state comes back with stale: true.
  */
 async function feeStatus(call: Call, project: Row): Promise<Row | null> {
   const agreement = (await call.repo.findMany("agreements", { application_id: String(project.application_id), status: "SIGNED" }, { limit: 1 }))[0];
-  const invoiceId = agreement?.zoho_books_invoice_id ? String(agreement.zoho_books_invoice_id) : null;
-  if (!invoiceId) return null;
+  if (!agreement?.zoho_books_invoice_id) return null;
+  const shape = (a: Row, inv?: { number: string }) => ({
+    invoice_id: a.zoho_books_invoice_id, invoice_number: inv?.number ?? null, status: a.fee_status ? String(a.fee_status) : "unknown",
+    total: a.fee_total, balance: a.fee_balance, due_date: a.fee_due_date, paid_on: a.fee_paid_on, paid: a.fee_status === "PAID", checked_at: a.fee_checked_at,
+  });
   try {
-    const books = (await call.zoho())?.books;
-    if (!books) return { invoice_id: invoiceId, status: "unknown" };
-    const inv = await books.getInvoice(invoiceId);
-    return { invoice_id: invoiceId, invoice_number: inv.number, status: inv.status, total: inv.total, balance: inv.balance, due_date: inv.due_date, paid: inv.status === "paid" || inv.balance <= 0 };
+    const zoho = await call.zoho();
+    if (!zoho?.books) return { ...shape(agreement), stale: true };
+    const r = await refreshFee(call.store, call.ctx, zoho.books, zoho.crm, agreement, call.now);
+    return shape(r.agreement, r.invoice);
   } catch {
-    return { invoice_id: invoiceId, status: "unknown" };
+    return { ...shape(agreement), stale: true };
   }
 }
 

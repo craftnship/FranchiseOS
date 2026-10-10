@@ -64,13 +64,18 @@ export function StatusPath({ steps, current }: { steps: string[]; current: strin
 export function Agreements() {
   const [params, setParams] = useSearchParams();
   const status = params.get("status") ?? "";
-  const load = useLoad(() => api<Row[]>("GET", "/agreements", { query: { status, limit: "200" } }), [status]);
+  const feeStatus = params.get("fee_status") ?? "";
+  const load = useLoad(() => api<Row[]>("GET", "/agreements", { query: { status, ...(feeStatus ? { fee_status: feeStatus } : {}), limit: "200" } }), [status, feeStatus]);
   return (
     <>
       <PageHeader title="Agreements" crumbs={[["Contracts"], ["Agreements"]]} subtitle="Franchise agreements sent through Zoho Sign and their terms." />
       <Loaded load={load}>{(rows) => (
         <DataTable rows={rows} href={(g) => `/agreements/${g.ROWID}`} searchKeys={["agreement_code", "status"]}
-          toolbar={<div className="chips">{["", "SENT", "SIGNED", "DECLINED", "VOIDED"].map((s) => <button key={s} className={`chip ${status === s ? "on" : ""}`} onClick={() => setParams(s ? { status: s } : {})}>{s ? label(s) : "All"}</button>)}</div>}
+          toolbar={<div className="chips">
+            {["", "SENT", "SIGNED", "DECLINED", "VOIDED"].map((s) => <button key={s} className={`chip ${!feeStatus && status === s ? "on" : ""}`} onClick={() => setParams(s ? { status: s } : {})}>{s ? label(s) : "All"}</button>)}
+            {[["Fee paid", "PAID"], ["Fee unpaid", "DRAFT,SENT,VIEWED,OVERDUE,PARTIALLY_PAID"]].map(([t, q]) => <button key={q} className={`chip ${feeStatus === q ? "on" : ""}`} onClick={() => setParams({ fee_status: q })}>{t}</button>)}
+            {feeStatus && !["PAID", "DRAFT,SENT,VIEWED,OVERDUE,PARTIALLY_PAID"].includes(feeStatus) && <span className="chip on">Fee {feeStatus.split(",").map((x) => label(x).toLowerCase()).join(", ")}</span>}
+          </div>}
           columns={[
             { key: "agreement_code", label: "Agreement", render: (g) => <span className="code">{g.agreement_code}</span> },
             { key: "status", label: "Status", render: (g) => <Pill value={g.status} /> },
@@ -78,6 +83,7 @@ export function Agreements() {
             { key: "signed_at", label: "Signed", render: (g) => date(g.signed_at) },
             { key: "effective_date", label: "Effective", render: (g) => date(g.effective_date) },
             { key: "expiry_date", label: "Expires", render: (g) => date(g.expiry_date) },
+            { key: "fee_status", label: "Franchise fee", render: (g) => g.fee_status ? <><Pill value={g.fee_status} tone={g.fee_status === "PAID" ? "good" : g.fee_status === "OVERDUE" ? "bad" : "warn"} /><span className="cell-sub">{g.fee_status === "PAID" ? `Paid ${date(g.fee_paid_on)}` : g.fee_balance != null ? `${inr(Number(g.fee_balance))} due${g.fee_due_date ? ` ${date(g.fee_due_date)}` : ""}` : ""}</span></> : <span className="muted">{g.zoho_books_invoice_id ? "Not checked yet" : "—"}</span> },
             { key: "application_id", label: "Application", render: (g) => <Link to={`/applications/${g.application_id}`}>Open</Link> },
           ]} />
       )}</Loaded>
@@ -121,6 +127,8 @@ export function AgreementDetail() {
             ["Zoho Sign request", g.zoho_sign_request_id ?? "Not sent through Zoho Sign"],
             ["Signed copy", g.document_ref ? "Attached to the franchisee's CRM account" : g.status === "SIGNED" ? "Not filed yet" : "After signing"],
             ["Books invoice", g.zoho_books_invoice_id ?? "No invoice yet"],
+            ["Franchise fee", g.fee_status ? (g.fee_status === "PAID" ? `Paid on ${date(g.fee_paid_on)}` : `${label(g.fee_status)}: ${inr(Number(g.fee_balance ?? 0))} of ${inr(Number(g.fee_total ?? 0))} outstanding`) : g.zoho_books_invoice_id ? "Not checked yet" : "—"],
+            ["Fee last checked", g.fee_checked_at ? date(g.fee_checked_at) : "—"],
             ["Last updated", date(g.MODIFIEDTIME)],
           ]} />
         </Panel>

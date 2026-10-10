@@ -6,6 +6,7 @@ import { toNum } from "../common/values";
 import { ZohoCrmClient } from "../integrations/clients";
 import { CRM_LEAD_FIELDS, pushApplicationStatus } from "../integrations/crmSync";
 import { processOnce } from "../integrations/idempotency";
+import { applyContactChanges, contactFieldsFrom } from "../workflows/crmContacts";
 
 // D-9: a CRM lead reaching the trigger status creates the franchisee and a DRAFT application.
 export const DEFAULT_CRM_TRIGGER_STATUS = "Pre-Qualified";
@@ -64,6 +65,10 @@ async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClie
       status: "PROSPECT", franchise_type: franchiseType, zoho_lead_id: leadId,
     });
     await logActivity(store, ctx, { entityType: "franchisee", entityId: String(franchisee.ROWID), action: "create:crm", metadata: { lead_id: leadId } });
+  } else if (!franchisee.zoho_contact_id) {
+    // Before conversion the lead is where contact details are kept, so its edits come across.
+    const changed = await applyContactChanges(store, ctx, franchisee, contactFieldsFrom({ lead }), "crm_lead");
+    if (changed.length) franchisee = { ...franchisee, ...contactFieldsFrom({ lead }) };
   }
 
   const apps = await repo.findMany("franchise_applications", { zoho_lead_id: leadId });

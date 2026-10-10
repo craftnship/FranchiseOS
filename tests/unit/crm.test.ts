@@ -51,9 +51,12 @@ describe("CRM lead webhook (D-9)", () => {
   it("reuses the open application on a later lead edit", async () => {
     const store = newStore();
     await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm(lead).crm, { leadId: "L1", sleep });
-    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later" }).crm, { leadId: "L1", sleep });
+    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later", Email: "pepper@new.test", Mobile: "+91 90000 00000" }).crm, { leadId: "L1", sleep });
     expect(again.action).toBe("existing");
-    expect(await store.findMany("franchisees", {})).toHaveLength(1);
+    const franchisees = await store.findMany("franchisees", {});
+    expect(franchisees).toHaveLength(1);
+    // The lead's edits come across onto the franchisee.
+    expect(franchisees[0]).toMatchObject({ display_name: "Pepper Potts", email: "pepper@new.test", phone: "+91 90000 00000" });
   });
 
   it("ignores leads not at the trigger status", async () => {

@@ -27,9 +27,13 @@ function countBy(rows: Row[], key: string): Record<string, number> {
 export function dashboardRoutes(r: Router): void {
   r.on("GET", "/dashboard/network", "dashboard.view", async (call) => {
     const today = call.now.toISOString().slice(0, 10);
-    const [franchisees, apps, projects, feasibility] = await Promise.all([
+    const [franchisees, apps, projects, feasibility, agreements] = await Promise.all([
       fetchAll(call.repo, "franchisees"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "feasibility_models"),
+      fetchAll(call.repo, "agreements", { status: "SIGNED" }),
     ]);
+    // Fee figures come from the copy of each Books invoice kept on the agreement (fees.ts).
+    const billed = agreements.filter((a) => a.fee_status && a.fee_status !== "VOID");
+    const unpaid = billed.filter((a) => a.fee_status !== "PAID");
     const openApps = apps.filter((a) => OPEN_APPS.includes(String(a.status)));
     const active = projects.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
     return {
@@ -41,6 +45,9 @@ export function dashboardRoutes(r: Router): void {
       delayed_openings: kpi(projects.filter((p) => isDelayed(p, today)).length, "/projects", { delayed: "true" }),
       // Network health: average stored readiness of projects in flight (Phase 2 adds audits).
       network_health: kpi(avg(active.map((p) => toNumOrNull(p.readiness_score)).filter((n): n is number => n !== null)), "/projects", { status: ACTIVE_PROJECTS.join(",") }),
+      fees_collected: kpi(round(billed.reduce((s, a) => s + toNum(a.fee_total) - toNum(a.fee_balance), 0)), "/agreements", { fee_status: "PAID,PARTIALLY_PAID" }),
+      fees_outstanding: kpi(round(unpaid.reduce((s, a) => s + toNum(a.fee_balance), 0)), "/agreements", { fee_status: "DRAFT,SENT,VIEWED,OVERDUE,PARTIALLY_PAID" }),
+      fees_overdue: kpi(unpaid.filter((a) => a.fee_status === "OVERDUE").length, "/agreements", { fee_status: "OVERDUE" }),
       average_payback_months: kpi(avg(feasibility.filter((f) => toBool(f.passed)).map((f) => toNumOrNull(f.payback_months)).filter((n): n is number => n !== null))),
     };
   });

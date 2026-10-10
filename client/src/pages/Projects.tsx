@@ -220,7 +220,7 @@ export function Checklist({ items, actions }: { items: Row[]; actions?: (item: R
 function FeeNotice({ fee }: { fee: Row | null | undefined }) {
   if (!fee) return null;
   if (fee.status === "unknown") return <div className="notice warn"><Icon name="alert" />Couldn't check the franchise fee in Zoho Books just now.</div>;
-  if (fee.paid) return <div className="notice ok"><Icon name="check" />Franchise fee {fee.invoice_number} is paid.</div>;
+  if (fee.paid) return <div className="notice ok"><Icon name="check" />Franchise fee {fee.invoice_number ?? ""} is paid{fee.paid_on ? ` (${date(fee.paid_on)})` : ""}.</div>;
   return (
     <div className="notice warn"><Icon name="money" />
       Franchise fee {fee.invoice_number || "invoice"} is unpaid: {inr(Number(fee.balance))} of {inr(Number(fee.total))} outstanding{fee.due_date ? `, due ${date(fee.due_date)}` : ""} ({label(fee.status)}). Work can continue.

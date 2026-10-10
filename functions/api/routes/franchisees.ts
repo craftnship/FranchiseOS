@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AppError } from "../../common/errors";
+import { pullFranchiseeContact } from "../../workflows/crmContacts";
 import { logActivity } from "../../common/audit";
 import { nextBusinessId } from "../../common/ids";
 import { page, parse, Router } from "../router";
@@ -34,6 +36,15 @@ export function franchiseeRoutes(r: Router): void {
 
   r.on("GET", "/franchisees/:id", null, async (call) =>
     assertOwner(call, await mustGet(call.repo, "franchisees", call.params.id, "FRANCHISEE_NOT_FOUND"), "FRANCHISEE_NOT_FOUND", "ROWID"));
+
+  // Copies contact details edited in CRM (lead, or Contact and Account after signing) now.
+  r.on("POST", "/franchisees/:id/sync-crm", "application.review", async (call) => {
+    const franchisee = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND");
+    const crm = (await call.zoho())?.crm;
+    if (!crm) throw new AppError("ZOHO_SYNC_FAILED", "Zoho CRM is not connected for this tenant.");
+    const changed = await pullFranchiseeContact(call.store, call.ctx, crm, franchisee);
+    return { changed, franchisee: changed.length ? await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND") : franchisee };
+  });
 
   r.on("PATCH", "/franchisees/:id", "application.review", async (call) => {
     const body = parse(patchSchema, call.body);

@@ -57,4 +57,4 @@ export interface ZohoBooksClient {
 }
 
 /** Books invoice status: draft, sent, viewed, overdue, partially_paid, paid, void. */
-export interface BooksInvoiceState { id: string; number: string; status: string; total: number; balance: number; due_date: string | null }
+export interface BooksInvoiceState { id: string; number: string; status: string; total: number; balance: number; due_date: string | null; last_payment_date?: string | null }
