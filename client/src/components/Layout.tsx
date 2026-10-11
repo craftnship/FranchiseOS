@@ -1,15 +1,16 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { api, isPortal, Me, Row } from "../api";
+import { api, can, isPortal, Me, Row } from "../api";
 import { Icon, label, Pill } from "./ui";
 import { useLoad } from "../hooks";
 
-type NavItem = [to: string, text: string, icon: string];
+type NavItem = [to: string, text: string, icon: string, permission?: string];
 const STAFF_NAV: [string, NavItem[]][] = [
   ["Overview", [["/", "Dashboard", "dashboard"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"]]],
   ["Operations", [["/projects", "Opening projects", "projects"]]],
+  ["Admin", [["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
   ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/agreement", "Agreement", "agreements"]]],
@@ -139,7 +140,7 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           <span><strong>FranchiseOS</strong><small>{portal ? "Franchisee portal" : "Expansion & openings"}</small></span>
         </Link>
         <nav>
-          {groups.map(([group, items]) => (
+          {groups.map(([group, all]) => [group, all.filter(([, , , perm]) => !perm || can(perm))] as const).filter(([, items]) => items.length).map(([group, items]) => (
             <div key={group} className="nav-group">
               <div className="nav-label">{group}</div>
               {items.map(([to, text, icon]) => <NavLink key={to} to={to} end={to === "/" || to === "/portal"}><Icon name={icon} />{text}{counts[to] > 0 && <span className="nav-count">{counts[to]}</span>}</NavLink>)}

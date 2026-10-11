@@ -47,6 +47,9 @@ export class MemoryStore implements Store {
       const term = opts.contains.term.toLowerCase();
       out = out.filter((r) => opts.contains!.columns.some((c) => String(r[c] ?? "").toLowerCase().includes(term)));
     }
+    const rg = opts.range;
+    if (rg?.from) out = out.filter((r) => r[rg.column] != null && String(r[rg.column]) >= rg.from!);
+    if (rg?.before) out = out.filter((r) => r[rg.column] != null && String(r[rg.column]) < rg.before!);
     if (opts.orderBy) {
       const k = opts.orderBy;
       const cmp = (x: unknown, y: unknown) =>

@@ -35,6 +35,9 @@ export function buildSelect(table: string, where: Record<string, Primitive>, opt
     const term = opts.contains.term.replace(/[*?]/g, "");
     clauses.push(`(${opts.contains.columns.map((c) => `${ident(c)} LIKE ${literal(`*${term}*`)}`).join(" OR ")})`);
   }
+  const day = (d: string) => (d.length === 10 ? `${d} 00:00:00` : d);
+  if (opts.range?.from) clauses.push(`${ident(opts.range.column)} >= ${literal(day(opts.range.from))}`);
+  if (opts.range?.before) clauses.push(`${ident(opts.range.column)} < ${literal(day(opts.range.before))}`);
   let q = `SELECT * FROM ${t}`;
   if (clauses.length) q += ` WHERE ${clauses.join(" AND ")}`;
   if (opts.orderBy) q += ` ORDER BY ${ident(opts.orderBy)} ${opts.desc ? "DESC" : "ASC"}`;

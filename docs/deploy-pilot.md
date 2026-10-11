@@ -235,3 +235,15 @@ settings so the test agreement route stops answering.
 - Data Store columns (created in Development on 2026-10-11): `opening_checklists.duration_days`,
   `opening_checklists.completed_on`, `franchise_projects.forecast_opening_date`,
   `franchise_projects.forecast_slip_days`, `franchise_projects.forecast_alerted_on`.
+
+## Activity log
+
+- Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what
+  (with the raw action code), the record (linked to its page), and who did it (a person, or the
+  scheduled job, Zoho CRM or Zoho Sign). Click a row for its details and correlation id, which
+  matches the request id in the function logs.
+- Filters: record type, person, from/to dates, and text search over actions and details. The
+  filters are in the URL, so a filtered view can be shared. "Export CSV" downloads every matching
+  entry (up to 5,000).
+- Needs `audit.view`. Only SUPER_ADMIN has it by default; grant it to another role in
+  role_permissions if someone else should see the log. API: `GET /audit`.

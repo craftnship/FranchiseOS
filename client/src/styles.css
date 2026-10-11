@@ -364,3 +364,23 @@ input:focus, textarea:focus, select:focus { outline: 0; border-color: var(--acce
   .next-action .next-buttons { margin-left: 0; }
 }
 td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: flex-end; }
+
+/* Activity log */
+.audit-filters select, .audit-filters input[type=date] { height: 34px; padding: 0 .5rem; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: .88rem; }
+.date-range { display: flex; align-items: center; gap: .4rem; font-size: .82rem; }
+.panel-foot:has(.btn) { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.grid td.nowrap { white-space: nowrap; }
+.caret { display: inline-flex; transition: transform .15s; }
+.caret.open { transform: rotate(90deg); }
+.grid tr.audit-detail td { background: var(--surface-2, #f8f9fb); padding: .9rem 1rem; }
+.grid tr.audit-detail .facts dd { word-break: break-word; font-weight: 400; }
+@media (max-width: 720px) {
+  .audit-filters select, .audit-filters .date-range { flex: 1 1 calc(50% - .75rem); min-width: 0; }
+  .audit-filters .date-range input { flex: 1; min-width: 0; }
+}
+.grid.audit th { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: .65rem .9rem; }
+.grid.audit .cell-sub.code { color: var(--muted); font-size: .72rem; }
+@media (max-width: 720px) {
+  .grid.audit { min-width: 640px; }
+  .grid.audit td.nowrap { white-space: normal; min-width: 6.5rem; }
+}

@@ -6,6 +6,7 @@ import { approvalRoutes } from "./routes/approvals";
 import { feasibilityRoutes } from "./routes/feasibility";
 import { franchiseeRoutes } from "./routes/franchisees";
 import { notificationRoutes } from "./routes/notifications";
+import { auditRoutes } from "./routes/audit";
 import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
@@ -32,5 +33,6 @@ export function buildRouter(): Router {
   searchRoutes(r);
   portalRoutes(r);
   notificationRoutes(r);
+  auditRoutes(r);
   return r;
 }
