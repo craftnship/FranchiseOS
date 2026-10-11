@@ -215,3 +215,23 @@ settings so the test agreement route stops answering.
   - the renewal notice date within 60 days (franchise manager and franchisee)
   - a rent step-up within 30 days (finance and franchisee)
 - Data Store: `leases` table (created in Development on 2026-10-11).
+
+## Opening forecast
+
+- Each checklist task has a length in days and the tasks it waits for (from the template, editable
+  in the task's Edit dialog by staff with `project.write`; loops are refused). An open task is
+  forecast to finish on the latest of its due date, today, or its predecessors' finish plus its
+  length. The store can open the day after the last mandatory task, so the gap before the target
+  is float; once that runs out the forecast opening slips past the target.
+- The project page shows the target, the forecast opening, days behind or to spare, and the
+  critical path (the chain setting the date). The checklist marks critical tasks, what each is
+  waiting for, and a likely finish when a task runs past its due date. Readiness risk is at least
+  medium while the forecast slips, and high at 14 days or more.
+- The forecast is stored on the project on every readiness refresh (sync, task edits and the daily
+  risk job). The project team and the franchisee hear once when it first slips, and again only
+  when it moves a further 7 days or more; going back on plan resets this.
+- "Move target to …" (with a reason, audited as `project:retarget`) sets the target to the
+  forecast. Zoho Projects keeps its own end date. Dependency and length edits stay in FOS.
+- Data Store columns (created in Development on 2026-10-11): `opening_checklists.duration_days`,
+  `opening_checklists.completed_on`, `franchise_projects.forecast_opening_date`,
+  `franchise_projects.forecast_slip_days`, `franchise_projects.forecast_alerted_on`.

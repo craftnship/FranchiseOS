@@ -8,6 +8,7 @@ import { StatusPath } from "./Applications";
 import { LicencePanel, missingLicences } from "../components/Licences";
 import { CapexPanel } from "../components/Capex";
 import { LeaseSummary } from "../components/Lease";
+import { ForecastPanel } from "../components/Forecast";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -117,9 +118,13 @@ export function ProjectDetail() {
             <div><dt>{p.actual_opening_date ? "Opened" : "Days to opening"}</dt><dd style={{ color: !p.actual_opening_date && d !== null && d < 0 ? "var(--bad)" : undefined }}>{p.actual_opening_date ? date(p.actual_opening_date) : d === null ? "—" : d < 0 ? `${-d} days late` : `${d} days`}</dd></div>
           </dl>
           {PATH.includes(p.status) && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
-          <Loaded load={readiness}>{(r) => <ReadinessCard r={r} />}</Loaded>
+          <Loaded load={readiness}>{(r) => <>
+            <ReadinessCard r={r} />
+            {r.forecast && <ForecastPanel f={r.forecast} target={p.target_opening_date} items={items} canRetarget={writable} busy={act.busy === "target"} error={act.error} onClear={act.clear}
+              onRetarget={(day, reason) => act.run("target", () => api<Row>("POST", `/projects/${id}/target`, { body: { target_opening_date: day, reason } }), `Target opening moved to ${date(day)}.`)} />}
+          </>}</Loaded>
           <Panel title="Opening checklist" action={<span className="muted">{done} of {items.length} complete</span>} flush>
-            <Checklist items={items} actions={!writable ? undefined : (i) => {
+            <Checklist items={items} forecast={(readiness.data?.forecast?.tasks ?? undefined) as Row[] | undefined} actions={!writable ? undefined : (i) => {
               const busy = act.busy === `i${i.ROWID}`;
               return (
                 <span className="panel-actions">
@@ -139,7 +144,7 @@ export function ProjectDetail() {
           <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />
           {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
             onOpen={(date) => act.run("open", () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: "open", actual_opening_date: date } }), "The store is open. The franchisee is now active.").then((r) => r && setOpening(false))} />}
-          {editing && <TaskDialog item={editing} staff={(p.staff ?? []) as Row[]} linked={!!(p.zoho_project_id && editing.external_task_id)} busy={!!act.busy} error={act.error}
+          {editing && <TaskDialog item={editing} items={items} staff={(p.staff ?? []) as Row[]} linked={!!(p.zoho_project_id && editing.external_task_id)} busy={!!act.busy} error={act.error}
             onClose={() => { setEditing(null); act.clear(); }} onSave={(body) => patch(editing, body, "saved.").then((r) => r && setEditing(null))} />}
           {blocking && <ConfirmDialog title={`Flag “${blocking.item}” as blocked?`} confirm="Flag blocked" danger comment="required" busy={!!act.busy} error={act.error}
             body={<p className="muted" style={{ margin: 0 }}>A blocked mandatory task holds readiness down and moves the project to at risk until it is cleared.</p>}
@@ -174,14 +179,24 @@ function OpenStoreDialog({ project, items, licences, busy, error, onOpen, onClos
   );
 }
 
-/** Owner and due date of one checklist task. */
-function TaskDialog({ item, staff, linked, busy, error, onSave, onClose }: { item: Row; staff: Row[]; linked: boolean; busy: boolean; error: ApiError | null; onSave: (body: Row) => void; onClose: () => void }) {
+export const dependsOn = (i: Row): string[] => { try { return JSON.parse(String(i.depends_on_json || "[]")) as string[]; } catch { return []; } };
+
+/** Owner, due date, length and the tasks one checklist task waits for. */
+function TaskDialog({ item, items, staff, linked, busy, error, onSave, onClose }: { item: Row; items: Row[]; staff: Row[]; linked: boolean; busy: boolean; error: ApiError | null; onSave: (body: Row) => void; onClose: () => void }) {
   const [owner, setOwner] = useState(String(item.owner_user_id ?? ""));
   const [due, setDue] = useState(item.due_date ? String(item.due_date).slice(0, 10) : "");
+  const initDeps = dependsOn(item);
+  const [deps, setDeps] = useState<string[]>(initDeps);
+  const initLen = item.duration_days == null ? "" : String(item.duration_days);
+  const [len, setLen] = useState(initLen);
+  const others = items.filter((i) => i.task_code && i.ROWID !== item.ROWID);
+  const toggle = (c: string) => setDeps((d) => (d.includes(c) ? d.filter((x) => x !== c) : [...d, c]));
   const save = () => {
     const body: Row = {};
     if (owner !== String(item.owner_user_id ?? "")) body.owner_user_id = owner || null;
     if (due && due !== String(item.due_date ?? "").slice(0, 10)) body.due_date = due;
+    if ([...deps].sort().join() !== [...initDeps].sort().join()) body.depends_on = deps;
+    if (len !== initLen && len !== "") body.duration_days = Number(len);
     if (Object.keys(body).length) onSave(body); else onClose();
   };
   return (
@@ -196,19 +211,32 @@ function TaskDialog({ item, staff, linked, busy, error, onSave, onClose }: { ite
         <Field label="Due date" span hint={linked ? "The task in Zoho Projects moves to end on this day, keeping its length." : undefined}>
           <input type="date" value={due} onChange={(e) => setDue(e.target.value)} required />
         </Field>
+        <Field label="Length (days)" span hint="Working time once the tasks it waits for are done. Sets the opening forecast.">
+          <input type="number" min={0} max={365} step={1} value={len} onChange={(e) => setLen(e.target.value)} />
+        </Field>
+        {item.task_code && others.length > 0 && <Field label="Waits for" span hint="This task can't finish until these are done." error={error?.fields?.depends_on === "loop" ? "these tasks would wait for each other in a loop" : undefined}>
+          <div className="check-list">
+            {others.map((o) => <label key={String(o.ROWID)} className="check"><input type="checkbox" checked={deps.includes(String(o.task_code))} onChange={() => toggle(String(o.task_code))} />{o.item}</label>)}
+          </div>
+        </Field>}
         <div className="span"><FormError error={error} /></div>
       </Form>
     </Dialog>
   );
 }
 
-export function Checklist({ items, actions }: { items: Row[]; actions?: (item: Row) => ReactNode }) {
+export function Checklist({ items, actions, forecast }: { items: Row[]; actions?: (item: Row) => ReactNode; forecast?: Row[] }) {
   const today = new Date().toISOString().slice(0, 10);
   if (!items.length) return <div className="state">No tasks yet.</div>;
   const owners = items.some((i) => i.owner !== undefined);
+  const names = new Map(items.map((i) => [String(i.task_code ?? i.ROWID), String(i.item)]));
+  const fc = new Map((forecast ?? []).map((t) => [String(t.id), t]));
   return (
     <DataTable rows={items} columns={[
-      { key: "item", label: "Task", render: (i) => <>{i.item}{String(i.mandatory) === "true" || i.mandatory === true ? null : <span className="cell-sub">Optional</span>}</> },
+      { key: "item", label: "Task", render: (i) => {
+        const waits = (fc.get(String(i.ROWID))?.waiting_on ?? []) as string[];
+        return <>{i.item}{String(i.mandatory) === "true" || i.mandatory === true ? null : <span className="cell-sub">Optional</span>}{waits.length > 0 && <span className="cell-sub">Waits for {waits.map((c) => names.get(c) ?? c).join(", ")}</span>}</>;
+      } },
       { key: "category", label: "Category", render: (i) => label(i.category) },
       ...(owners ? [{ key: "owner", label: "Owner", sort: (i: Row) => i.owner?.name ?? i.owner?.email ?? "~", render: (i: Row) => i.owner ? (i.owner.name ?? i.owner.email) : <span className="muted">—</span> }] : []),
       { key: "weight", label: "Weight", align: "right", sort: (i) => Number(i.weight ?? 0) },
@@ -216,9 +244,13 @@ export function Checklist({ items, actions }: { items: Row[]; actions?: (item: R
         const overdue = i.status !== "COMPLETED" && i.due_date && String(i.due_date).slice(0, 10) < today;
         // Zoho's own status name (Delayed, To be Tested…) when it says more than the FOS status.
         const zoho = i.external_status && !["open", "closed", label(i.status).toLowerCase()].includes(String(i.external_status).toLowerCase()) ? String(i.external_status) : null;
-        return <><span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}</span>{zoho && <span className="cell-sub">{zoho} in Zoho</span>}</>;
+        const f = fc.get(String(i.ROWID));
+        return <><span className="chips"><Pill value={i.status} />{overdue && <Pill value="Overdue" tone="bad" />}{f?.critical && <Pill value="Critical" tone="warn" />}</span>{zoho && <span className="cell-sub">{zoho} in Zoho</span>}</>;
       } },
-      { key: "due_date", label: "Due", render: (i) => date(i.due_date) },
+      { key: "due_date", label: "Due", render: (i) => {
+        const f = fc.get(String(i.ROWID));
+        return <>{date(i.due_date)}{f && Number(f.slip) > 0 && <span className="cell-sub" style={{ color: "var(--bad)" }}>Likely {date(f.finish)}</span>}</>;
+      } },
       ...(actions ? [{ key: "_act", label: "", render: actions }] : []),
     ]} />
   );

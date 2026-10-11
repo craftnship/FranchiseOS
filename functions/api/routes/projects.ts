@@ -11,6 +11,7 @@ import { transitionEntity } from "../../workflows/transition";
 import { assertLicencesReady, ensureLicences, LICENCE_STATES, updateLicence } from "../../workflows/licences";
 import { logActivity } from "../../common/audit";
 import { describeLease, leaseForSite } from "../../workflows/leases";
+import { projectForecast } from "../../workflows/forecast";
 import { capexFor, OTHER, recordSpend, setBudget, syncBills, updateSpend } from "../../workflows/capex";
 import { randomUUID } from "crypto";
 import { Call, page, parse, Router } from "../router";
@@ -37,6 +38,8 @@ const changeSchema = z.object({
   done: z.boolean().optional(),
   owner_user_id: z.string().min(1).nullable().optional(),
   due_date: z.string().date().optional(),
+  depends_on: z.array(z.string().min(1).max(60)).max(50).optional(),
+  duration_days: z.number().int().min(0).max(730).optional(),
 }).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
 
 const date = z.string().date().nullable().optional();
@@ -66,6 +69,20 @@ async function getLicence(call: Call): Promise<Row> {
   const l = await mustGet(call.repo, "licences", call.params.licId, "NOT_FOUND");
   if (String(l.project_id) !== call.params.id) throw new AppError("NOT_FOUND");
   return l;
+}
+
+/** The tasks a task waits for must be other tasks of the project, without making a loop. */
+async function checkDependencies(call: Call, codes: string[]): Promise<void> {
+  const rows = await call.repo.findMany("opening_checklists", { project_id: call.params.id }, { limit: 300 });
+  const item = rows.find((r) => String(r.ROWID) === call.params.itemId);
+  if (!item) throw new AppError("NOT_FOUND", "Checklist item not found.");
+  const code = String(item.task_code ?? item.ROWID);
+  const known = new Set(rows.map((r) => String(r.task_code ?? r.ROWID)));
+  const bad = codes.filter((c) => c === code || !known.has(c));
+  if (bad.length) throw new AppError("VALIDATION_FAILED", "A task can only wait for other tasks of this project.", { depends_on: bad.join(", ") });
+  const trial = rows.map((r) => (String(r.ROWID) === call.params.itemId ? { ...r, depends_on_json: JSON.stringify(codes) } : r));
+  const { cycle } = projectForecast({}, trial, today(call));
+  if (cycle.includes(code)) throw new AppError("VALIDATION_FAILED", "That would make the tasks wait for each other in a loop.", { depends_on: "loop" });
 }
 
 async function getProject(call: Call): Promise<Row> {
@@ -211,6 +228,18 @@ export function projectRoutes(r: Router): void {
     return call.repo.findMany("readiness_snapshots", { project_id: call.params.id }, { orderBy: "taken_at", desc: true, limit: 90 });
   });
 
+  // Moves the target opening date (e.g. to the forecast). Zoho Projects keeps its own end date.
+  r.on("POST", "/projects/:id/target", "project.write", async (call) => {
+    const project = await getProject(call);
+    const body = parse(z.object({ target_opening_date: z.string().date(), reason: z.string().trim().min(3).max(1000) }).strict(), call.body);
+    if (["OPENED", "CLOSED"].includes(String(project.status))) throw new AppError("INVALID_TRANSITION", "The store has already opened.");
+    if (body.target_opening_date < today(call)) throw new AppError("VALIDATION_FAILED", "The target can't be in the past.", { target_opening_date: "in the past" });
+    const from = project.target_opening_date ? String(project.target_opening_date).slice(0, 10) : null;
+    await call.repo.update("franchise_projects", call.params.id, { target_opening_date: body.target_opening_date, forecast_alerted_on: null });
+    await logActivity(call.store, call.ctx, { entityType: "project", entityId: call.params.id, action: "project:retarget", metadata: { from, to: body.target_opening_date, reason: body.reason } });
+    return refreshReadiness(call.store, call.ctx, call.params.id, { today: today(call), now: call.now, onTransition: call.onTransition });
+  });
+
   // Pulls task progress from Zoho Projects (when connected), then stores readiness and risk.
   r.on("POST", "/projects/:id/sync", "project.write", async (call) => {
     const project = await getProject(call);
@@ -239,6 +268,7 @@ export function projectRoutes(r: Router): void {
         const owner = (await staffDirectory(call)).get(body.owner_user_id);
         if (!owner?.active || PORTAL_ROLES.includes(owner.role)) throw new AppError("VALIDATION_FAILED", "Choose an active staff member.", { owner_user_id: "not an active staff member" });
       }
+      if (body.depends_on) await checkDependencies(call, body.depends_on);
       const linked = !!project.zoho_project_id && (body.done !== undefined || !!body.due_date);
       const projects = linked ? (await call.zoho().catch(() => null))?.projects ?? null : null;
       ({ item, zoho } = await updateChecklistItem(call.store, call.ctx, projects, call.params.id, call.params.itemId, body));

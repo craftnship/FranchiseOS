@@ -220,6 +220,16 @@ const RULES: Record<string, Rule> = {
       title: `${code} is at risk`, body: `${parts ? `Mandatory tasks: ${parts}.` : "The opening is at risk."} Target opening ${row?.target_opening_date ? nice(String(row.target_opening_date).slice(0, 10)) : "not set"}.`,
       link: linkTo("project", e.entityId) };
   },
+  "project:forecast": async (store, ctx, e, repo) => {
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    const m = e.metadata ?? {};
+    const path = (m.critical_path ?? []) as string[];
+    return { kind: "project.forecast", entityType: "project", entityId: e.entityId, roles: ["PROJECT_MANAGER", "FRANCHISE_MANAGER"],
+      userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${code} is now forecast to open ${nice(m.forecast)}`,
+      body: `${m.slip_days} day${m.slip_days === 1 ? "" : "s"} after the target of ${nice(m.target)}.${path.length ? ` Critical path: ${path.join(" → ")}.` : ""}`,
+      link: linkTo("project", e.entityId), dedupe: `forecast:${e.entityId}:${m.forecast}` };
+  },
   "transition:open": async (_s, _c, e, repo) => {
     if (e.entityType !== "project") return null;
     const { code, row } = await codeOf(repo, "project", e.entityId);

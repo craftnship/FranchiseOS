@@ -9,6 +9,8 @@ import { calculateReadiness, ChecklistItem, DEFAULT_READINESS_WEIGHTS, Readiness
 import { Weighted } from "../scoring/weights";
 import { syncProjectTasks } from "./projectSync";
 import { transitionEntity, TransitionDeps } from "./transition";
+import { projectForecast, refreshForecast } from "./forecast";
+import { Forecast } from "../scoring/forecast";
 
 // Readiness and project risk (plan Step 6.1-6.2, FOS-058, spec §20, §22 job_project_risk).
 
@@ -20,13 +22,13 @@ export const ACTIVE_PROJECT_STATES = ["PLANNING", "IN_PROGRESS", "AT_RISK", "REA
 /**
  * Pace-based risk: a project is judged on whether it is keeping up, not on how much is done, so a new
  * project on schedule is LOW. Blockers (mandatory items blocked or overdue) make it HIGH, any overdue
- * item MEDIUM. Close to opening, low readiness counts too: RED within 14 days is HIGH, and anything
+ * item MEDIUM. A forecast opening past the target is MEDIUM, two weeks or more HIGH. Close to opening, low readiness counts too: RED within 14 days is HIGH, and anything
  * short of GREEN within 30 days is at least MEDIUM.
  */
-export function riskLevel(r: Pick<ReadinessResult, "rag" | "blockers" | "overdue">, daysToOpening: number | null = null): RiskLevel {
+export function riskLevel(r: Pick<ReadinessResult, "rag" | "blockers" | "overdue">, daysToOpening: number | null = null, slipDays = 0): RiskLevel {
   const near = (days: number) => daysToOpening !== null && daysToOpening <= days;
-  if (r.blockers.length || (near(14) && r.rag === "RED")) return "HIGH";
-  if (r.overdue.length || (near(30) && r.rag !== "GREEN")) return "MEDIUM";
+  if (r.blockers.length || (near(14) && r.rag === "RED") || slipDays >= 14) return "HIGH";
+  if (r.overdue.length || (near(30) && r.rag !== "GREEN") || slipDays > 0) return "MEDIUM";
   return "LOW";
 }
 
@@ -53,6 +55,8 @@ export interface ProjectReadiness extends ReadinessResult {
   /** The checklist rows behind blockers and overdue ids, for the UI. */
   blocker_items: Row[];
   overdue_items: Row[];
+  /** Opening forecast from task dependencies (forecast.ts). */
+  forecast: Forecast;
 }
 
 /** Computes readiness from the opening checklist without writing anything. */
@@ -64,10 +68,12 @@ export async function computeReadiness(store: Store, ctx: TenantContext, project
   const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
   const result = calculateReadiness(rows.map(toItem), today, tenantReadinessWeights(tenant));
   const byId = new Map(rows.map((r) => [String(r.ROWID), r]));
+  const forecast = projectForecast(project, rows, today);
   return {
     ...result,
     project_id: projectId,
-    risk_level: riskLevel(result, project.target_opening_date ? daysBetween(today, String(project.target_opening_date)) : null),
+    forecast,
+    risk_level: riskLevel(result, project.target_opening_date ? daysBetween(today, String(project.target_opening_date)) : null, forecast.slip_days),
     blocker_items: result.blockers.map((id) => byId.get(id)!),
     overdue_items: result.overdue.map((id) => byId.get(id)!),
   };
@@ -90,6 +96,9 @@ export async function refreshReadiness(
     project_id: projectId, score: r.score, rag: r.rag, blockers: r.blockers.length, overdue: r.overdue.length,
     taken_at: (args.now ?? new Date()).toISOString(),
   });
+  if (!["OPENED", "CLOSED"].includes(String(project.status))) {
+    await refreshForecast(store, ctx, project, await repo.findMany("opening_checklists", { project_id: projectId }, { limit: 300 }), args.today);
+  }
   const deps = { store, permissions: async () => new Set(["system.project"]), onTransition: args.onTransition };
   if (project.status === "IN_PROGRESS" && r.blockers.length) {
     project = await transitionEntity("project", projectId, "flag_risk", ctx, deps);
@@ -143,7 +152,7 @@ export async function setChecklistBlocked(store: Store, ctx: TenantContext, proj
   return updated;
 }
 
-export interface ChecklistChange { done?: boolean; owner_user_id?: string | null; due_date?: string }
+export interface ChecklistChange { done?: boolean; owner_user_id?: string | null; due_date?: string; depends_on?: string[]; duration_days?: number }
 
 /**
  * Marks a checklist item done or reopens it, assigns its owner, or moves its due date. Zoho Projects
@@ -175,9 +184,12 @@ export async function updateChecklistItem(
   }
   const patch: Row = {
     // Zoho's own status name is refreshed by the next sync; until then the FOS status speaks for it.
-    ...(status ? { status, ...(linked ? { external_status: null } : {}) } : {}),
+    ...(status ? { status, completed_on: status === "COMPLETED" ? new Date().toISOString().slice(0, 10) : null, ...(linked ? { external_status: null } : {}) } : {}),
     ...(due ? { due_date: due } : {}),
     ...(change.owner_user_id !== undefined ? { owner_user_id: change.owner_user_id } : {}),
+    // Dependencies and durations drive the FOS forecast only; Zoho Projects keeps its own links.
+    ...(change.depends_on ? { depends_on_json: JSON.stringify(change.depends_on) } : {}),
+    ...(change.duration_days !== undefined ? { duration_days: change.duration_days } : {}),
   };
   const updated = Object.keys(patch).length ? await repo.update("opening_checklists", itemId, patch) : item;
   const action = status === "COMPLETED" ? "checklist:completed" : status ? "checklist:reopened" : "checklist:updated";

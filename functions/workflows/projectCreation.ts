@@ -57,6 +57,8 @@ export async function buildOpeningProject(
       status: "OPEN",
       due_date: addDays(args.startDate, t.offset_days),
       depends_on_json: JSON.stringify(t.depends_on ?? []),
+      // Days of work after the latest predecessor is due (or after the start), for the opening forecast.
+      duration_days: Math.max(1, t.offset_days - Math.max(0, ...(t.depends_on ?? []).map((d) => args.template.find((x) => x.code === d)?.offset_days ?? 0))),
       external_task_id: null,
       external_tasklist_id: null,
       dependencies_synced: false,

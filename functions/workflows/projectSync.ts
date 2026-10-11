@@ -36,7 +36,8 @@ export async function syncProjectTasks(
     const next = checklistStatus(t, String(r.status));
     const label = t.status || null;
     if (next !== r.status || label !== (r.external_status ?? null)) {
-      await repo.update("opening_checklists", String(r.ROWID), { status: next, external_status: label });
+      const completed = next === "COMPLETED" && r.status !== "COMPLETED" ? { completed_on: new Date().toISOString().slice(0, 10) } : next !== "COMPLETED" && r.status === "COMPLETED" ? { completed_on: null } : {};
+      await repo.update("opening_checklists", String(r.ROWID), { status: next, external_status: label, ...completed });
       updated++;
     }
   }
