@@ -1,5 +1,6 @@
 import { PortalSales, Royalties } from "./components/Royalties";
 import { Analytics } from "./pages/Analytics";
+import { PortalConstruction } from "./components/Construction";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
@@ -57,6 +58,7 @@ export function App() {
               <Route path="/portal/tasks" element={<PortalTasks />} />
               <Route path="/portal/agreement" element={<PortalAgreement />} />
               <Route path="/portal/sales" element={<PortalSales />} />
+              <Route path="/portal/construction" element={<PortalConstruction />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </>
           ) : (

@@ -274,6 +274,17 @@ settings so the test agreement route stops answering.
   changes made in FranchiseOS, so records imported straight into the Data Store show none.
 - Computed live from the Data Store; no new tables or scopes.
 
+## Construction
+
+Each opening project has a Construction panel (staff) and a Construction page in the franchisee portal.
+
+- **Store design.** The franchisee (or staff) sends the layout and elevation drawings as a PDF or image. Each resend is a new version, and only one can wait for review at a time. Anyone with `project.write` approves it or requests changes with a note. Approval completes the "Get store design approved" (DESIGN) checklist task, in Zoho Projects too when the project is linked, and refreshes readiness. The FITOUT task can't be marked done until a design is approved.
+- **Site photos.** Staff and the franchisee add photos with a caption and area. The time comes from the photo (a future time becomes now), and the location is optional, asked for in the browser. A photo more than 500 m from the site's pin is flagged.
+- **Snag list.** Staff raise snags as minor, major or critical, with an optional photo. The franchisee marks them fixed with a note and photo; staff verify (close), reopen with a note, or waive with a reason. Major and critical snags that are open or fixed but not verified stop the store opening (`SNAGS_OPEN`); minor ones don't.
+- Notifications: a design waiting for approval goes to franchise and project managers; the decision, major or critical snags and reopened snags go to the franchisee; fixed snags go to project and franchise managers.
+- New projects get the DESIGN task from the template, and FITOUT now depends on it. Existing projects have no DESIGN task, so approving a design there completes nothing, but the fit-out rule still applies.
+- Tables `design_reviews`, `site_photos` and `snags` were created in Development on 2026-10-11. Photo coordinates are stored to 4 decimal places (about 11 m).
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

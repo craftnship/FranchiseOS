@@ -5,7 +5,7 @@ import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
 
-const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 export const REPORT_TONE: Record<string, string> = { SUBMITTED: "info", RETURNED: "warn", INVOICED: "warn", PAID: "good" };
 const STATUS_TEXT: Record<string, string> = { SUBMITTED: "Waiting for review", RETURNED: "Needs a correction", INVOICED: "Invoiced", PAID: "Paid" };
 const SOURCE_TEXT: Record<string, string> = { feasibility: "from the feasibility model", store: "set for this store", tenant: "network default", null: "not set" };
@@ -130,7 +130,7 @@ function SalesDialog({ month, months, busy, error, onSave, onClose }: { month: R
         <Field label="Gross sales (₹)" hint="Before discounts and returns."><input type="number" min={0} step="any" value={v.gross_sales} onChange={set("gross_sales")} required autoFocus /></Field>
         <Field label="Net sales (₹)" hint="Royalty is charged on this." error={v.net_sales !== "" && net > gross ? "More than gross" : undefined}><input type="number" min={0} step="any" value={v.net_sales} onChange={set("net_sales")} required /></Field>
         <Field label="Bills (optional)"><input type="number" min={0} step={1} value={v.transactions} onChange={set("transactions")} /></Field>
-        <Field label="Sales report (optional)" hint="PDF, image or spreadsheet."><input type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
+        <Field label="Sales report (optional)" hint="PDF or a photo of the POS report."><input type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
         <Field label="Notes" span><textarea rows={2} value={v.notes} onChange={set("notes")} maxLength={2000} /></Field>
         <div className="span"><FormError error={error} /></div>
       </Form>

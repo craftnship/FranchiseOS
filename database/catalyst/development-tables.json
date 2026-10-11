@@ -46,6 +46,9 @@
     "integration_events": "62105000000099315",
     "integration_logs": "62105000000076322",
     "activity_logs": "62105000000094297",
-    "notifications": "62105000000099674"
+    "notifications": "62105000000099674",
+    "design_reviews": "62105000000063424",
+    "site_photos": "62105000000097533",
+    "snags": "62105000000103093"
   }
 }

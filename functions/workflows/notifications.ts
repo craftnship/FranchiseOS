@@ -268,6 +268,36 @@ const RULES: Record<string, Rule> = {
       body: `${code}: royalty ${inr(toNum(m.royalty))}${toNum(m.marketing) ? ` and marketing fund ${inr(toNum(m.marketing))}` : ""} on net sales of ${inr(toNum(m.net_sales))}.${m.invoice_number ? ` Books invoice ${m.invoice_number}.` : ""}`,
       link: "/portal/sales" };
   },
+  "design:submitted": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "design.submitted", entityType: "project", entityId: e.entityId, roles: ["FRANCHISE_MANAGER", "PROJECT_MANAGER"],
+      title: `${code} store design v${m.version} is waiting for approval`, body: `${await franchiseeName(repo, row?.franchisee_id)}: ${String(m.title ?? "")}. Fit-out waits for it.`,
+      link: linkTo("project", e.entityId), dedupe: `design-submitted:${m.design_id}` };
+  },
+  "design:approved": async (store, ctx, e, repo) => designDecided(store, ctx, e, repo, true),
+  "design:changes": async (store, ctx, e, repo) => designDecided(store, ctx, e, repo, false),
+  "snag:raised": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    if (m.severity === "MINOR") return null;
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "snag.raised", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${human(String(m.severity))} snag #${m.snag_no} at ${code}: ${String(m.title ?? "")}`, body: "Fix it and mark it fixed with a photo. The store can't open until it's cleared.",
+      link: "/portal/construction", dedupe: `snag-raised:${m.snag_id}` };
+  },
+  "snag:fixed": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "snag.fixed", entityType: "project", entityId: e.entityId, roles: ["PROJECT_MANAGER", "FRANCHISE_MANAGER"],
+      title: `${code} snag #${m.snag_no} marked fixed: ${String(m.title ?? "")}`, body: "Check it and close it, or reopen it with a note.",
+      link: linkTo("project", e.entityId) };
+  },
+  "snag:reopened": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "snag.reopened", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `Snag #${m.snag_no} at ${code} was reopened`, body: `${String(m.title ?? "")}: ${String(m.note ?? "")}`, link: "/portal/construction" };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
@@ -342,6 +372,15 @@ const day = (d: Date) => d.toISOString().slice(0, 10);
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const monthName = (p: unknown) => periodLabel(String(p ?? ""));
+
+async function designDecided(store: Store, ctx: TenantContext, e: Entry, repo: TenantRepo, approved: boolean): Promise<Notice> {
+  const m = e.metadata ?? {};
+  const { code, row } = await codeOf(repo, "project", e.entityId);
+  return { kind: approved ? "design.approved" : "design.changes", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+    title: approved ? `${code} store design v${m.version} is approved` : `${code} store design v${m.version} needs changes`,
+    body: approved ? "Fit-out can go ahead to the approved drawings." : `${String(m.note ?? "")} Send a new version when it's ready.`,
+    link: "/portal/construction", dedupe: `design-decided:${m.design_id}` };
+}
 
 async function royaltySubmitted(e: Entry, repo: TenantRepo): Promise<Notice> {
   const m = e.metadata ?? {};

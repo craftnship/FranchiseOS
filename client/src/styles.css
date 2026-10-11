@@ -406,3 +406,18 @@ td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: fle
 .funnel.conv .track .n { position: absolute; left: .45rem; top: 0; line-height: 18px; font-size: .72rem; font-weight: 600; color: #fff; mix-blend-mode: normal; }
 .funnel .num { text-align: right; }
 @media (max-width: 640px) { .funnel.conv li { grid-template-columns: 6.5rem 1fr 3rem 2.5rem; gap: .4rem; } .chart-tip { min-width: 10rem; } }
+
+/* Construction */
+.design-row { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.design-row .cell-sub { display: block; margin-top: .2rem; }
+details.history { margin-top: .75rem; font-size: .85rem; }
+details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap: .25rem; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .9rem; }
+.photo-grid figure { margin: 0; display: grid; gap: .4rem; align-content: start; }
+.photo-grid figcaption { display: grid; gap: .1rem; font-size: .76rem; color: var(--text-2); }
+.photo-grid figcaption strong { font-size: .84rem; color: var(--text); }
+.thumb { display: block; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.empty { display: grid; place-items: center; color: var(--muted); }
+.grid tr.muted-row td { color: var(--muted); }
+@media (max-width: 640px) { .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; } }

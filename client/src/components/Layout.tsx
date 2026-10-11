@@ -13,7 +13,7 @@ const STAFF_NAV: [string, NavItem[]][] = [
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
-  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
+  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/construction", "Construction", "store"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
 ];
 
 /** Search results open the record's page where the app has one, else its list. */

@@ -38,7 +38,8 @@ export const DEFAULT_APPROVAL_WORKFLOW = {
 export const QSR_PROJECT_TEMPLATE: TemplateTask[] = [
   { code: "LEASE", name: "Sign lease", category: "CONSTRUCTION", mandatory: true, offset_days: 14 },
   { code: "PERMITS", name: "Obtain building permits", category: "COMPLIANCE", mandatory: true, offset_days: 30, depends_on: ["LEASE"] },
-  { code: "FITOUT", name: "Complete fit-out", category: "CONSTRUCTION", mandatory: true, weight: 3, offset_days: 75, depends_on: ["PERMITS"] },
+  { code: "DESIGN", name: "Get store design approved", category: "CONSTRUCTION", mandatory: true, offset_days: 25, depends_on: ["LEASE"] },
+  { code: "FITOUT", name: "Complete fit-out", category: "CONSTRUCTION", mandatory: true, weight: 3, offset_days: 75, depends_on: ["PERMITS", "DESIGN"] },
   { code: "EQUIP_ORDER", name: "Order kitchen equipment", category: "EQUIPMENT", mandatory: true, offset_days: 40, depends_on: ["LEASE"] },
   { code: "EQUIP_INSTALL", name: "Install and commission equipment", category: "EQUIPMENT", mandatory: true, offset_days: 85, depends_on: ["FITOUT", "EQUIP_ORDER"] },
   { code: "HIRE_MANAGER", name: "Hire store manager", category: "RECRUITMENT", mandatory: true, offset_days: 50 },

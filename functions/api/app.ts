@@ -11,6 +11,7 @@ import { userRoutes } from "./routes/users";
 import { integrationRoutes } from "./routes/integrations";
 import { royaltyRoutes } from "./routes/royalties";
 import { analyticsRoutes } from "./routes/analytics";
+import { constructionRoutes } from "./routes/construction";
 import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
@@ -42,5 +43,6 @@ export function buildRouter(): Router {
   integrationRoutes(r);
   royaltyRoutes(r);
   analyticsRoutes(r);
+  constructionRoutes(r);
   return r;
 }
