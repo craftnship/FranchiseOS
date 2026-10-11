@@ -22,7 +22,7 @@ const ACTIONS: Record<string, string> = {
   "loan:plan": "Funding plan saved", "loan:applied": "Loan applied for", "loan:sanctioned": "Loan sanctioned", "loan:rejected": "Loan rejected", "loan:disbursed": "Loan disbursed",
   "audit:scheduled": "Audit booked", "audit:completed": "Audit completed", "audit:cancelled": "Audit cancelled",
   "action:submitted": "Corrective action answered", "action:closed": "Corrective action closed", "action:reopened": "Corrective action reopened",
-  "site:replaced": "Replacement site", "message:from_franchisee": "Message from franchisee", "message:from_brand": "Message to franchisee", "document:shared": "Document shared",
+  "site:replaced": "Replacement site", "message:from_franchisee": "Message from franchisee", "message:from_brand": "Message to franchisee", "document:shared": "Document shared", "settings:branding": "Branding changed",
   "launch:planned": "Grand opening set", "launch:moved": "Grand opening moved", "launch:done": "Launch task done", "launch:skipped": "Launch task skipped", "launch:reopened": "Launch task reopened",
   "launch:sales": "Weekly sales reported", "launch:sales_changed": "Weekly sales changed",
   "renewal:in_discussion": "Renewal in discussion", "renewal:renewing": "Renewing", "renewal:not_renewing": "Not renewing", "renewal:renewed": "Renewed",

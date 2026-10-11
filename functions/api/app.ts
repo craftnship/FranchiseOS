@@ -20,6 +20,7 @@ import { launchRoutes } from "./routes/launch";
 import { portalHubRoutes, portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
+import { settingsRoutes } from "./routes/settings";
 import { siteRoutes } from "./routes/sites";
 import { territoryRoutes } from "./routes/territories";
 import { isPortalUser } from "../common/rbac";
@@ -64,5 +65,6 @@ export function buildRouter(): Router {
   fundingRoutes(r);
   storeAuditRoutes(r);
   launchRoutes(r);
+  settingsRoutes(r);
   return r;
 }

@@ -36,7 +36,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -.01em; }
 .sidebar { width: var(--side-w); flex: none; align-self: flex-start; background: var(--side-bg); color: var(--side-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; z-index: 20; }
 .brand { display: flex; align-items: center; gap: .7rem; padding: 1.1rem 1.1rem 1rem; color: #fff; border-bottom: 1px solid rgba(255, 255, 255, .06); }
 .brand:hover { text-decoration: none; }
-.brand-mark { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; font-size: 1.05rem; color: #fff; background: linear-gradient(135deg, #4f7cff, #2f5bea 55%, #1d3fb8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25); }
+.brand-mark { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; font-size: 1.05rem; color: #fff; flex: none; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 75%, #fff), var(--accent) 55%, color-mix(in srgb, var(--accent) 70%, #000)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25); }
+.brand-mark.logo { object-fit: contain; background: #fff; padding: 3px; }
+.brand > span:last-child { min-width: 0; }
+.brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brand strong { display: block; font-size: .98rem; letter-spacing: -.01em; }
 .brand small { display: block; color: var(--side-muted); font-size: .72rem; margin-top: 1px; }
 .sidebar nav { padding: .6rem .6rem 1rem; flex: 1; }
@@ -277,7 +280,7 @@ label.check { display: flex; gap: .5rem; align-items: center; font-weight: 500; 
 .stat-line { display: flex; align-items: center; gap: .5rem; margin: .2rem 0; }
 
 /* Sign-in */
-.signin-page { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(1200px 600px at 10% -10%, #1d3fb8 0, transparent 60%), var(--side-bg); padding: 1rem; }
+.signin-page { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--accent) 70%, #000) 0, transparent 60%), var(--side-bg); padding: 1rem; }
 .signin { width: 100%; max-width: 400px; background: var(--surface); border-radius: 14px; padding: 2rem; box-shadow: var(--shadow-lg); }
 .signin .brand-mark { margin-bottom: 1rem; width: 44px; height: 44px; font-size: 1.3rem; }
 .signin h1 { font-size: 1.35rem; margin-bottom: .35rem; }
@@ -527,3 +530,13 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .store-picker { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); }
 .store-picker select { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .5rem; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; max-width: 12rem; }
 .fact-links { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; }
+
+/* Settings → Branding */
+.brand-preview { display: flex; align-items: center; gap: 1rem; padding: 1rem; border-radius: var(--radius); background: var(--side-bg); color: #fff; }
+.brand-preview strong { display: block; }
+.brand-preview small { color: var(--side-muted); }
+.logo-field { display: flex; align-items: center; gap: .75rem; }
+.field .logo-field input { flex: 1; min-width: 0; }
+.color-field { display: flex; gap: .5rem; align-items: center; }
+.field .color-field input { flex: 1; min-width: 0; }
+.field .color-field input[type="color"] { width: 44px; flex: none; padding: 2px; cursor: pointer; }

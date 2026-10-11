@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api, can, isPortal, Me, portalHome, Row, setPortalStore } from "../api";
 import { Icon, label, Pill } from "./ui";
 import { useLoad } from "../hooks";
+import { BrandMark, useBrand } from "../branding";
 
 type NavItem = [to: string, text: string, icon: string, permission?: string];
 const STAFF_NAV: [string, NavItem[]][] = [
@@ -10,7 +11,7 @@ const STAFF_NAV: [string, NavItem[]][] = [
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"], ["/fees", "Franchise fees", "bank", "dashboard.view"], ["/renewals", "Renewals", "sync", "dashboard.view"]]],
   ["Operations", [["/projects", "Opening projects", "projects"], ["/launches", "New stores", "flag", "dashboard.view"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"], ["/audits", "Store audits", "audit", "dashboard.view"], ["/documents", "Brand documents", "folder", "dashboard.view"]]],
-  ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
+  ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"], ["/admin/settings", "Settings", "settings", "settings.manage"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
   ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/todo", "To do", "check"], ["/portal/messages", "Messages", "chat"], ["/portal/documents", "Documents", "folder"]]],
@@ -155,6 +156,7 @@ const signOut = () => { const c = (window as any).catalyst; if (c?.auth?.signOut
 export function Layout({ me, children }: { me: Me; children: ReactNode }) {
   const portal = isPortal(me);
   const groups = portal ? PORTAL_NAV : STAFF_NAV;
+  const { brand } = useBrand();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
@@ -176,8 +178,8 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
     <div className={`app ${open ? "nav-open" : ""}`}>
       <aside className="sidebar">
         <Link to={portal ? "/portal" : "/"} className="brand">
-          <span className="brand-mark">F</span>
-          <span><strong>FranchiseOS</strong><small>{portal ? "Franchisee portal" : "Expansion & openings"}</small></span>
+          <BrandMark brand={brand} />
+          <span><strong>{brand.name}</strong><small>{portal ? "Franchisee portal" : brand.tagline ?? "Expansion & openings"}</small></span>
         </Link>
         <nav>
           {groups.map(([group, all]) => [group, all.filter(([, , , perm]) => !perm || can(perm))] as const).filter(([, items]) => items.length).map(([group, items]) => (

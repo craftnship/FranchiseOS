@@ -65,7 +65,11 @@ export interface Call {
 
 export type Handler = (call: Call) => Promise<unknown>;
 
-interface Route { method: string; parts: string[]; permission: string | null; handler: Handler; status: number }
+/** What a route open to signed-out visitors gets: the caller's tenant only when they are signed in. */
+export interface PublicCall { store: Store; files: FileStorage | null; tenantId: string | null; query: Record<string, string>; now: Date }
+export type PublicHandler = (call: PublicCall) => Promise<unknown>;
+
+interface Route { method: string; parts: string[]; permission: string | null; handler: Handler; status: number; open?: PublicHandler }
 
 export const API_PREFIXES = ["/server/fos_api", "/server/fos_webhooks", "/api/v1"];
 
@@ -81,6 +85,12 @@ export class Router {
   /** permission null = any authenticated tenant user; handlers may check more. */
   on(method: string, pattern: string, permission: string | null, handler: Handler, status = 200): this {
     this.routes.push({ method: method.toUpperCase(), parts: pattern.split("/").filter(Boolean), permission, handler, status });
+    return this;
+  }
+
+  /** A route that answers signed-out visitors too, such as the sign-in screen's branding. */
+  onPublic(method: string, pattern: string, handler: PublicHandler): this {
+    this.routes.push({ method: method.toUpperCase(), parts: pattern.split("/").filter(Boolean), permission: null, handler: async () => null, status: 200, open: handler });
     return this;
   }
 
@@ -107,6 +117,11 @@ export class Router {
       const m = this.match(req.method, normalizePath(req.path));
       if (m === null) throw new AppError("NOT_FOUND", "Route not found.");
       if (m === "method") throw new AppError("INVALID_REQUEST", "Method not allowed on this route.");
+      if (m.route.open) {
+        const tenantId = req.identity ? await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId }).then((c) => c.tenantId, () => null) : null;
+        const data = await m.route.open({ store: deps.store, files: deps.files ?? null, tenantId, query: req.query ?? {}, now: deps.now?.() ?? new Date() });
+        return { status: m.route.status, body: ok(data, requestId) };
+      }
       const ctx: TenantContext = { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
       const permissions = deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
       if (m.route.permission) await authorize(ctx, m.route.permission, permissions);

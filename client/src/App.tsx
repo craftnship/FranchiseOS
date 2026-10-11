@@ -26,16 +26,18 @@ import { PortalApplication, PortalSite } from "./pages/PortalApplication";
 import { AuditLog } from "./pages/Audit";
 import { Users } from "./pages/Users";
 import { Integrations } from "./pages/Integrations";
+import { Settings } from "./pages/Settings";
+import { Brand, BrandContext, BrandMark, DEFAULT_BRAND, useApplyBrand } from "./branding";
 
 // Catalyst's hosted sign-in page; it returns to the app after login.
 const LOGIN_URL = "/__catalyst/auth/login";
 
-function SignIn({ reason }: { reason?: string }) {
+function SignIn({ reason, brand }: { reason?: string; brand: Brand }) {
   return (
     <div className="signin-page">
       <div className="signin">
-        <span className="brand-mark">F</span>
-        <h1>Sign in to FranchiseOS</h1>
+        <BrandMark brand={brand} />
+        <h1>Sign in to {brand.name}</h1>
         <p>{reason ?? "Manage franchise expansion, agreements and store openings in one place."}</p>
         <a className="button" href={LOGIN_URL}>Continue to sign in</a>
       </div>
@@ -45,17 +47,22 @@ function SignIn({ reason }: { reason?: string }) {
 
 export function App() {
   const me = useLoad(() => api<Me>("GET", "/me"), []);
-  if (me.loading && !me.data) return <div className="state" style={{ minHeight: "100vh" }}><span className="spinner" />Loading FranchiseOS…</div>;
+  // Branding never blocks the app: if it can't load, FranchiseOS's own look stays.
+  const branding = useLoad(() => api<Brand>("GET", "/branding").catch(() => DEFAULT_BRAND), []);
+  const brand = branding.data ?? DEFAULT_BRAND;
+  useApplyBrand(brand);
+  if ((me.loading && !me.data) || (branding.loading && !branding.data)) return <div className="state" style={{ minHeight: "100vh" }}><span className="spinner" />Loading…</div>;
   if (me.error) {
     const e = me.error as ApiError;
-    if (e.code === "AUTH_REQUIRED") return <SignIn />;
-    if (e.code === "ACCESS_DENIED") return <SignIn reason="Your sign-in worked, but this account isn't set up in FranchiseOS yet. Ask your administrator to add you." />;
+    if (e.code === "AUTH_REQUIRED") return <SignIn brand={brand} />;
+    if (e.code === "ACCESS_DENIED") return <SignIn brand={brand} reason={`Your sign-in worked, but this account isn't set up in ${brand.name} yet. Ask your administrator to add you.`} />;
     return <ErrorState error={e} retry={me.reload} />;
   }
   const user = me.data!;
   setCurrentUser(user);
   const portal = isPortal(user);
   return (
+    <BrandContext.Provider value={{ brand, reload: branding.reload }}>
     <HashRouter>
       <Layout me={user}>
         <Routes>
@@ -107,11 +114,13 @@ export function App() {
               <Route path="/admin/activity" element={<AuditLog />} />
               <Route path="/admin/users" element={<Users />} />
               <Route path="/admin/integrations" element={<Integrations />} />
+              <Route path="/admin/settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
           )}
         </Routes>
       </Layout>
     </HashRouter>
+    </BrandContext.Provider>
   );
 }

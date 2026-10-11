@@ -434,3 +434,22 @@ take precedence).
 5. Watch the fos_webhooks logs for `webhook.previous_secret_used`. Each entry names the route
    still on the old secret. When none appear for a day, delete the two `..._PREVIOUS` lines and
    deploy fos_webhooks again.
+
+## Branding (2026-10-11)
+
+Admin → Settings → Branding sets the company name, a tagline, the logo and a brand colour. They
+replace FranchiseOS in the sidebar (staff and portal), the app's own sign-in screen, the browser
+tab title and icon, and notification emails ("Open in <name>", button colour).
+
+- Stored in `tenants.settings_json.branding` (`name`, `tagline`, `color`, `logo_ref`). The logo is a
+  PNG, JPG or WebP up to 1 MB in the Stratus bucket under `tenants/<t>/branding/`, served by a
+  short-lived signed link. No new table or column.
+- `GET /api/v1/branding` answers signed-out visitors too, with only the name, tagline, colour and
+  logo link. Signed out, it shows the tenant named by the optional `FOS_PUBLIC_TENANT` env var
+  (a tenant code such as `STARK`), else the only active tenant.
+- `PUT /api/v1/settings/branding` needs the new permission `settings.manage`, which is
+  super-admin only by default.
+- **Catalyst's hosted sign-in page** ("Continue to sign in" leads there) is not part of the app.
+  Brand it in the Catalyst console, in the Authentication section's hosted login page settings
+  (the menu path was not checked from here): upload the same logo and set the title. Do this once
+  per environment.

@@ -7,6 +7,7 @@ import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
 import { isPortalUser } from "../common/rbac";
+import { brandingOf, DEFAULT_COLOR } from "../common/branding";
 import { expireLicences, renewDays } from "./licences";
 import { derivedDates, openingGap, rentSchedule } from "./leases";
 import { duePeriods, nextPeriod, periodLabel, royaltySettings } from "./royalties";
@@ -84,14 +85,14 @@ async function recipients(store: Store, ctx: TenantContext, n: Notice, now: Date
   return [...byId.values()];
 }
 
-function emailOf(n: Notice, appUrl: string) {
+function emailOf(n: Notice, appUrl: string, brand: { name: string; color: string | null }) {
   const url = n.link ? `${appUrl.replace(/\/?$/, "/")}#${n.link}` : appUrl;
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1f2933;max-width:560px">
 <p style="font-size:16px;font-weight:600;margin:0 0 8px">${esc(n.title)}</p>
 ${n.body ? `<p style="margin:0 0 16px">${esc(n.body)}</p>` : ""}
-<p style="margin:0 0 24px"><a href="${esc(url)}" style="background:#2557d6;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none">Open in FranchiseOS</a></p>
-<p style="font-size:12px;color:#6b7785;margin:0">You get this because of your role in FranchiseOS.</p></div>`;
+<p style="margin:0 0 24px"><a href="${esc(url)}" style="background:${brand.color ?? DEFAULT_COLOR};color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none">Open in ${esc(brand.name)}</a></p>
+<p style="font-size:12px;color:#6b7785;margin:0">You get this because of your role in ${esc(brand.name)}.</p></div>`;
   return { subject: n.title, html, text: `${n.title}\n\n${n.body ?? ""}\n\n${url}` };
 }
 
@@ -125,7 +126,7 @@ export async function deliver(store: Store, ctx: TenantContext, n: Notice, now =
       delivered++;
       if (!emailOn || !u.email) continue;
       try {
-        await ctx.mailer!.send({ to: String(u.email), ...emailOf(n, appUrl) });
+        await ctx.mailer!.send({ to: String(u.email), ...emailOf(n, appUrl, brandingOf(tenant)) });
         await store.update("notifications", String(row.ROWID), { sent_at: new Date().toISOString(), channel: "IN_APP,EMAIL" });
       } catch (e) {
         log("warn", "notify.email_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, kind: n.kind, error: String((e as Error)?.message ?? e).slice(0, 300) });
