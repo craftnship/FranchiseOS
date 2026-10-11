@@ -90,4 +90,26 @@ export const DEFAULTS = {
     ],
   },
   fees: { plan: [{ kind: "FEE", label: "On signing", pct: 100, trigger: "SIGNING" }], security_deposit: 0 },
+  // Opening day (launch.ts): the grand-opening plan, dated from the grand-opening day (negative is
+  // before it); the weekly sales watch for a new store's first weeks against its feasibility revenue,
+  // ramped up week by week; and when agreement renewal reminders start.
+  launch: {
+    watch_weeks: 12, on_track_pct: 85, behind_pct: 70,
+    ramp: [0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1, 1, 1, 1, 1, 1],
+    plan: [
+      { code: "MKT_PLAN", item: "Agree the local launch marketing plan and budget", owner: "BRAND", offset_days: -28 },
+      { code: "LISTINGS", item: "Set up Google Business and delivery-app listings", owner: "FRANCHISEE", offset_days: -21 },
+      { code: "INVITES", item: "Invite local press, influencers and neighbours", owner: "FRANCHISEE", offset_days: -14 },
+      { code: "PRINT", item: "Print launch flyers, banners and opening-offer vouchers", owner: "FRANCHISEE", offset_days: -14 },
+      { code: "SOFT_LAUNCH", item: "Run a soft launch for friends and family", owner: "FRANCHISEE", offset_days: -5 },
+      { code: "STOCK_UP", item: "Stock up for twice the expected opening-week demand", owner: "FRANCHISEE", offset_days: -3 },
+      { code: "ROSTER", item: "Publish the opening-week roster with extra crew", owner: "FRANCHISEE", offset_days: -3 },
+      { code: "BRAND_TEAM", item: "Brand support team on site", owner: "BRAND", offset_days: 0 },
+      { code: "EVENT", item: "Grand-opening event and ribbon cutting", owner: "FRANCHISEE", offset_days: 0 },
+      { code: "DEBRIEF", item: "Opening-day debrief: sales, wait times and issues", owner: "BRAND", offset_days: 1 },
+      { code: "REVIEWS", item: "Answer the first online reviews", owner: "FRANCHISEE", offset_days: 7 },
+      { code: "CHECK_IN", item: "Two-week check-in with the franchisee", owner: "BRAND", offset_days: 14 },
+    ],
+    renewal_notice_days: 180,
+  },
 };

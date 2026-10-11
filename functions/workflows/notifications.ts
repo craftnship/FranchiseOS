@@ -1,6 +1,7 @@
 import { overdueOrders } from "./purchasing";
 import { overdueInstalments } from "./funding";
 import { auditReminders } from "./audits";
+import { launchReminders } from "./launch";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -192,6 +193,25 @@ const approvalDecided: Rule = async (_s, _c, e, repo) => {
   };
 };
 
+const launchDate: Rule = async (store, ctx, e, repo) => {
+  const { code, row } = await codeOf(repo, "project", e.entityId);
+  const users = await portalUsers(store, ctx.tenantId, row?.franchisee_id);
+  if (!users.length) return null;
+  return { kind: "launch.planned", entityType: "project", entityId: e.entityId, userIds: users,
+    title: e.action === "launch:moved" ? `${code}: grand opening moved to ${nice(e.metadata?.grand_opening_date)}` : `${code}: grand opening set for ${nice(e.metadata?.grand_opening_date)}`,
+    body: e.action === "launch:moved" ? "Your launch tasks moved with it." : "Your launch tasks are on the Opening day page.", link: "/portal/launch", dedupe: `launch-date:${e.entityId}:${e.metadata?.grand_opening_date}` };
+};
+
+/** Two weeks in a row under the behind mark tells the franchise and operations managers, once per week. */
+const launchBehind: Rule = async (_s, _c, e, repo) => {
+  const m = e.metadata ?? {};
+  if (!m.behind) return null;
+  const { code } = await codeOf(repo, "project", e.entityId);
+  return { kind: "launch.behind", entityType: "project", entityId: e.entityId, roles: ["FRANCHISE_MANAGER", "OPERATIONS_MANAGER"],
+    title: `${code} is behind its launch sales plan`, body: `Week ${m.week_no} came in at ${m.pct ?? "—"}% of plan, the second week running below target${m.to_date_pct != null ? `; ${m.to_date_pct}% to date` : ""}.`,
+    link: linkTo("project", e.entityId), dedupe: `launch-behind:${e.entityId}:${m.week_no}` };
+};
+
 const RULES: Record<string, Rule> = {
   "approval:start": waitingApproval,
   "approval:approve": async (s, c, e, r) => (await waitingApproval(s, c, e, r)) ?? approvalDecided(s, c, e, r),
@@ -379,6 +399,16 @@ const RULES: Record<string, Rule> = {
       title: `${code}: ${inr(toNum(m.amount))} of the loan disbursed`, body: `${inr(toNum(m.total))} of ${inr(toNum(m.sanctioned_amount))} disbursed so far.`,
       link: linkTo("project", e.entityId), dedupe: `loan-disbursed:${e.entityId}:${m.total}` };
   },
+  "launch:planned": async (store, ctx, e, repo) => launchDate(store, ctx, e, repo),
+  "launch:moved": async (store, ctx, e, repo) => launchDate(store, ctx, e, repo),
+  "launch:sales": launchBehind,
+  "launch:sales_changed": launchBehind,
+  "renewal:not_renewing": async (store, ctx, e, repo) => {
+    const { code, row } = await codeOf(repo, "agreement", e.entityId);
+    return { kind: "renewal.not_renewing", entityType: "agreement", entityId: e.entityId, roles: ["FRANCHISE_DIRECTOR", "FRANCHISE_MANAGER"],
+      title: `${code} won't be renewed`, body: `${await franchiseeName(repo, row?.franchisee_id)}'s agreement ends ${nice(e.metadata?.expiry_date)}.${e.metadata?.note ? ` ${String(e.metadata.note)}` : ""}`,
+      link: linkTo("agreement", e.entityId) };
+  },
   "audit:scheduled": async (store, ctx, e, repo) => {
     const m = e.metadata ?? {};
     const { code, row } = await codeOf(repo, "project", e.entityId);
@@ -565,7 +595,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, launch: 0, renewals: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -715,6 +745,34 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
     }, now);
   }
 
+  // Opening day: launch tasks past their date, finished watch weeks with no sales, and renewals coming up.
+  const launch = await launchReminders(store, ctx, today);
+  for (const { project, task } of launch.tasks) {
+    const by = String(task.due_date).slice(0, 10);
+    const mine = task.owner_side === "FRANCHISEE";
+    out.launch += await deliver(store, ctx, {
+      kind: "launch.task_overdue", entityType: "project", entityId: String(project.ROWID), ...(mine ? { userIds: await portalUsers(store, ctx.tenantId, project.franchisee_id) } : { roles: ["PROJECT_MANAGER"] }),
+      title: `${project.project_code}: launch task overdue`, body: `${task.item} was due ${nice(by)}.`,
+      link: mine ? "/portal/launch" : linkTo("project", String(project.ROWID)), dedupe: `launch-task:${task.ROWID}:${by}`,
+    }, now);
+  }
+  for (const { project, week, ended } of launch.missing) {
+    out.launch += await deliver(store, ctx, {
+      kind: "launch.sales_due", entityType: "project", entityId: String(project.ROWID), userIds: await portalUsers(store, ctx.tenantId, project.franchisee_id),
+      title: `Report week ${week} sales for ${project.project_code}`, body: `The week ended ${nice(ended)}. The brand team tracks your first weeks against plan.`,
+      link: "/portal/launch", dedupe: `launch-week:${project.ROWID}:${week}`,
+    }, now);
+  }
+  for (const { agreement, days_left, milestone } of launch.renewals) {
+    const end = String(agreement.expiry_date).slice(0, 10);
+    out.renewals += await deliver(store, ctx, {
+      kind: "renewal.due", entityType: "agreement", entityId: String(agreement.ROWID), roles: ["FRANCHISE_MANAGER", "LEGAL_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, agreement.franchisee_id),
+      title: days_left < 0 ? `${agreement.agreement_code} ended ${nice(end)} without a renewal` : `${agreement.agreement_code} ends ${nice(end)}`,
+      body: days_left < 0 ? "Record the renewal, or that it won't be renewed." : `${days_left} days left. ${agreement.renewal_status ? `Renewal is ${human(String(agreement.renewal_status)).toLowerCase()}.` : "Start the renewal conversation."}`,
+      link: linkTo("agreement", String(agreement.ROWID)), dedupe: `renewal:${agreement.ROWID}:${end}:${milestone}`,
+    }, now);
+  }
+
   // A loan not yet sanctioned when fit-out is a month away puts the opening at risk.
   for (const plan of await repo.findMany("funding_plans", {}, { limit: 300 })) {
     if (!["PLANNED", "APPLIED", "REJECTED"].includes(String(plan.status))) continue;
@@ -769,7 +827,7 @@ async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, launch: 0, renewals: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

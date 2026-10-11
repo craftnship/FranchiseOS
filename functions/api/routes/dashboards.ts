@@ -4,6 +4,7 @@ import { round, toBool, toNum, toNumOrNull } from "../../common/values";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
 import { isDelayed } from "./projects";
+import { addDays, launchSettings, networkLaunches } from "../../workflows/launch";
 
 // Executive dashboards (spec §24, FOS-059..063). Every KPI carries `drill`: the list route and
 // query that returns the records behind the number. Computed live from Data Store at pilot scale.
@@ -41,6 +42,10 @@ export function dashboardRoutes(r: Router): void {
     const laterOverdue = laterUnpaid.filter((i) => i.invoice_due_date && String(i.invoice_due_date).slice(0, 10) < today && toNum(i.invoice_balance) > 0).length;
     const openApps = apps.filter((a) => OPEN_APPS.includes(String(a.status)));
     const active = projects.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
+    // Opening day: new stores behind their launch sales plan, and agreements inside the renewal notice with nothing decided.
+    const launches = (await networkLaunches(call.store, call.ctx, today)).totals as { watching: number; behind: number };
+    const notice = launchSettings(await call.store.findOne("tenants", { ROWID: call.ctx.tenantId })).renewal_notice_days;
+    const renewalsDue = agreements.filter((a) => a.expiry_date && String(a.expiry_date).slice(0, 10) <= addDays(today, notice) && !["RENEWED", "NOT_RENEWING"].includes(String(a.renewal_status ?? ""))).length;
     return {
       active_franchisees: kpi(franchisees.filter((f) => f.status === "ACTIVE").length, "/franchisees", { status: "ACTIVE" }),
       active_locations: kpi(projects.filter((p) => p.status === "OPENED").length, "/projects", { status: "OPENED" }),
@@ -55,6 +60,9 @@ export function dashboardRoutes(r: Router): void {
       fees_overdue: kpi(unpaid.filter((a) => a.fee_status === "OVERDUE").length + laterOverdue, "/fees", { overdue: "true" }),
       // Brand standards: average of each opened store's latest audit score.
       audit_score: kpi(avg(projects.filter((p) => p.status === "OPENED").map((p) => audits.filter((a) => String(a.project_id) === String(p.ROWID)).sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))[0]).filter(Boolean).map((a) => toNumOrNull(a!.score)).filter((n): n is number => n !== null)), "/audits", {}),
+      launches_behind: launches.watching ? kpi(launches.behind, "/launches", {}) : null,
+      launches_watching: launches.watching ? kpi(launches.watching, "/launches", {}) : null,
+      renewals_due: kpi(renewalsDue, "/renewals", {}),
       average_payback_months: kpi(avg(feasibility.filter((f) => toBool(f.passed)).map((f) => toNumOrNull(f.payback_months)).filter((n): n is number => n !== null))),
     };
   });

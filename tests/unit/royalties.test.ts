@@ -113,13 +113,13 @@ describe("monthly sales and royalties", () => {
     const s = await setup();
     await s.store.update("franchise_projects", String(s.project.ROWID), { actual_opening_date: "2026-09-03" });
     await runReminderJob(s.store, { now: new Date("2026-10-06T03:00:00Z"), requestId: "J" });
-    expect((await s.inbox("pepper")).filter((t) => t.includes("sales"))).toEqual([]);
+    expect((await s.inbox("pepper")).filter((t) => t.includes("sales") && !t.includes("week"))).toEqual([]);
     await runReminderJob(s.store, { now: new Date("2026-10-07T03:00:00Z"), requestId: "J" });
-    expect((await s.inbox("pepper")).filter((t) => t.includes("sales"))).toEqual(["Report your Sep 2026 sales for PROJ-000001"]);
-    expect((await s.inbox("fin")).filter((t) => t.includes("sales"))).toEqual([]);
+    expect((await s.inbox("pepper")).filter((t) => t.includes("sales") && !t.includes("week"))).toEqual(["Report your Sep 2026 sales for PROJ-000001"]);
+    expect((await s.inbox("fin")).filter((t) => t.includes("sales") && !t.includes("week"))).toEqual([]);
     await runReminderJob(s.store, { now: new Date("2026-10-12T03:00:00Z"), requestId: "J" });
-    expect((await s.inbox("pepper")).filter((t) => t.includes("sales"))).toHaveLength(1);
-    expect((await s.inbox("fin")).filter((t) => t.includes("sales"))).toEqual(["PROJ-000001 hasn't reported Sep 2026 sales"]);
+    expect((await s.inbox("pepper")).filter((t) => t.includes("sales") && !t.includes("week"))).toHaveLength(1);
+    expect((await s.inbox("fin")).filter((t) => t.includes("sales") && !t.includes("week"))).toEqual(["PROJ-000001 hasn't reported Sep 2026 sales"]);
   });
 
   it("creates the Books customer when the franchisee has none yet", async () => {

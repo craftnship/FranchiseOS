@@ -36,6 +36,8 @@ export function Dashboard() {
           <KpiTile label="Average payback" kpi={n.average_payback_months} format={(v) => `${v} mo`} icon="clock" tone="accent" hint="Across approved feasibility models" />
           {n.fees_collected && <KpiTile label="Fees collected" kpi={n.fees_collected} format={inrShort} icon="money" tone="good" hint="Franchise fees paid in Books" />}
           {n.fees_outstanding && <KpiTile label="Fees outstanding" kpi={n.fees_outstanding} format={inrShort} icon="money" tone={n.fees_overdue?.value ? "bad" : "warn"} hint={n.fees_overdue?.value ? `${n.fees_overdue.value} overdue` : "Invoiced, not yet paid"} />}
+          {n.launches_watching && <KpiTile label="New stores behind plan" kpi={n.launches_behind} icon="flag" tone={n.launches_behind?.value ? "bad" : "good"} hint={`Of ${n.launches_watching.value} in their first weeks`} />}
+          {n.renewals_due && <KpiTile label="Renewals due" kpi={n.renewals_due} icon="sync" tone={n.renewals_due.value ? "warn" : "good"} hint="Inside the notice period, not decided" />}
           {n.audit_score && <KpiTile label="Brand standards" kpi={n.audit_score} format={(v) => `${v}%`} icon="audit" tone="accent" hint="Average latest audit score of open stores" />}
         </div>
       )}</Loaded>

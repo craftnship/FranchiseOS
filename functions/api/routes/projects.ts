@@ -308,6 +308,8 @@ export function projectRoutes(r: Router): void {
     const project = await transitionEntity("project", call.params.id, body.transition, call.ctx, { store: call.store, permissions: call.permissions, onTransition: call.onTransition });
     if (body.transition !== "open") return project;
     const zoho = await call.zoho().catch(() => null);
+    // The day it opens is its grand opening unless one was planned, which starts the first-weeks sales watch.
+    if (!project.grand_opening_date && body.actual_opening_date) await call.repo.update("franchise_projects", call.params.id, { grand_opening_date: body.actual_opening_date });
     const activation = await activateOnOpening(call.store, call.ctx, zoho?.crm ?? null, { projectId: call.params.id, onTransition: call.onTransition });
     return { ...project, activation };
   });

@@ -462,3 +462,13 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
   .audit-a { justify-content: flex-start; }
   .verdict { flex: 1; height: 42px; }
 }
+
+/* Opening day */
+.week-bar { display: inline-flex; align-items: center; gap: .5rem; }
+.week-bar .track { display: block; width: 5.5rem; height: 8px; border-radius: 99px; background: var(--neutral-bg); overflow: hidden; }
+.week-bar .fill { display: block; height: 100%; border-radius: 99px; background: var(--neutral-dot); }
+.week-bar .fill.good { background: var(--good-dot); }
+.week-bar .fill.warn { background: var(--warn-dot); }
+.week-bar .fill.bad { background: var(--bad-dot); }
+.week-bar em { font-style: normal; font-weight: 600; font-size: .82rem; }
+@media (max-width: 640px) { .summary dd { flex-wrap: wrap; row-gap: .15rem; } .summary dd .cell-sub { flex-basis: 100%; margin-top: 0; } }

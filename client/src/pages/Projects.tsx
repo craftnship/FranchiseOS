@@ -15,6 +15,7 @@ import { StaffingPanel } from "../components/Staffing";
 import { PurchasingPanel } from "../components/Purchasing";
 import { FundingPanel } from "../components/Funding";
 import { AuditPanel } from "../components/Audits";
+import { LaunchPanel } from "../components/Launch";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -150,6 +151,7 @@ export function ProjectDetail() {
           <PurchasingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} onTasks={reload} />
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
           <LeaseSummary lease={(p.lease ?? null) as Row | null} siteId={p.site_id} />
+          {p.status !== "CLOSED" && <LaunchPanel projectId={String(id)} target={p.target_opening_date} />}
           {p.status === "OPENED" && <RoyaltyPanel projectId={String(id)} />}
           {(p.status === "READY_FOR_OPENING" || p.status === "OPENED") && <AuditPanel projectId={String(id)} />}
           <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />

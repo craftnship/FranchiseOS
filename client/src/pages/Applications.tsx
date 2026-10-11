@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
 import { useFranchiseeNames, useLoad } from "../hooks";
 import { DataTable, date, ErrorState, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
+import { RenewalPanel } from "../components/Launch";
 
 export const FUNNEL = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING", "APPROVED", "AGREEMENT_PENDING", "AGREEMENT_SIGNED", "ONBOARDING", "ACTIVE"];
 const STATUSES = [...FUNNEL, "ON_HOLD", "REJECTED", "WITHDRAWN"];
@@ -122,6 +123,7 @@ export function AgreementDetail() {
           <div><dt>Effective</dt><dd>{date(g.effective_date)}</dd></div>
           <div><dt>Expires</dt><dd>{date(g.expiry_date)}</dd></div>
         </dl>
+        <RenewalPanel agreement={g} onChanged={load.reload} />
         <Panel title="Integration">
           <Facts items={[
             ["Zoho Sign request", g.zoho_sign_request_id ?? "Not sent through Zoho Sign"],

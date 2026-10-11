@@ -332,6 +332,18 @@ Opened stores (and stores ready to open) get brand-standard audits. Each project
 - The dashboard's Brand standards tile is the average latest score of opened stores and drills into Store audits.
 - Tables `audits`, `audit_items` and `corrective_actions` were created in Development on 2026-10-11. The item verdict column is `verdict` because Catalyst reserves `result`.
 
+## Opening day
+
+Each project page has an Opening day panel; Operations → New stores lists grand openings coming up and stores in their first weeks; Contracts → Renewals lists agreements ending in the next 18 months; the franchisee portal has an Opening day page.
+
+- **Grand-opening plan.** `project.write` sets the grand-opening day, which builds the store's launch tasks from settings `launch_plan` (each `{"code","item","owner":"FRANCHISEE"|"BRAND","offset_days"}`, negative before the day; 12 built-in tasks from the marketing plan four weeks out to a two-week check-in). Moving the day moves tasks still to do. The franchisee ticks off their own tasks; staff can tick off, skip (with a reason) or add any.
+- **First-weeks sales watch.** Opening a store sets its grand-opening day if none was planned, which starts the watch. For `launch_watch_weeks` (12) the franchisee reports each week's net sales (week 1 starts on the opening day). Each week's plan is the feasibility monthly revenue as a weekly figure times `launch_ramp` (60%, 70%, 80%, 85%, 90%, 95%, then 100%). On plan is at or above `launch_on_track_pct` (85); two weeks running below `launch_behind_pct` (70) marks the store behind and tells franchise and operations managers. Stores opened before this release aren't watched unless someone reports a week for them.
+- **Renewals.** `agreement.write` records where each renewal stands: in discussion, renewing, not renewing, or renewed (with the new end date). Reminders go to franchise and legal managers and the franchisee at `renewal_notice_days` (180), 90 and 30 days before the end, and on the day, until a decision is recorded. "Not renewing" tells the franchise director. The list shows each store's last audit score and overdue royalties.
+- No new permissions: launch tasks use `project.write`, renewals `agreement.write`, the network pages `dashboard.view`.
+- Reminders: overdue launch tasks (the franchisee's to them, the brand's to project managers), and the week just finished if it isn't reported.
+- The dashboard adds New stores behind plan and Renewals due.
+- Tables `launch_tasks` and `launch_sales`, `franchise_projects.grand_opening_date`, and `agreements.renewal_status`, `renewal_note`, `renewal_updated_at` and `renewed_until` were created in Development on 2026-10-11.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what
