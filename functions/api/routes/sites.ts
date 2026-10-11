@@ -9,7 +9,9 @@ import { DEFAULT_SITE_TEMPLATE, scoreSite, TemplateItem } from "../../scoring/si
 import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
-import { assertOwner, defined, mustGet, ownerFilter } from "./shared";
+import { assertOwner, defined, mustGet, ownerFilter, signedUrl, storeUpload, uploadSchema } from "./shared";
+import { assertLeaseSigned, describeLease, LEASE_STATES, leaseForSite, saveLease } from "../../workflows/leases";
+import { leaseNotices } from "../../workflows/notifications";
 
 const editable = {
   address_line_1: z.string().trim().max(300).optional(),
@@ -33,6 +35,26 @@ const evaluateSchema = z.object({
   gps_lng: z.number().min(-180).max(180).optional(),
 }).strict();
 const transitionSchema = z.object({ transition: z.string().min(1).max(40), comments: z.string().max(2000).optional() }).strict();
+
+const money = z.number().nonnegative().max(1e10).nullable().optional();
+const months = z.number().int().min(0).max(600).nullable().optional();
+const leaseSchema = z.object({
+  landlord_name: z.string().trim().max(200).nullable().optional(),
+  landlord_contact: z.string().trim().max(200).nullable().optional(),
+  monthly_rent: money, cam_monthly: money, security_deposit: money,
+  escalation_pct: z.number().min(0).max(100).nullable().optional(),
+  escalation_every_months: z.number().int().min(1).max(120).nullable().optional(),
+  lease_start: z.string().date().nullable().optional(),
+  term_months: months, lock_in_months: months,
+  rent_free_days: z.number().int().min(0).max(730).nullable().optional(),
+  renewal_notice_days: z.number().int().min(0).max(730).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  status: z.enum(LEASE_STATES).optional(),
+  signed_on: z.string().date().nullable().optional(),
+}).strict().refine((b) => Object.keys(b).length > 0, "Nothing to change.");
+
+/** Sites whose lease can be recorded: from evaluation on, until rejected or dropped. */
+const LEASE_SITE_STATES = ["FEASIBILITY", "APPROVAL_PENDING", "APPROVED", "LEASE_PENDING", "LEASE_SIGNED", "READY_FOR_PROJECT"];
 
 /** Site states in which address and commercials may still change. */
 const EDITABLE_STATES = ["PROPOSED", "SCREENING", "SITE_VISIT", "EVALUATION"];
@@ -85,7 +107,34 @@ export function siteRoutes(r: Router): void {
     const transitions = transitionsFrom("site", String(site.status))
       .filter((t) => !t.permission?.startsWith("system.") && !["evaluated", "approve"].includes(t.transition));
     const evaluation_template = isPortalUser(call.ctx) ? [] : (await siteTemplate(call)).items;
-    return { ...site, evaluations, allowed_transitions: allowedTransitions("site", String(site.status)), transitions, evaluation_template };
+    const lease = await describeLease(call.store, call.ctx, await leaseForSite(call.store, call.ctx, String(site.ROWID)), String(site.ROWID), call.now.toISOString().slice(0, 10));
+    return { ...site, evaluations, allowed_transitions: allowedTransitions("site", String(site.status)), transitions, evaluation_template, lease };
+  });
+
+  // Lease terms; signing needs the signed document and moves the site to lease signed.
+  const leaseSave = async (call: Call, change: Parameters<typeof saveLease>[3]) => {
+    const site = await getSite(call);
+    if (!LEASE_SITE_STATES.includes(String(site.status))) throw new AppError("INVALID_TRANSITION", `A site in ${site.status} has no lease to record.`);
+    if (change.status === "SIGNED" && !["APPROVED", "LEASE_PENDING", "LEASE_SIGNED", "READY_FOR_PROJECT"].includes(String(site.status))) {
+      throw new AppError("INVALID_TRANSITION", "Approve the site before signing its lease.");
+    }
+    const projects = (await call.zoho().catch(() => null))?.projects ?? null;
+    const today = call.now.toISOString().slice(0, 10);
+    const r = await saveLease(call.store, call.ctx, site, change, { today, now: call.now, projects, permissions: call.permissions, onTransition: call.onTransition });
+    await leaseNotices(call.store, call.ctx, r.lease, call.now);
+    return { ...r, lease: await describeLease(call.store, call.ctx, r.lease, String(site.ROWID), today) };
+  };
+
+  r.on("PATCH", "/sites/:id/lease", "site.write", async (call) => leaseSave(call, parse(leaseSchema, call.body)));
+
+  r.on("POST", "/sites/:id/lease/document", "site.write", async (call) => {
+    const file_ref = await storeUpload(call, `sites/${call.params.id}/lease`, parse(uploadSchema, call.body));
+    return leaseSave(call, { file_ref });
+  }, 201);
+
+  r.on("GET", "/sites/:id/lease/document", null, async (call) => {
+    const site = await getSite(call);
+    return signedUrl(call, String((await leaseForSite(call.store, call.ctx, String(site.ROWID)))?.file_ref ?? ""), "No lease document uploaded.");
   });
 
   r.on("PATCH", "/sites/:id", "site.write", async (call) => {
@@ -126,6 +175,7 @@ export function siteRoutes(r: Router): void {
     const site = await getSite(call);
     if (transition === "evaluated" || transition === "approve") throw new AppError("INVALID_TRANSITION", `Use the dedicated endpoint for ${transition}.`);
     if (findRule("site", String(site.status), transition)?.permission.startsWith("system.")) throw new AppError("INVALID_TRANSITION");
+    if (transition === "lease_signed") await assertLeaseSigned(call.store, call.ctx, String(site.ROWID));
     const row = await transitionEntity("site", String(site.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     if (comments) await logActivity(call.store, call.ctx, { entityType: "site", entityId: String(site.ROWID), action: "comment", metadata: { transition, comments } });
     return row;

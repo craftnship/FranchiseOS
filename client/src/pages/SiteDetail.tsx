@@ -5,6 +5,7 @@ import { useAction, useLoad } from "../hooks";
 import { ConfirmDialog, Dialog, Field, Form, FormError } from "../components/forms";
 import { DataTable, date, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
 import { StatusPath } from "./Applications";
+import { LeasePanel } from "../components/Lease";
 
 const PATH = ["PROPOSED", "SCREENING", "SITE_VISIT", "EVALUATION", "FEASIBILITY", "APPROVAL_PENDING", "APPROVED", "LEASE_PENDING", "LEASE_SIGNED", "READY_FOR_PROJECT"];
 /** Forward steps are primary buttons; closing ones ask for a reason. */
@@ -15,7 +16,6 @@ const ACTIONS: Record<string, { text: string; kind?: "secondary" | "danger"; rea
   request_signoff: { text: "Request sign-off" },
   return: { text: "Send back to evaluation", kind: "secondary", reason: true, body: "The site goes back for another evaluation." },
   start_lease: { text: "Start lease" },
-  lease_signed: { text: "Lease signed" },
   ready: { text: "Ready for project" },
   reject: { text: "Reject site", kind: "danger", reason: true, body: "The site is rejected. The application will need another site." },
   drop: { text: "Drop site", kind: "danger", reason: true, body: "The site is no longer being pursued." },
@@ -67,6 +67,9 @@ export function SiteDetail() {
               {evals[0] ? <EvaluationSummary e={evals[0]} template={s.evaluation_template} /> : <div className="muted">{s.status === "EVALUATION" ? "Ready to evaluate." : "Not evaluated yet."}</div>}
             </Panel>
           </div>
+          {["FEASIBILITY", "APPROVAL_PENDING", "APPROVED", "LEASE_PENDING", "LEASE_SIGNED", "READY_FOR_PROJECT"].includes(s.status) && (
+            <LeasePanel siteId={String(id)} lease={s.lease ?? null} editable={can("site.write")} signable={["APPROVED", "LEASE_PENDING", "LEASE_SIGNED", "READY_FOR_PROJECT"].includes(s.status)} onChanged={load.reload} />
+          )}
           {evals.length > 1 && (
             <Panel title="Evaluation history" flush>
               <DataTable rows={evals} columns={[

@@ -2,6 +2,31 @@ import { AppError, ErrorCode } from "../../common/errors";
 import { isPortalUser } from "../../common/rbac";
 import { Row, TenantRepo } from "../../common/store";
 import { Call } from "../router";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+import { MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES, safeFileName } from "../../common/files";
+
+/** A base64 file in a JSON body (PDF or image, up to MAX_UPLOAD_BYTES). */
+export const uploadSchema = z.object({ file_name: z.string().trim().min(1).max(200), content_type: z.string().max(100), data_base64: z.string().min(1) }).strict();
+
+/** Checks and stores an uploaded file under tenants/<t>/<prefix>/<uuid>/; returns its file_ref. */
+export async function storeUpload(call: Call, prefix: string, file: z.infer<typeof uploadSchema>): Promise<string> {
+  if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File uploads aren't set up yet.");
+  if (!UPLOAD_TYPES[file.content_type]) throw new AppError("VALIDATION_FAILED", "Upload a PDF, JPG, PNG or WebP file.", { file: "unsupported type" });
+  const data = Buffer.from(file.data_base64, "base64");
+  if (!data.length) throw new AppError("VALIDATION_FAILED", "The file is empty.", { file: "empty" });
+  if (data.length > MAX_UPLOAD_BYTES) throw new AppError("VALIDATION_FAILED", `Files can be up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, { file: "too large" });
+  const key = `tenants/${call.ctx.tenantId}/${prefix}/${randomUUID()}/${safeFileName(file.file_name)}`;
+  await call.files.put(key, data, file.content_type);
+  return `${STRATUS_PREFIX}${key}`;
+}
+
+/** A short-lived download link for a stored file_ref. */
+export async function signedUrl(call: Call, ref: string, missing: string): Promise<{ url: string }> {
+  if (!ref.startsWith(STRATUS_PREFIX)) throw new AppError("NOT_FOUND", missing);
+  if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
+  return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
+}
 
 export async function mustGet(repo: TenantRepo, table: string, id: string, code: ErrorCode): Promise<Row> {
   const row = await repo.findOne(table, { ROWID: id });

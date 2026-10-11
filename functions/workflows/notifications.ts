@@ -3,6 +3,7 @@ import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
 import { expireLicences, renewDays } from "./licences";
+import { derivedDates, openingGap, rentSchedule } from "./leases";
 
 // Notifications (spec §23): an in-app inbox per user, copied by email when a mailer is configured.
 // Events come from the activity log (notifyFromActivity), so every path that records an action,
@@ -311,11 +312,69 @@ const UNSIGNED_DAYS = 7;
 const EXPIRY_WARN_DAYS = 5;
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
+const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+
+/**
+ * Lease alerts for one lease, each delivered once: rent starting before the store opens (again when
+ * either date moves), the renewal notice date coming up, and a rent step-up within 30 days.
+ */
+export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row, now: Date): Promise<number> {
+  if (lease.status === "TERMINATED") return 0;
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const today = day(now);
+  const site = await repo.findOne("sites", { ROWID: String(lease.site_id) });
+  if (!site) return 0;
+  const project = (await repo.findMany("franchise_projects", { site_id: String(site.ROWID) }, { limit: 10 })).find((p) => p.status !== "CLOSED") ?? null;
+  const where = project ? String(project.project_code) : String(site.site_code);
+  const link = project ? linkTo("project", String(project.ROWID)) : linkTo("site", String(site.ROWID));
+  const franchisee = await portalUsers(store, ctx.tenantId, site.franchisee_id);
+  const d = derivedDates(lease);
+  let n = 0;
+  const target = project && ACTIVE_PROJECTS.includes(String(project.status)) && project.target_opening_date ? String(project.target_opening_date).slice(0, 10) : null;
+  const gap = openingGap(lease, target);
+  if (gap && d.rent_start && target) {
+    const started = d.rent_start <= today;
+    // Once rent is running, what matters is the rent still to pay before the doors open.
+    const days = started ? Math.max(0, Math.round((Date.parse(`${target}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)) : gap.days;
+    const cost = Math.round(gap.cost * (days / gap.days));
+    if (days > 0) n += await deliver(store, ctx, {
+      kind: "lease.rent_before_opening", entityType: project ? "project" : "site", entityId: String(project?.ROWID ?? site.ROWID), roles: ["FRANCHISE_MANAGER", "PROJECT_MANAGER", "FINANCE_MANAGER"], userIds: franchisee,
+      title: started ? `Rent on ${where} is running ${days} days before opening` : `Rent on ${where} starts ${days} days before opening`,
+      body: started
+        ? `Rent started ${nice(d.rent_start)} and the target opening is ${nice(target)}: about ${inr(cost)} more before the store earns. Bring the opening forward where you can.`
+        : `The rent-free period ends ${nice(d.rent_start)} but the target opening is ${nice(target)}. That is about ${inr(cost)} of rent before the store earns. Bring the opening forward or ask the landlord for a longer fit-out period.`,
+      link, dedupe: `lease-gap:${lease.ROWID}:${d.rent_start}:${target}`,
+    }, now);
+  }
+  if (lease.status === "SIGNED" && d.notice_by && d.expiry_date) {
+    const left = (Date.parse(`${d.notice_by}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
+    if (left <= 60 && d.expiry_date >= today) {
+      n += await deliver(store, ctx, {
+        kind: "lease.renewal", entityType: "site", entityId: String(site.ROWID), roles: ["FRANCHISE_MANAGER"], userIds: franchisee,
+        title: `Lease for ${where} needs a renewal decision by ${nice(d.notice_by)}`,
+        body: `The lease ends ${nice(d.expiry_date)}${lease.landlord_name ? ` (landlord ${lease.landlord_name})` : ""}. Give notice or agree the renewal terms before then.`,
+        link: linkTo("site", String(site.ROWID)), dedupe: `lease-renewal:${lease.ROWID}:${d.expiry_date}`,
+      }, now);
+    }
+  }
+  if (lease.status === "SIGNED") {
+    const next = rentSchedule(lease, today).next;
+    if (next && (Date.parse(`${next.date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000 <= 30) {
+      n += await deliver(store, ctx, {
+        kind: "lease.escalation", entityType: "site", entityId: String(site.ROWID), roles: ["FINANCE_MANAGER"], userIds: franchisee,
+        title: `Rent for ${where} goes up to ${inr(next.rent)} on ${nice(next.date)}`,
+        body: `A ${toNum(lease.escalation_pct)}% step-up under the lease.`, link, dedupe: `lease-escalation:${lease.ROWID}:${next.date}`,
+      }, now);
+    }
+  }
+  return n;
+}
+
 /** One tenant's reminders: overdue approvals (escalated once), overdue tasks, late openings, licences expiring or missing, unsigned agreements, holds about to lapse. */
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -390,6 +449,8 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
     }, now);
   }
 
+  for (const lease of await repo.findMany("leases", {})) out.leases += await leaseNotices(store, ctx, lease, now);
+
   for (const a of await repo.findMany("agreements", {})) {
     if (!["SENT", "VIEWED"].includes(String(a.status))) continue;
     const sent = await repo.findMany("activity_logs", { entity_type: "agreement", entity_id: String(a.ROWID), action: "transition:send" }, { limit: 1 });
@@ -420,7 +481,7 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

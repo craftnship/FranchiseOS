@@ -195,3 +195,23 @@ settings so the test agreement route stops answering.
 - Books needs `ZohoBooks.bills.READ` on the refresh token used by `fos_api` and `fos_jobs`. Until
   the token has it, "Sync from Books" says so and recorded spend still works.
 - Data Store: `capex_lines` and `capex_spend` (created in Development on 2026-10-10).
+
+## Leases
+
+- Each site has one lease, recorded on the site page by staff with `site.write` once the site
+  reaches feasibility: landlord, monthly rent, maintenance (CAM), security deposit, escalation
+  (% and how often, yearly by default), lease start, rent-free fit-out period, term, lock-in and
+  renewal notice (90 days by default). FOS works out the rent start, lock-in end, expiry, the
+  date renewal notice is due, and the rent after each step-up. Rent and deposit also update the
+  site summary.
+- Marking the lease signed needs the start date, term, rent and the signed deed uploaded (stored
+  in Stratus under `tenants/<t>/sites/<s>/lease/`). It moves an approved or lease-pending site to
+  lease signed and completes the project's "Sign lease" task (in Zoho Projects too when linked).
+  The site's manual "Lease signed" step now needs a signed lease.
+- The project page shows the lease. Alerts, each sent once, to the franchise manager, project
+  manager, finance and the franchisee:
+  - rent starting before the target opening, with the rent paid before the store earns; sent
+    again when either date moves (on save and in the daily reminder step)
+  - the renewal notice date within 60 days (franchise manager and franchisee)
+  - a rent step-up within 30 days (finance and franchisee)
+- Data Store: `leases` table (created in Development on 2026-10-11).
