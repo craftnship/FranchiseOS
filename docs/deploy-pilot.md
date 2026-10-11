@@ -285,6 +285,17 @@ Each opening project has a Construction panel (staff) and a Construction page in
 - New projects get the DESIGN task from the template, and FITOUT now depends on it. Seeding only adds this for new tenants; for STARK in Development the DESIGN row was added to `project_template_tasks` and FITOUT's `depends_on_json` set to `["PERMITS","DESIGN"]` by hand on 2026-10-11. Do the same for any other existing tenant. Existing projects have no DESIGN task, so approving a design there completes nothing, but the fit-out rule still applies.
 - Tables `design_reviews`, `site_photos` and `snags` were created in Development on 2026-10-11. Photo coordinates are stored to 4 decimal places (about 11 m).
 
+## Hiring and training
+
+Each project has a Team and training panel (staff) and a Team page in the franchisee portal.
+
+- **Staffing plan.** By default a store needs 1 store manager, 2 shift leads and 8 crew. Anyone with `project.write` can change the numbers for a project (Edit plan); the plan is stored on the project (`staffing_plan_json`).
+- **Team.** The franchisee (or staff) adds each person they hire with role, phone, email and hire date. Someone who leaves is marked as left with their last day; they stay in the history but stop counting towards the plan.
+- **Training.** Each role has brand modules: food safety and hygiene (certificate required from the portal), brand and guest service, kitchen and product build for everyone; POS and cash handling for shift leads and managers; store operations for the manager. The franchisee records a module as done (date, optional score, trainer and certificate) and it waits for sign-off. Training and project managers sign it off or send it back with a note. A record staff add themselves is signed off at once.
+- **Checklist tasks.** "Hire store manager" completes when the plan's managers are hired, "Hire crew" when the shift leads and crew are hired, and "Complete crew training" when enough people in every role have all their modules signed off. They complete in Zoho Projects too when linked. They can't be marked done by hand before the plan is met.
+- Notifications: a module waiting for sign-off goes to training and project managers; a module sent back goes to the franchisee.
+- Tables `store_staff` and `staff_training`, and the column `franchise_projects.staffing_plan_json`, were created in Development on 2026-10-11.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

@@ -19,7 +19,7 @@ const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
   r.onerror = () => reject(r.error);
   r.readAsDataURL(file);
 });
-const upload = async (file: File) => ({ file_name: file.name, content_type: file.type || "application/octet-stream", data_base64: await toBase64(file) });
+export const upload = async (file: File) => ({ file_name: file.name, content_type: file.type || "application/octet-stream", data_base64: await toBase64(file) });
 const when = (v: unknown) => (v ? new Date(String(v).replace(" ", "T") + (String(v).includes("T") ? "" : "Z")).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
 const distance = (m: unknown) => (m === null || m === undefined ? null : Number(m) < 1000 ? `${Number(m)} m from the site` : `${(Number(m) / 1000).toFixed(1)} km from the site`);
 const open = async (path: string, query?: Record<string, string>) => { const r = await api<{ url: string }>("GET", path, { query }); window.open(r.url, "_blank", "noopener"); };

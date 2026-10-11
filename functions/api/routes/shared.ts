@@ -4,6 +4,7 @@ import { Row, TenantRepo } from "../../common/store";
 import { Call } from "../router";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { refreshReadiness, updateChecklistItem } from "../../workflows/readiness";
 import { MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES, safeFileName } from "../../common/files";
 
 /** A base64 file in a JSON body (PDF or image, up to MAX_UPLOAD_BYTES). */
@@ -95,4 +96,28 @@ export async function staffDirectory(call: Call): Promise<Map<string, { ROWID: s
     ROWID: String(u.ROWID), name: u.name ? String(u.name) : null, email: String(u.email),
     role: roleCode.get(String(u.role_id)) ?? "", active: u.status === "ACTIVE" && !u.franchisee_id,
   }]));
+}
+
+/**
+ * Marks the project's checklist tasks with these codes done (in Zoho Projects too when linked) and
+ * refreshes readiness. Returns the codes actually completed; a task Zoho refuses stays open and can
+ * be closed by hand, so the change that triggered it still stands.
+ */
+export async function completeTasks(call: Call, project: Row, codes: string[]): Promise<string[]> {
+  if (!codes.length) return [];
+  const pid = String(project.ROWID);
+  const items = (await call.repo.findMany("opening_checklists", { project_id: pid }, { limit: 300 }))
+    .filter((i) => codes.includes(String(i.task_code)) && i.status !== "COMPLETED");
+  if (!items.length) return [];
+  const linked = !!project.zoho_project_id && items.some((i) => i.external_task_id);
+  const projects = linked ? (await call.zoho().catch(() => null))?.projects ?? null : null;
+  const done: string[] = [];
+  for (const item of items) {
+    try {
+      await updateChecklistItem(call.store, call.ctx, projects, pid, String(item.ROWID), { done: true });
+      done.push(String(item.task_code));
+    } catch { /* left open */ }
+  }
+  if (done.length) await refreshReadiness(call.store, call.ctx, pid, { today: call.now.toISOString().slice(0, 10), now: call.now, onTransition: call.onTransition }).catch(() => undefined);
+  return done;
 }

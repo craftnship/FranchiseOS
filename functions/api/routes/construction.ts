@@ -3,15 +3,13 @@ import { AppError } from "../../common/errors";
 import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { addPhoto, changeSnag, constructionFor, decideDesign, DESIGN_TASK, raiseSnag, SEVERITIES, submitDesign } from "../../workflows/construction";
-import { refreshReadiness, updateChecklistItem } from "../../workflows/readiness";
 import { Call, parse, Router } from "../router";
-import { assertOwner, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
+import { assertOwner, completeTasks, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
 
 // Construction: design approval, site photos and snags on an opening project. The franchisee (portal)
 // submits designs, adds photos and fixes snags; staff with project.write decide designs and raise,
 // verify or waive snags.
 
-const today = (call: Call) => call.now.toISOString().slice(0, 10);
 const text = (max: number) => z.string().trim().max(max);
 const designSchema = z.object({ title: text(200).min(2), notes: text(2000).nullish(), file: uploadSchema }).strict();
 const decisionSchema = z.object({ decision: z.enum(["APPROVED", "CHANGES_REQUESTED"]), note: text(1000).nullish() }).strict();
@@ -54,18 +52,8 @@ export function constructionRoutes(r: Router): void {
     const b = parse(decisionSchema, call.body);
     const row = await decideDesign(call.store, call.ctx, project, await child(call, "design_reviews", call.params.designId), b.decision, b.note ?? null, call.now);
     // Approval completes the "Get store design approved" task, in Zoho Projects too when linked.
-    let task: Row | null = null;
-    if (b.decision === "APPROVED") {
-      const item = await call.repo.findOne("opening_checklists", { project_id: call.params.id, task_code: DESIGN_TASK });
-      if (item && item.status !== "COMPLETED") {
-        const projects = project.zoho_project_id && item.external_task_id ? (await call.zoho().catch(() => null))?.projects ?? null : null;
-        try {
-          task = (await updateChecklistItem(call.store, call.ctx, projects, call.params.id, String(item.ROWID), { done: true })).item;
-          await refreshReadiness(call.store, call.ctx, call.params.id, { today: today(call), now: call.now, onTransition: call.onTransition });
-        } catch { task = null; } // the design stays approved; the task can be closed by hand
-      }
-    }
-    return { ...row, task_completed: !!task };
+    const task = b.decision === "APPROVED" ? await completeTasks(call, project, [DESIGN_TASK]) : [];
+    return { ...row, task_completed: task.length > 0 };
   });
 
   r.on("GET", "/projects/:id/designs/:designId/file", null, async (call) => {

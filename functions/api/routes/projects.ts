@@ -9,6 +9,7 @@ import { activateOnOpening } from "../../workflows/agreements";
 import { refreshFee } from "../../workflows/fees";
 import { transitionEntity } from "../../workflows/transition";
 import { assertDesignApproved, assertSnagsCleared, FITOUT_TASK } from "../../workflows/construction";
+import { assertStaffingTask } from "../../workflows/staffing";
 import { assertLicencesReady, ensureLicences, LICENCE_STATES, updateLicence } from "../../workflows/licences";
 import { logActivity } from "../../common/audit";
 import { describeLease, leaseForSite } from "../../workflows/leases";
@@ -273,6 +274,7 @@ export function projectRoutes(r: Router): void {
       if (body.done) {
         const target = await call.repo.findOne("opening_checklists", { ROWID: call.params.itemId, project_id: call.params.id });
         if (target?.task_code === FITOUT_TASK && target.status !== "COMPLETED") await assertDesignApproved(call.store, call.ctx, call.params.id);
+        if (target && target.status !== "COMPLETED") await assertStaffingTask(call.store, call.ctx, project, String(target.task_code ?? ""));
       }
       const linked = !!project.zoho_project_id && (body.done !== undefined || !!body.due_date);
       const projects = linked ? (await call.zoho().catch(() => null))?.projects ?? null : null;

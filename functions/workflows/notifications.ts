@@ -298,6 +298,19 @@ const RULES: Record<string, Rule> = {
     return { kind: "snag.reopened", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
       title: `Snag #${m.snag_no} at ${code} was reopened`, body: `${String(m.title ?? "")}: ${String(m.note ?? "")}`, link: "/portal/construction" };
   },
+  "training:submitted": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "training.submitted", entityType: "project", entityId: e.entityId, roles: ["TRAINING_MANAGER", "PROJECT_MANAGER"],
+      title: `${code} training to sign off: ${String(m.name ?? "")}, ${String(m.module ?? "")}`, body: "Sign it off, or send it back with a note.",
+      link: linkTo("project", e.entityId) };
+  },
+  "training:returned": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "training.returned", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${String(m.name ?? "")}'s ${String(m.module ?? "training").toLowerCase()} training was sent back`, body: String(m.note ?? ""), link: "/portal/team" };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;

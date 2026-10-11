@@ -16,6 +16,8 @@ const ACTIONS: Record<string, string> = {
   "activate:signed": "Activated on signing", "activate:opened": "Activated on opening", "licence:expired": "Licence expired",
   "design:submitted": "Design sent for approval", "design:approved": "Design approved", "design:changes": "Design changes requested", "photo:added": "Site photo added",
   "snag:raised": "Snag raised", "snag:fixed": "Snag fixed", "snag:closed": "Snag verified", "snag:reopened": "Snag reopened", "snag:waived": "Snag waived",
+  "staffing:plan": "Staffing plan changed", "staff:hired": "Person hired", "staff:role": "Role changed", "staff:left": "Person left",
+  "training:submitted": "Training sent for sign-off", "training:signed_off": "Training signed off", "training:returned": "Training sent back",
   "royalty:submitted": "Sales reported", "royalty:resubmitted": "Sales report changed", "royalty:returned": "Sales report returned", "royalty:invoiced": "Royalty invoiced", "royalty:paid": "Royalty paid", "royalty:rates": "Royalty rates changed",
 };
 export const actionLabel = (a: unknown) => {
