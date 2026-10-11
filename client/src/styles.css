@@ -386,3 +386,5 @@ td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: fle
 }
 .chip.static { cursor: default; font-size: .74rem; height: auto; padding: .15rem .55rem; }
 .chip.static:hover { border-color: var(--border-strong); }
+.error-text { color: var(--bad); font-size: .82rem; overflow-wrap: break-word; display: inline-block; min-width: 11rem; }
+.state .icon { vertical-align: -4px; margin-right: .35rem; color: var(--good, #17b26a); }

@@ -8,6 +8,7 @@ import { franchiseeRoutes } from "./routes/franchisees";
 import { notificationRoutes } from "./routes/notifications";
 import { auditRoutes } from "./routes/audit";
 import { userRoutes } from "./routes/users";
+import { integrationRoutes } from "./routes/integrations";
 import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
@@ -36,5 +37,6 @@ export function buildRouter(): Router {
   notificationRoutes(r);
   auditRoutes(r);
   userRoutes(r);
+  integrationRoutes(r);
   return r;
 }

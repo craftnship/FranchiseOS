@@ -15,6 +15,7 @@ import { ProjectDetail, Projects } from "./pages/Projects";
 import { PortalAgreement, PortalHome, PortalTasks } from "./pages/Portal";
 import { AuditLog } from "./pages/Audit";
 import { Users } from "./pages/Users";
+import { Integrations } from "./pages/Integrations";
 
 // Catalyst's hosted sign-in page; it returns to the app after login.
 const LOGIN_URL = "/__catalyst/auth/login";
@@ -71,6 +72,7 @@ export function App() {
               <Route path="/approvals" element={<Approvals />} />
               <Route path="/admin/activity" element={<AuditLog />} />
               <Route path="/admin/users" element={<Users />} />
+              <Route path="/admin/integrations" element={<Integrations />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
           )}

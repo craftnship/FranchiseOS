@@ -7,6 +7,7 @@ import { runProjectRiskJob } from "../workflows/readiness";
 import { runReminderJob } from "../workflows/notifications";
 import { runReservationJob } from "../workflows/territoryReservation";
 import { runTwoWaySyncJob } from "../workflows/twoWaySync";
+import { recordJobRun } from "../workflows/systemAlerts";
 
 // Entry point of the fos_jobs Cron function (spec §22). The Catalyst cron calls it daily; it runs
 // job_project_risk (sync Zoho task progress, then refresh readiness and risk for active projects),
@@ -24,11 +25,26 @@ export async function runCron(context: CronContext, sdk: CatalystSdk, now = new 
     const store = new CatalystStore(app);
     const mailer = mailerFromEnv(app);
     const zoho = zohoFactory(store, zohoCredentialsFromEnv());
-    await runProjectRiskJob(store, async (tenantId) => (await zoho(tenantId))?.projects ?? null, { today: now.toISOString().slice(0, 10), now, requestId, mailer });
-    await runTwoWaySyncJob(store, zoho, { now, requestId, mailer });
-    await runReservationJob(store, { now, requestId, mailer });
-    await runReminderJob(store, { now, requestId, mailer });
-    context.closeWithSuccess();
+    const steps: [string, () => Promise<unknown>][] = [
+      ["project_risk", () => runProjectRiskJob(store, async (tenantId) => (await zoho(tenantId))?.projects ?? null, { today: now.toISOString().slice(0, 10), now, requestId, mailer })],
+      ["two_way_sync", () => runTwoWaySyncJob(store, zoho, { now, requestId, mailer })],
+      ["reservation_expiry", () => runReservationJob(store, { now, requestId, mailer })],
+      ["reminders", () => runReminderJob(store, { now, requestId, mailer })],
+    ];
+    // A failing step is recorded and alerted, and the later steps still run.
+    let failed = 0;
+    for (const [step, run] of steps) {
+      try {
+        await run();
+        await recordJobRun(store, { step, ok: true, requestId, now });
+      } catch (e) {
+        failed++;
+        const error = String((e as Error)?.stack ?? e);
+        log("error", "job.crash", { request_id: requestId, step, error });
+        await recordJobRun(store, { step, ok: false, error: String((e as Error)?.message ?? e), requestId, now });
+      }
+    }
+    if (failed) context.closeWithFailure(); else context.closeWithSuccess();
   } catch (e) {
     log("error", "job.crash", { request_id: requestId, error: String((e as Error)?.stack ?? e) });
     context.closeWithFailure();

@@ -265,3 +265,21 @@ settings so the test agreement route stops answering.
 - Edit changes name, role and franchisee. Deactivate stops sign-in and notifications at once;
   Reactivate restores it. You can't deactivate yourself or change your own role, and the last
   active super admin can't be removed. Every change is in the activity log (`user:*`).
+
+## Integration health and alerts
+
+- Admin → Integration health (needs `integration.admin`, SUPER_ADMIN only by default):
+  - Needs attention: CRM status updates that gave up after their retries (dead letters) and
+    CRM lead or Sign callbacks that failed. Retry runs the call again (a lead or Sign event is
+    re-read from Zoho, so it is safe to repeat); a failed retry is replaced by its own new item.
+    Resolve takes a reason and clears an item that was fixed another way. Both are audited
+    (`integration:retried`, `integration:resolved`).
+  - Daily job: each step of fos_jobs (project risk, two-way sync, reservations, reminders) with
+    its last run, last success and error. Steps now run independently, so one failing step no
+    longer stops the rest; the cron still reports failure if any step failed.
+  - Last 7 days: worked, retried and gave-up counts by system, and the Zoho connection (ids only;
+    whether a token and webhook secret are stored, never their values).
+- Alerts: super admins get an in-app notice (and email when mail is on) when a Zoho call gives
+  up, a webhook fails, or a job step fails. Each repeats at most once a day per item.
+- No Data Store changes: rows go in `integration_logs` (jobs as source `FOS_JOBS`) and
+  `integration_events`, with the new status `RESOLVED`.

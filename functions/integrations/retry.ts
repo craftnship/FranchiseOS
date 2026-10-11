@@ -42,10 +42,24 @@ export async function withRetry<T>(
       const retryable = e instanceof ProviderError ? e.retryable : true;
       const terminal = !retryable || attempt >= max;
       await record(log, attempt, terminal ? "DEAD_LETTER" : "RETRYING", e);
-      if (terminal) throw e;
+      if (terminal) {
+        await alertDeadLetter(log, e);
+        throw e;
+      }
       await sleep(backoffMs(attempt, opts.baseMs));
     }
   }
+}
+
+/** Tells super admins a Zoho call gave up; loaded lazily to keep this module free of workflow imports. */
+async function alertDeadLetter(log: RetryLog, err: unknown): Promise<void> {
+  const { alertAdmins } = await import("../workflows/systemAlerts");
+  await alertAdmins(log.store, log.tenantId, {
+    kind: "health.dead_letter", entityType: log.entityType, entityId: log.entityId,
+    dedupe: `dead:${log.sourceSystem}:${log.operation}:${log.entityId}:${new Date().toISOString().slice(0, 10)}`,
+    title: `${log.sourceSystem} update failed: ${log.operation}`,
+    body: `${String((err as Error)?.message ?? err).slice(0, 200)} FOS stopped retrying. Retry it from Integration health once the cause is fixed.`,
+  });
 }
 
 async function record(log: RetryLog, attempt: number, status: string, err?: unknown): Promise<void> {

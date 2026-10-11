@@ -12,7 +12,7 @@ const ACTIONS: Record<string, string> = {
   "create:crm": "Created from CRM", "update:crm": "Updated from CRM", "create:agreement": "Agreement created", "agreement:signed": "Agreement signed",
   "transition:send": "Sent for signature", "document:upload": "Document uploaded", "document:add": "Document added",
   "checklist:completed": "Task completed", "checklist:reopened": "Task reopened", "checklist:updated": "Task changed", "checklist:blocked": "Task blocked", "checklist:unblocked": "Task unblocked",
-  "user:invited": "Person added", "user:linked": "First sign-in", "user:updated": "Person changed", "user:deactivated": "Person deactivated", "user:reactivated": "Person reactivated",
+  "integration:retried": "Integration retried", "integration:resolved": "Integration item resolved", "user:invited": "Person added", "user:linked": "First sign-in", "user:updated": "Person changed", "user:deactivated": "Person deactivated", "user:reactivated": "Person reactivated",
   "activate:signed": "Activated on signing", "activate:opened": "Activated on opening", "licence:expired": "Licence expired",
 };
 export const actionLabel = (a: unknown) => {

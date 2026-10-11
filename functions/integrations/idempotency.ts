@@ -51,6 +51,12 @@ export async function processOnce<T>(
     return { duplicate: false, result };
   } catch (e) {
     await store.update("integration_events", rowId, { status: "FAILED", error_message: errorText(e).slice(0, 500) });
+    const { alertAdmins } = await import("../workflows/systemAlerts");
+    await alertAdmins(store, tenantId, {
+      kind: "health.event_failed", entityType: "integration_event", entityId: rowId, dedupe: `event:${key}`,
+      title: `${evt.source} event failed to process`,
+      body: `${errorText(e).slice(0, 200)} Retry it from Integration health once the cause is fixed.`,
+    });
     throw e;
   }
 }
