@@ -1,4 +1,5 @@
 import { overdueOrders } from "./purchasing";
+import { overdueInstalments } from "./funding";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -341,6 +342,42 @@ const RULES: Record<string, Rule> = {
       title: `${code}: ${String(m.po_number)} with ${String(m.vendor ?? "the vendor")} was cancelled`, body: String(m.reason ?? ""),
       link: linkTo("project", e.entityId), dedupe: `po-cancelled:${m.po_id}` };
   },
+  "fee:invoiced": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "fee.invoiced", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${m.kind === "DEPOSIT" ? "Security deposit" : `Franchise fee: ${String(m.label ?? "instalment")}`} invoiced for ${inr(toNum(m.amount))}${m.invoice_number ? ` (${String(m.invoice_number)})` : ""}`,
+      body: m.due ? `Due ${nice(m.due)}. The invoice is in your email from Zoho Books.` : "The invoice is in your email from Zoho Books.", link: "/portal/funding", dedupe: `fee-invoiced:${m.fee_id}` };
+  },
+  "fee:instalment_paid": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "fee.instalment_paid", entityType: "project", entityId: e.entityId, roles: ["FINANCE_MANAGER"],
+      title: `${code} paid ${m.kind === "DEPOSIT" ? "the security deposit" : `“${String(m.label ?? "instalment")}”`} (${inr(toNum(m.amount))})`, body: m.invoice_number ? `Invoice ${String(m.invoice_number)} is settled in Books.` : "",
+      link: linkTo("project", e.entityId), dedupe: `fee-paid:${m.fee_id}` };
+  },
+  "loan:sanctioned": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    const short = toNum(m.sanctioned_amount) < toNum(m.requested);
+    return { kind: "loan.sanctioned", entityType: "project", entityId: e.entityId, roles: ["FINANCE_MANAGER", "PROJECT_MANAGER"],
+      title: `${code}: ${String(m.lender ?? "the bank")} sanctioned ${inr(toNum(m.sanctioned_amount))}`, body: short ? `That's ${inr(toNum(m.requested) - toNum(m.sanctioned_amount))} less than asked for. Check the funding gap.` : "The loan is secured; disbursements follow.",
+      link: linkTo("project", e.entityId), dedupe: `loan-sanctioned:${e.entityId}:${m.sanctioned_amount}` };
+  },
+  "loan:rejected": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "loan.rejected", entityType: "project", entityId: e.entityId, roles: ["FINANCE_MANAGER", "PROJECT_MANAGER"],
+      title: `${code}: the loan from ${String(m.lender ?? "the bank")} was rejected`, body: `${String(m.reason ?? "")} The opening may need another lender or more own capital.`.trim(),
+      link: linkTo("project", e.entityId) };
+  },
+  "loan:disbursed": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "loan.disbursed", entityType: "project", entityId: e.entityId, roles: ["FINANCE_MANAGER"],
+      title: `${code}: ${inr(toNum(m.amount))} of the loan disbursed`, body: `${inr(toNum(m.total))} of ${inr(toNum(m.sanctioned_amount))} disbursed so far.`,
+      link: linkTo("project", e.entityId), dedupe: `loan-disbursed:${e.entityId}:${m.total}` };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
@@ -493,7 +530,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -609,6 +646,34 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
       link: linkTo("project", String(po.project_id)), dedupe: `po-overdue:${po.ROWID}:${String(po.expected_delivery).slice(0, 10)}`,
     }, now);
   }
+
+  // Fee instalments past their due date (the signing invoice is chased per agreement above).
+  const signed = new Map((await repo.findMany("agreements", { status: "SIGNED" }, { limit: 300 })).map((a) => [String(a.ROWID), a]));
+  for (const f of overdueInstalments(await repo.findMany("fee_instalments", { status: "INVOICED" }, { limit: 300 }), signed, today)) {
+    const project = projectsById.get(String(f.project_id));
+    if (!project) continue;
+    const due = String(f.invoice_due_date).slice(0, 10);
+    out.fees += await deliver(store, ctx, {
+      kind: "fee.instalment_overdue", entityType: "project", entityId: String(f.project_id), roles: ["FINANCE_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, f.franchisee_id),
+      title: `${project.project_code}: ${f.kind === "DEPOSIT" ? "security deposit" : `fee instalment “${f.label}”`} is overdue`, body: `${inr(toNum(f.invoice_balance))} on ${f.invoice_number ?? "the invoice"} was due ${nice(due)}.`,
+      link: linkTo("project", String(f.project_id)), dedupe: `fee-inst-overdue:${f.ROWID}:${due}`,
+    }, now);
+  }
+
+  // A loan not yet sanctioned when fit-out is a month away puts the opening at risk.
+  for (const plan of await repo.findMany("funding_plans", {}, { limit: 300 })) {
+    if (!["PLANNED", "APPLIED", "REJECTED"].includes(String(plan.status))) continue;
+    const project = projectsById.get(String(plan.project_id));
+    if (!project || !["NOT_STARTED", "PLANNING", "IN_PROGRESS", "AT_RISK"].includes(String(project.status))) continue;
+    const fitout = await repo.findOne("opening_checklists", { project_id: String(plan.project_id), task_code: "FITOUT" });
+    const by = fitout?.due_date ? String(fitout.due_date).slice(0, 10) : null;
+    if (!by || fitout?.status === "COMPLETED" || Math.round((Date.parse(by) - Date.parse(today)) / 86400000) > 30) continue;
+    out.funding += await deliver(store, ctx, {
+      kind: "funding.at_risk", entityType: "project", entityId: String(plan.project_id), roles: ["FINANCE_MANAGER", "PROJECT_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, plan.franchisee_id),
+      title: `${project.project_code}: the loan isn't sanctioned and fit-out is due ${nice(by)}`, body: `The ${inr(toNum(plan.loan_amount))} loan is ${human(String(plan.status)).toLowerCase()}. Without it the fit-out may stall.`,
+      link: linkTo("project", String(plan.project_id)), dedupe: `funding-risk:${plan.project_id}:${plan.status}`,
+    }, now);
+  }
   return out;
 }
 
@@ -649,7 +714,7 @@ async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

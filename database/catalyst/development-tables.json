@@ -54,6 +54,8 @@
     "staff_training": "62105000000100932",
     "vendors": "62105000000097892",
     "vendor_items": "62105000000098177",
-    "purchase_orders": "62105000000103453"
+    "purchase_orders": "62105000000103453",
+    "fee_instalments": "62105000000094770",
+    "funding_plans": "62105000000108129"
   }
 }

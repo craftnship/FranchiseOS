@@ -62,4 +62,7 @@ export const DEFAULTS = {
   territoryRule: { territory_level: "CITY_ZONE", radius_km: 3, exclusive: true, max_locations: 1, reservation_days: 30 },
   // Step 5. franchise_fee 0 means no Books invoice until the tenant sets its fee (D-17).
   onboarding: { agreement_term_years: 5, opening_target_days: 120, franchise_fee: 0, projects_dependencies: false, books_payment_terms: 15, books_email_invoice: true },
+  // The franchise fee schedule (funding.ts): shares of the fee and when each is invoiced. One
+  // instalment on signing keeps the single fee invoice; a refundable security deposit is optional.
+  fees: { plan: [{ kind: "FEE", label: "On signing", pct: 100, trigger: "SIGNING" }], security_deposit: 0 },
 };

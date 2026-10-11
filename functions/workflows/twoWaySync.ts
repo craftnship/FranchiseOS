@@ -6,9 +6,10 @@ import { ZohoClients } from "../integrations/tenantClients";
 import { syncTenantContacts } from "./crmContacts";
 import { syncTenantFees } from "./fees";
 import { syncTenantBills } from "./capex";
+import { syncTenantInstalments } from "./funding";
 
 /**
- * job_two_way_sync (daily, after job_project_risk): Books fee payments, Books capex bills and CRM contact edits come
+ * job_two_way_sync (daily, after job_project_risk): Books fee payments, Books capex bills, fee instalments (raised when due) and CRM contact edits come
  * back into FOS for every active tenant. A tenant without Zoho, or a failing one, is skipped.
  */
 export async function runTwoWaySyncJob(
@@ -16,7 +17,7 @@ export async function runTwoWaySyncJob(
   zohoFor: (tenantId: string) => Promise<ZohoClients | null>,
   opts: { now: Date; requestId: string; mailer?: Mailer },
 ) {
-  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, bills_added: 0, royalties_paid: 0, contacts_updated: 0, failed: 0 };
+  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, bills_added: 0, royalties_paid: 0, instalments_raised: 0, instalments_paid: 0, contacts_updated: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
@@ -31,6 +32,9 @@ export async function runTwoWaySyncJob(
         out.bills_added += b.added; out.failed += b.failed;
         const r = await syncTenantRoyalties(store, ctx, zoho.books);
         out.royalties_paid += r.paid; out.failed += r.failed;
+        // After the fee sync, so signing invoices carry the agreement's fresh state.
+        const i = await syncTenantInstalments(store, ctx, zoho.books, opts.now);
+        out.instalments_raised += i.raised; out.instalments_paid += i.paid; out.failed += i.failed;
       }
       const c = await syncTenantContacts(store, ctx, zoho.crm);
       out.contacts_updated += c.updated; out.failed += c.failed;

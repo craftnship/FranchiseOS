@@ -307,6 +307,18 @@ Operations → Vendors holds the approved supplier catalogue; each opening proje
 - Notifications: an order placed from the portal goes to project managers; a confirmed date and a cancellation go to the franchisee; a delivery goes to project managers; a confirmed order past its date reminds both sides daily (job_reminders).
 - Tables `vendors`, `vendor_items` and `purchase_orders` were created in Development on 2026-10-11. The catalogue starts empty.
 
+## Funding and fees
+
+Each opening project has a Franchise fee and deposit panel and a Funding panel; Contracts → Franchise fees lists every instalment across the network, and the franchisee portal has a Funding and fees page.
+
+- **Fee plan.** Tenant settings `fee_plan` split `franchise_fee` into instalments, each a share (`pct`) or `amount` with a trigger: `SIGNING`, `TASK` (with `task`, a checklist task code such as `FITOUT`), `OPENING`, or `DATE` (with `days` after signing). `security_deposit` adds a refundable deposit invoiced on signing, without tax. With no `fee_plan` the whole fee is invoiced on signing, exactly as before. Example: `"fee_plan": [{"label":"On signing","pct":40,"trigger":"SIGNING"},{"label":"At fit-out","pct":30,"trigger":"TASK","task":"FITOUT"},{"label":"On opening","pct":30,"trigger":"OPENING"}], "security_deposit": 100000`.
+- **Signing.** The onboarding invoice now covers only the plan's share on signing, and the plan is kept on the agreement (`fee_plan_json`), so later changes to the tenant plan don't move signed stores. Agreements signed before this had their whole fee invoiced on signing; their schedule is that one invoice (plus the deposit, if the tenant charges one).
+- **Raising and payment.** job_two_way_sync raises each instalment as a Books invoice (reference `FEE-<agreement>-<n>`, emailed like the fee invoice) once its trigger is met, and brings payments back. `fee.manage` can also raise one early, add or change instalments that aren't invoiced yet, waive one, and record a deposit refund. `fee.manage` is a new permission, held by super admins only until a role is given it. The signing instalment follows the agreement's own fee status.
+- **Funding.** The franchisee (or staff with `project.write`) records own capital and the bank loan: applied, sanctioned (amount, rate, tenure, sanction letter) or rejected, then each disbursement. The panel shows what's secured against the capex budget and the gap.
+- Notifications: an invoiced instalment goes to the franchisee; a paid one to finance managers; an overdue one reminds finance and the franchisee daily; a loan sanctioned, rejected or disbursed goes to finance (and project managers for the first two); a loan still not sanctioned when fit-out is due within 30 days alerts finance, project managers and the franchisee once per loan state.
+- The dashboard's fee tiles include later instalments and drill into Franchise fees.
+- Tables `fee_instalments` and `funding_plans`, and `agreements.fee_plan_json`, were created in Development on 2026-10-11. STARK has no `fee_plan` set, so it keeps one fee invoice on signing until one is added.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

@@ -56,6 +56,41 @@ export function onboardingSettings(tenant: Row | null): OnboardingSettings {
   };
 }
 
+export type FeeKind = "FEE" | "DEPOSIT";
+export type FeeTrigger = "SIGNING" | "TASK" | "OPENING" | "DATE";
+export const FEE_TRIGGERS: FeeTrigger[] = ["SIGNING", "TASK", "OPENING", "DATE"];
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** One instalment of a plan, with its amount worked out (before tax). */
+export interface FeeStep { kind: FeeKind; label: string; amount: number; trigger: FeeTrigger; task_code?: string | null; days?: number | null }
+
+/**
+ * The tenant's fee plan in amounts: settings `fee_plan` (shares of the franchise fee, each with a
+ * trigger) and `security_deposit`, else the defaults. Fee shares on signing merge into one, since
+ * signing raises a single invoice.
+ */
+export function feePlan(tenant: Row | null): FeeStep[] {
+  let s: Record<string, unknown> = {};
+  try { s = tenant?.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { s = {}; }
+  const fee = onboardingSettings(tenant).franchise_fee;
+  const plan = (Array.isArray(s.fee_plan) ? s.fee_plan : DEFAULTS.fees.plan) as Array<Record<string, unknown>>;
+  const deposit = s.security_deposit != null ? toNum(s.security_deposit) : DEFAULTS.fees.security_deposit;
+  const steps: FeeStep[] = [];
+  for (const p of plan) {
+    const trigger = (FEE_TRIGGERS.includes(p.trigger as FeeTrigger) ? p.trigger : "SIGNING") as FeeTrigger;
+    const amount = r2(p.amount != null ? toNum(p.amount) : fee * toNum(p.pct) / 100);
+    if (!(amount > 0)) continue;
+    const signing = trigger === "SIGNING" ? steps.find((x) => x.kind === "FEE" && x.trigger === "SIGNING") : undefined;
+    if (signing) { signing.amount = r2(signing.amount + amount); continue; }
+    steps.push({ kind: "FEE", label: String(p.label ?? "Franchise fee").slice(0, 120), amount, trigger, task_code: p.task ? String(p.task) : null, days: p.days != null ? toNum(p.days) : null });
+  }
+  if (deposit > 0) steps.push({ kind: "DEPOSIT", label: "Security deposit", amount: r2(deposit), trigger: "SIGNING" });
+  return steps;
+}
+
+/** What the agreement's signing invoice covers: the plan's fee share on signing. */
+export const signingFee = (steps: FeeStep[]) => steps.filter((s) => s.kind === "FEE" && s.trigger === "SIGNING").reduce((a, s) => a + s.amount, 0);
+
 function dateOnly(d: Date): string { return d.toISOString().slice(0, 10); }
 function addYears(date: string, years: number): string {
   const d = new Date(date + "T00:00:00Z");
@@ -311,18 +346,23 @@ export async function onboardSignedAgreement(
     const ref = found ?? await clients.books.createCustomer({ contact_name: name, company_name: franchisee.legal_name ? String(franchisee.legal_name) : undefined, email, phone: franchisee.phone ? String(franchisee.phone) : undefined });
     franchisee = await repo.update("franchisees", franchiseeId, { zoho_books_customer_id: ref.id });
   });
-  if (settings.franchise_fee > 0 && clients.books && franchisee.zoho_books_customer_id && !invoiceId) {
+  // The signing invoice is the fee plan's share on signing (the whole fee by default); the rest of
+  // the schedule is raised later (funding.ts), from the plan kept on the agreement.
+  const plan = feePlan(tenant);
+  const onSigning = signingFee(plan);
+  if (onSigning > 0 && clients.books && franchisee.zoho_books_customer_id && !invoiceId) {
     const books = clients.books;
     await step("books_invoice", async () => {
       const code = String(agreement!.agreement_code);
       const ref = await books.findInvoice(code) ?? await books.createInvoice({
         customer_id: String(franchisee.zoho_books_customer_id), reference_number: code, date: dateOnly(now), payment_terms: settings.books_payment_terms,
-        line_items: [{ name: "Franchise fee", description: `Initial franchise fee, agreement ${code}`, rate: settings.franchise_fee, quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) }],
+        line_items: [{ name: "Franchise fee", description: `${onSigning < settings.franchise_fee ? "Franchise fee on signing" : "Initial franchise fee"}, agreement ${code}`, rate: onSigning, quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) }],
       });
       invoiceId = ref.id;
-      await repo.update("agreements", args.agreementId, { zoho_books_invoice_id: ref.id });
+      agreement = await repo.update("agreements", args.agreementId, { zoho_books_invoice_id: ref.id, fee_plan_json: agreement!.fee_plan_json ?? JSON.stringify(plan) });
     });
   }
+  if (!agreement.fee_plan_json && !invoiceId) agreement = await repo.update("agreements", args.agreementId, { fee_plan_json: JSON.stringify(plan) });
   if (invoiceId && clients.books) {
     const books = clients.books;
     await step("books_invoice_send", async () => {

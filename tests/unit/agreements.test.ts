@@ -459,7 +459,7 @@ describe("Phase A: close the lifecycle loop", () => {
     expect(await s.store.findMany("activity_logs", { entity_id: String(agreement.ROWID), action: "fee:paid" })).toHaveLength(1);
 
     dash = (await s.call("mgr", "GET", "/dashboard/network")).data;
-    expect(dash).toMatchObject({ fees_collected: { value: 250000, drill: { path: "/agreements" } }, fees_outstanding: { value: 0 } });
+    expect(dash).toMatchObject({ fees_collected: { value: 250000, drill: { path: "/fees" } }, fees_outstanding: { value: 0 } });
     expect((await s.call("mgr", "GET", "/agreements", undefined, { fee_status: "PAID" })).data).toHaveLength(1);
     // Settled fees are no longer checked.
     expect(await job()).toMatchObject({ fees_checked: 0 });
