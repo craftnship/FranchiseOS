@@ -6,14 +6,14 @@ import { useLoad } from "../hooks";
 
 type NavItem = [to: string, text: string, icon: string, permission?: string];
 const STAFF_NAV: [string, NavItem[]][] = [
-  ["Overview", [["/", "Dashboard", "dashboard"], ["/analytics", "Analytics", "pulse", "dashboard.view"]]],
+  ["Overview", [["/", "Dashboard", "dashboard"], ["/analytics", "Analytics", "pulse", "dashboard.view"], ["/messages", "Messages", "chat", "dashboard.view"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"], ["/fees", "Franchise fees", "bank", "dashboard.view"], ["/renewals", "Renewals", "sync", "dashboard.view"]]],
-  ["Operations", [["/projects", "Opening projects", "projects"], ["/launches", "New stores", "flag", "dashboard.view"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"], ["/audits", "Store audits", "audit", "dashboard.view"]]],
+  ["Operations", [["/projects", "Opening projects", "projects"], ["/launches", "New stores", "flag", "dashboard.view"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"], ["/audits", "Store audits", "audit", "dashboard.view"], ["/documents", "Brand documents", "folder", "dashboard.view"]]],
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
-  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/launch", "Opening day", "flag"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/funding", "Funding and fees", "bank"], ["/portal/audits", "Audits", "audit"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
+  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/todo", "To do", "check"], ["/portal/messages", "Messages", "chat"], ["/portal/documents", "Documents", "folder"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/launch", "Opening day", "flag"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/funding", "Funding and fees", "bank"], ["/portal/audits", "Audits", "audit"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
 ];
 
 /** Search results open the record's page where the app has one, else its list. */
@@ -130,7 +130,16 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
   const role = me.roles[0] ?? "USER";
   // Approvals waiting on this user, refreshed as they move around the app.
   const waiting = useLoad(() => (portal ? Promise.resolve([]) : api<Row[]>("GET", "/approvals", { query: { limit: "100" } })), [loc.pathname]);
-  const counts: Record<string, number> = { "/approvals": waiting.data?.length ?? 0 };
+  // Portal: open to-dos and unread messages. Staff: conversations with unread franchisee messages.
+  const todo = useLoad(() => (portal ? api<Row>("GET", "/portal/todo") : Promise.resolve(null)), [loc.pathname]);
+  const threads = useLoad(() => (!portal && can("dashboard.view") ? api<Row[]>("GET", "/messages") : Promise.resolve([])), [loc.pathname]);
+  const pending = (todo.data?.items ?? []) as Row[];
+  const counts: Record<string, number> = {
+    "/approvals": waiting.data?.length ?? 0,
+    "/portal/todo": pending.filter((t) => t.level === "overdue" || t.level === "due").length,
+    "/portal/messages": parseInt(String(pending.find((t) => t.kind === "message")?.title ?? "0"), 10) || 0,
+    "/messages": (threads.data ?? []).filter((t) => Number(t.unread) > 0).length,
+  };
   const initials = role.split("_").map((w) => w[0]).join("").slice(0, 2);
   return (
     <div className={`app ${open ? "nav-open" : ""}`}>

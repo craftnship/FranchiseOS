@@ -409,6 +409,24 @@ const RULES: Record<string, Rule> = {
       title: `${code} won't be renewed`, body: `${await franchiseeName(repo, row?.franchisee_id)}'s agreement ends ${nice(e.metadata?.expiry_date)}.${e.metadata?.note ? ` ${String(e.metadata.note)}` : ""}`,
       link: linkTo("agreement", e.entityId) };
   },
+  "message:from_franchisee": async (_s, _c, e, repo) => {
+    const f = await repo.findOne("franchisees", { ROWID: e.entityId });
+    const apps = await repo.findMany("franchise_applications", { franchisee_id: e.entityId }, { limit: 20 });
+    const owner = apps.map((a) => a.owner_user_id).find(Boolean);
+    return { kind: "message.received", entityType: "franchisee", entityId: e.entityId, ...(owner ? { userIds: [String(owner)] } : { roles: ["FRANCHISE_MANAGER"] }),
+      title: `Message from ${f?.display_name ?? f?.franchise_code ?? "a franchisee"}`, body: String(e.metadata?.preview ?? ""), link: `/messages/${e.entityId}` };
+  },
+  "message:from_brand": async (store, ctx, e) => {
+    const users = await portalUsers(store, ctx.tenantId, e.entityId);
+    if (!users.length) return null;
+    return { kind: "message.received", entityType: "franchisee", entityId: e.entityId, userIds: users, title: "New message from the brand team", body: String(e.metadata?.preview ?? ""), link: "/portal/messages" };
+  },
+  "document:shared": async (store, ctx, e) => {
+    const m = e.metadata ?? {};
+    const notice = { kind: "document.shared", entityType: "document", entityId: e.entityId, title: `New document: ${String(m.title)}`, body: "It's in Documents on your portal.", link: "/portal/documents" };
+    if (m.franchisee_id) { const users = await portalUsers(store, ctx.tenantId, m.franchisee_id); return users.length ? { ...notice, userIds: users } : null; }
+    return { ...notice, roles: ["FRANCHISEE", "FRANCHISEE_STAFF"] };
+  },
   "audit:scheduled": async (store, ctx, e, repo) => {
     const m = e.metadata ?? {};
     const { code, row } = await codeOf(repo, "project", e.entityId);

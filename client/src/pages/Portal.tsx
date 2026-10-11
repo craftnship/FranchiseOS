@@ -5,21 +5,28 @@ import { date, Facts, Icon, Loaded, PageHeader, Panel, Pill, Progress } from "..
 import { Checklist, ReadinessCard } from "./Projects";
 import { LicencePanel } from "../components/Licences";
 import { CapexPanel } from "../components/Capex";
+import { TodoList } from "../components/PortalHub";
 
 export function PortalHome() {
   const load = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const todo = useLoad(() => api<Row>("GET", "/portal/todo"), []);
   return (
     <Loaded load={load}>{(h) => (
       <>
         <PageHeader title={`Welcome${h.franchisee?.display_name ? `, ${h.franchisee.display_name}` : ""}`} subtitle="Your franchise journey at a glance." />
-        <section className={`next-action ${h.next_action.owner}`}>
+        {todo.data && (todo.data.items as Row[]).length > 0 ? (
+          <Panel flush title={<>What needs you{todo.data.counts.overdue > 0 && <Pill value={`${todo.data.counts.overdue} overdue`} tone="bad" />}</>}
+            action={(todo.data.items as Row[]).length > 5 && <Link to="/portal/todo">See all {(todo.data.items as Row[]).length}</Link>}>
+            <TodoList items={(todo.data.items as Row[]).slice(0, 5)} />
+          </Panel>
+        ) : <section className={`next-action ${h.next_action.owner}`}>
           <div>
             <small>{h.next_action.owner === "you" ? "Your next step" : "With our team"}</small>
             <h2>{h.next_action.title}</h2>
             {h.next_action.detail && <p>{h.next_action.detail}</p>}
           </div>
           {h.next_action.path && <Link className="btn" to={h.next_action.path}>Continue<Icon name="chevron" size={16} /></Link>}
-        </section>
+        </section>}
         <div className="row c3">
           <Panel title="Application">{h.application ? <div className="stat-line"><span className="code">{h.application.application_code}</span><Pill value={h.application.status} /></div> : <p className="muted">Not started</p>}</Panel>
           <Panel title="Site">{h.site ? <div className="stat-line">{h.site.site_code} · {h.site.city}<Pill value={h.site.status} /></div> : <p className="muted">No site yet</p>}</Panel>

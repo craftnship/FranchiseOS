@@ -1,7 +1,11 @@
+import { z } from "zod";
 import { AppError } from "../../common/errors";
+import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
+import { brandDocuments, conversation, DOC_CATEGORIES, inbox, ownRecords, portalTodo, sendMessage, shareDocument } from "../../workflows/portalHub";
+import { mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
 import { computeReadiness } from "../../workflows/readiness";
-import { Router } from "../router";
+import { Call, parse, Router } from "../router";
 import { FUNNEL } from "./dashboards";
 
 // Franchisee portal home (spec §25, plan Step 6.3): the signed-in franchisee's own application, site,
@@ -59,5 +63,63 @@ export function portalRoutes(r: Router): void {
       upcoming_tasks: tasks,
       next_action: nextAction(application, { blockers: readiness?.blockers.length, overdue: readiness?.overdue.length }),
     };
+  });
+}
+
+const text = (max: number) => z.string().trim().max(max);
+const messageSchema = z.object({ text: text(4000).min(1), project_id: z.string().min(1).nullish(), attachment: uploadSchema.optional() }).strict();
+const documentSchema = z.object({ title: text(160).min(2), category: z.enum(DOC_CATEGORIES), notes: text(1000).nullish(), franchisee_id: z.string().min(1).nullish(), file: uploadSchema }).strict();
+const today = (call: Call) => call.now.toISOString().slice(0, 10);
+const mine = (call: Call): string => {
+  if (!call.ctx.franchiseeId) throw new AppError("ACCESS_DENIED", "Portal user is not linked to a franchisee.");
+  return String(call.ctx.franchiseeId);
+};
+
+/** Portal v2: the to-do list, documents and messages. Staff see the library and every conversation. */
+export function portalHubRoutes(r: Router): void {
+  r.on("GET", "/portal/todo", "portal.view", async (call) => portalTodo(call.store, call.ctx, mine(call), today(call)));
+
+  r.on("GET", "/portal/documents", "portal.view", async (call) => {
+    const fid = mine(call);
+    return { library: await brandDocuments(call.repo, fid), records: await ownRecords(call.repo, fid) };
+  });
+  r.on("GET", "/documents", "dashboard.view", async (call) => brandDocuments(call.repo, null));
+  r.on("POST", "/documents", "document.share", async (call) => {
+    const b = parse(documentSchema, call.body);
+    const file_ref = await storeUpload(call, "documents", b.file);
+    return shareDocument(call.store, call.ctx, { title: b.title, category: b.category, notes: b.notes ?? null, franchisee_id: b.franchisee_id ?? null, file_ref }, call.now);
+  }, 201);
+  r.on("PATCH", "/documents/:docId", "document.share", async (call) => {
+    parse(z.object({ action: z.literal("archive") }).strict(), call.body);
+    const doc = await mustGet(call.repo, "brand_documents", call.params.docId, "NOT_FOUND");
+    return call.repo.update("brand_documents", String(doc.ROWID), { status: "ARCHIVED" });
+  });
+  r.on("GET", "/documents/:docId/file", null, async (call) => {
+    const doc = await mustGet(call.repo, "brand_documents", call.params.docId, "NOT_FOUND");
+    if (isPortalUser(call.ctx) ? doc.status !== "ACTIVE" || (doc.franchisee_id && String(doc.franchisee_id) !== String(call.ctx.franchiseeId)) : false) throw new AppError("NOT_FOUND");
+    return signedUrl(call, String(doc.file_ref ?? ""), "No file attached.");
+  });
+
+  r.on("GET", "/portal/messages", "portal.view", async (call) => conversation(call.store, call.ctx, mine(call), "FRANCHISEE", call.now));
+  r.on("POST", "/portal/messages", "portal.view", async (call) => {
+    const fid = mine(call), b = parse(messageSchema, call.body);
+    const attachment_ref = b.attachment ? await storeUpload(call, `messages/${fid}`, b.attachment) : null;
+    return sendMessage(call.store, call.ctx, fid, "FRANCHISEE", { text: b.text, project_id: b.project_id ?? null, attachment_ref }, call.now);
+  }, 201);
+  r.on("GET", "/messages", "dashboard.view", async (call) => inbox(call.store, call.ctx));
+  r.on("GET", "/franchisees/:id/messages", "dashboard.view", async (call) => {
+    const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND");
+    return { franchisee: { ROWID: f.ROWID, display_name: f.display_name, franchise_code: f.franchise_code }, messages: await conversation(call.store, call.ctx, String(f.ROWID), "BRAND", call.now) };
+  });
+  r.on("POST", "/franchisees/:id/messages", "dashboard.view", async (call) => {
+    const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND"), b = parse(messageSchema, call.body);
+    const attachment_ref = b.attachment ? await storeUpload(call, `messages/${f.ROWID}`, b.attachment) : null;
+    return sendMessage(call.store, call.ctx, String(f.ROWID), "BRAND", { text: b.text, project_id: b.project_id ?? null, attachment_ref }, call.now);
+  }, 201);
+  r.on("GET", "/messages/:msgId/attachment", null, async (call) => {
+    const m = await mustGet(call.repo, "messages", call.params.msgId, "NOT_FOUND");
+    if (isPortalUser(call.ctx) && String(m.franchisee_id) !== String(call.ctx.franchiseeId)) throw new AppError("NOT_FOUND");
+    if (!isPortalUser(call.ctx)) await authorize(call.ctx, "dashboard.view", call.permissions);
+    return signedUrl(call, String(m.attachment_ref ?? ""), "No attachment.");
   });
 }

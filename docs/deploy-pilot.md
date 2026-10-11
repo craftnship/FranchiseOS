@@ -344,6 +344,16 @@ Each project page has an Opening day panel; Operations → New stores lists gran
 - The dashboard adds New stores behind plan and Renewals due.
 - Tables `launch_tasks` and `launch_sales`, `franchise_projects.grand_opening_date`, and `agreements.renewal_status`, `renewal_note`, `renewal_updated_at` and `renewed_until` were created in Development on 2026-10-11.
 
+## Franchisee portal v2
+
+The portal home now opens with what needs the franchisee, and the portal adds To do, Messages and Documents pages. Staff get Overview → Messages and Operations → Brand documents.
+
+- **To do.** One list across every store and module, most urgent first (overdue, due now, coming up, for information): signing and the signing fee, an application to finish or a site to propose, blocked or due opening tasks, missing licences and licence renewals, monthly sales to report or fix, unpaid royalty invoices and fee instalments, open audit actions and snags, a design needing changes, returned training, late deliveries to confirm, the franchisee's own launch tasks and launch weeks to report, and unread brand messages. Each item links to the page where it's done. The nav shows how many items are overdue or due.
+- **Messages.** One conversation per franchisee, optionally about a store, with an attachment. A franchisee message tells the owner of their application (or franchise managers if there isn't one); a brand reply tells the franchisee's portal users. Opening the conversation marks the other side's messages read. Any staff member with `dashboard.view` can read and reply.
+- **Documents.** The brand library (manuals, marketing, training, policies, forms) shared with every franchisee or one, plus the franchisee's own files from other modules (licences, lease, sanction letter, designs, sales report files, delivery notes, training certificates). Sharing tells the franchisees who can see it; removing a document hides it from the portal.
+- New permission `document.share` (share or remove brand documents) is super-admin only by default; add it to a role in `role_permissions` (for example Marketing or Operations manager) when they should share documents. Everyone with `dashboard.view` can see the library.
+- Tables `brand_documents` and `messages` were created in Development on 2026-10-11.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

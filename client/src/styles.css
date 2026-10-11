@@ -472,3 +472,38 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .week-bar .fill.bad { background: var(--bad-dot); }
 .week-bar em { font-style: normal; font-weight: 600; font-size: .82rem; }
 @media (max-width: 640px) { .summary dd { flex-wrap: wrap; row-gap: .15rem; } .summary dd .cell-sub { flex-basis: 100%; margin-top: 0; } }
+
+/* Portal v2: to-do list and messages */
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo-list li { border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
+.todo-list li:last-child { border-bottom: 0; }
+.todo-list li.overdue { border-left-color: var(--bad-dot, var(--bad)); }
+.todo-list li.due { border-left-color: var(--warn-dot, var(--warn)); }
+.todo-list li.soon { border-left-color: var(--info-dot, var(--info)); }
+.todo-list a { display: flex; align-items: center; gap: .75rem; padding: .75rem 1.1rem .75rem 1rem; color: inherit; text-decoration: none; }
+.todo-list a:hover { background: var(--accent-weak); }
+.todo-main { flex: 1; min-width: 0; display: grid; gap: .15rem; }
+.todo-main strong { font-weight: 600; }
+.todo-side { display: grid; justify-items: end; gap: .2rem; text-align: right; white-space: nowrap; }
+.todo-list .icon { color: var(--muted); flex: none; }
+@media (max-width: 640px) {
+  .todo-list a { flex-wrap: wrap; }
+  .todo-side { display: flex; text-align: left; align-items: center; gap: .6rem; order: 2; flex-basis: 100%; }
+  .todo-list a > .icon { display: none; }
+}
+.chat { display: flex; flex-direction: column; }
+.chat-list { list-style: none; margin: 0; padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: .8rem; max-height: 60vh; overflow-y: auto; }
+.chat-list li { display: flex; flex-direction: column; gap: .25rem; max-width: min(36rem, 85%); }
+.chat-list li.state { max-width: none; }
+.chat-list li.mine { align-self: flex-end; align-items: flex-end; }
+.chat-list li.theirs { align-self: flex-start; }
+.bubble { padding: .6rem .85rem; border-radius: 14px; background: var(--neutral-bg); color: var(--text); display: grid; gap: .4rem; justify-items: start; }
+.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-list li.mine .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.chat-list li.mine .bubble .btn { color: #fff; border-color: rgba(255,255,255,.5); }
+.chat-list li.theirs .bubble { border-bottom-left-radius: 4px; }
+.chat-box { border-top: 1px solid var(--border); padding: .8rem 1.1rem; display: grid; gap: .6rem; }
+.chat-box textarea { width: 100%; resize: vertical; min-height: 3.2rem; font: inherit; }
+.chat-tools { display: flex; gap: .5rem; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.module-list.docs li { flex-wrap: nowrap; }
+.module-list.docs li > span { min-width: 0; display: grid; gap: .15rem; }
