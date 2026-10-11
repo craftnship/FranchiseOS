@@ -1,4 +1,4 @@
-import { Router } from "./router";
+import { Call, Router } from "./router";
 import { agreementRoutes } from "./routes/agreements";
 import { dashboardRoutes } from "./routes/dashboards";
 import { applicationRoutes } from "./routes/applications";
@@ -22,6 +22,13 @@ import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
 import { siteRoutes } from "./routes/sites";
 import { territoryRoutes } from "./routes/territories";
+import { isPortalUser } from "../common/rbac";
+import { ZohoWeb, zohoWebFor } from "../integrations/region";
+
+async function zohoWeb(call: Call): Promise<ZohoWeb | null> {
+  const row = await call.store.findOne("tenant_integrations", { tenant_id: call.ctx.tenantId, provider: "ZOHO", status: "ACTIVE" });
+  try { return row?.zoho_dc ? zohoWebFor(String(row.zoho_dc), row.org_id ? String(row.org_id) : null) : null; } catch { return null; }
+}
 
 /** The /api/v1 surface served by the fos_api Advanced I/O function. */
 export function buildRouter(): Router {
@@ -30,6 +37,8 @@ export function buildRouter(): Router {
     user_id: call.ctx.userId, tenant_id: call.ctx.tenantId, roles: call.ctx.roles, franchisee_id: call.ctx.franchiseeId ?? null,
     // For showing only the actions the caller may take; every route still checks on the server.
     permissions: call.ctx.roles.includes("SUPER_ADMIN") ? ["*"] : [...await call.permissions(call.ctx.roles)].sort(),
+    // Staff get the tenant's Zoho web addresses, so record IDs can open in Zoho.
+    zoho_web: isPortalUser(call.ctx) ? null : await zohoWeb(call),
   }));
   franchiseeRoutes(r);
   applicationRoutes(r);

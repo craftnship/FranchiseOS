@@ -526,3 +526,4 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .section-head { margin: 1.75rem 0 .75rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
 .store-picker { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); }
 .store-picker select { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .5rem; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; max-width: 12rem; }
+.fact-links { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; }

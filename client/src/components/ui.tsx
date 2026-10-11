@@ -1,6 +1,6 @@
 import { ReactNode, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, drillHref, Kpi, Row } from "../api";
+import { ApiError, drillHref, Kpi, Row, zohoLink } from "../api";
 import { Load } from "../hooks";
 
 const TONE: Record<string, string> = {
@@ -200,4 +200,11 @@ export function Donut({ parts, size = 132, center, caption }: { parts: { value: 
       <div className="donut-center"><div>{center ?? <strong>{total}</strong>}{caption && <small>{caption}</small>}</div></div>
     </div>
   );
+}
+
+/** An invoice number that opens the invoice in Zoho Books for staff who can reach it. */
+export function BooksInvoice({ id, number, fallback = "Invoice raised" }: { id: unknown; number: unknown; fallback?: string }) {
+  const href = zohoLink.books(id);
+  const text = number ? String(number) : href ? "Open in Zoho Books" : fallback;
+  return href ? <a href={href} target="_blank" rel="noreferrer">{text}</a> : <>{text}</>;
 }

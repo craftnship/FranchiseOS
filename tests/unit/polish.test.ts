@@ -102,4 +102,24 @@ describe("polish pass", () => {
     expect((await store.findOne("franchise_projects", { ROWID: p.ROWID }))?.status).toBe("PLANNING");
     expect((await store.findMany("opening_checklists", { project_id: String(p.ROWID) })).map((r) => [r.task_code, r.due_date, r.duration_days])).toEqual([["LEASE", "2026-10-11", 10], ["FITOUT", "2026-11-10", 30]]);
   });
+
+  it("links staff to Zoho and serves the signed agreement as a download", async () => {
+    const store = newStore();
+    const files = new MemoryFileStorage();
+    const t = await bootstrapTenant(store, { tenantCode: "STARK", name: "Stark", zohoDc: "IN" });
+    const fr = await store.insert("franchisees", { tenant_id: t.tenantId, franchise_code: "FR-000001", tenant_code_key: `${t.tenantId}:FR-000001`, display_name: "Pepper", zoho_account_id: "ACC-9" });
+    for (const [role, ext, fid] of [["LEGAL_MANAGER", "legal", null], ["FRANCHISEE", "pepper", String(fr.ROWID)]] as const) await store.insert("users", { tenant_id: t.tenantId, email: `${ext}@x.test`, status: "ACTIVE", role_id: t.roleIds[role], external_user_id: ext, franchisee_id: fid });
+    const g = await store.insert("agreements", { tenant_id: t.tenantId, agreement_code: "AGR-000001", tenant_code_key: `${t.tenantId}:AGR-000001`, franchisee_id: String(fr.ROWID), status: "SIGNED", zoho_sign_request_id: "SR-1", zoho_books_invoice_id: "INV-ID-1" });
+    let downloads = 0;
+    const sign = { downloadSigned: async () => { downloads++; return { name: "a.pdf", type: "application/pdf", data: new Uint8Array([37, 80, 68, 70]) }; } };
+    const call = async (ext: string, path: string) => (await router.handle({ method: "GET", path: `/api/v1${path}`, identity: { externalUserId: ext, email: `${ext}@x.test` } }, { store, files, zoho: async () => ({ sign } as any) })).body as Body;
+    expect((await call("legal", "/me")).data.zoho_web).toBeNull();
+    await store.insert("tenant_integrations", { tenant_id: t.tenantId, provider: "ZOHO", zoho_dc: "IN", org_id: "600123", status: "ACTIVE", provider_key: "k" });
+    expect((await call("legal", "/me")).data.zoho_web).toEqual({ crm: "https://crm.zoho.in", sign: "https://sign.zoho.in", books: "https://books.zoho.in", books_org: "600123" });
+    expect((await call("pepper", "/me")).data.zoho_web).toBeNull();
+    expect((await call("legal", `/agreements/${g.ROWID}`)).data.crm_account_id).toBe("ACC-9");
+    expect((await call("legal", `/agreements/${g.ROWID}/signed-copy`)).data.url).toBe(`memory://tenants/${t.tenantId}/agreements/${g.ROWID}/AGR-000001-signed.pdf`);
+    expect((await call("pepper", `/agreements/${g.ROWID}/signed-copy`)).success).toBe(true);
+    expect(downloads).toBe(2);
+  });
 });

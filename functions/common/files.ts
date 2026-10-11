@@ -4,7 +4,8 @@ import { randomUUID } from "crypto";
 // download through a short-lived signed URL, so a bucket never needs to be public.
 
 export interface FileStorage {
-  put(key: string, data: Buffer, contentType: string): Promise<void>;
+  /** overwrite replaces an object already at the key; otherwise an existing key is an error. */
+  put(key: string, data: Buffer, contentType: string, opts?: { overwrite?: boolean }): Promise<void>;
   /** A link that downloads the object for a few minutes. */
   downloadUrl(key: string): Promise<string>;
 }
@@ -39,8 +40,8 @@ interface StratusBucket {
 export class StratusFileStorage implements FileStorage {
   constructor(private readonly bucket: StratusBucket, private readonly expirySeconds = 300) {}
 
-  async put(key: string, data: Buffer, contentType: string): Promise<void> {
-    await this.bucket.putObject(key, data, { contentType });
+  async put(key: string, data: Buffer, contentType: string, opts: { overwrite?: boolean } = {}): Promise<void> {
+    await this.bucket.putObject(key, data, { contentType, ...(opts.overwrite ? { overwrite: true } : {}) });
   }
 
   async downloadUrl(key: string): Promise<string> {
@@ -54,8 +55,8 @@ export class StratusFileStorage implements FileStorage {
 /** In-memory storage for tests and the local preview. */
 export class MemoryFileStorage implements FileStorage {
   readonly objects = new Map<string, { data: Buffer; contentType: string }>();
-  async put(key: string, data: Buffer, contentType: string): Promise<void> {
-    if (this.objects.has(key)) throw new Error("key_already_exists");
+  async put(key: string, data: Buffer, contentType: string, opts: { overwrite?: boolean } = {}): Promise<void> {
+    if (this.objects.has(key) && !opts.overwrite) throw new Error("key_already_exists");
     this.objects.set(key, { data, contentType });
   }
   async downloadUrl(key: string): Promise<string> {

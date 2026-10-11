@@ -4,7 +4,7 @@ import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
-import { DataTable, date, Facts, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
+import { BooksInvoice, DataTable, date, Facts, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
 
 const FEE_TEXT: Record<string, string> = { SCHEDULED: "Scheduled", INVOICED: "Invoiced", PAID: "Paid", WAIVED: "Waived", REFUNDED: "Refunded" };
 const FEE_TONE: Record<string, string> = { SCHEDULED: "neutral", INVOICED: "warn", PAID: "good", WAIVED: "neutral", REFUNDED: "info" };
@@ -65,7 +65,7 @@ export function FundingPanel({ projectId, editable, portal, closed }: { projectI
                 { key: "amount", label: "Amount", align: "right", sort: (f) => Number(f.amount), render: (f) => inr(Number(f.amount)) },
                 { key: "status", label: "Status", render: (f) => <span><FeeStatus f={f} />{f.status === "PAID" && f.paid_on && <span className="cell-sub">{date(f.paid_on)}</span>}{f.status === "REFUNDED" && <span className="cell-sub">{date(f.refunded_on)}</span>}</span> },
                 { key: "invoice_number", label: "Books invoice", render: (f) => f.invoice_number || f.zoho_books_invoice_id
-                  ? <>{f.invoice_number ?? "Invoice raised"}<span className="cell-sub">{f.status === "INVOICED" ? `${inr(Number(f.invoice_balance ?? f.invoice_total ?? 0))} due${f.invoice_due_date ? ` ${date(f.invoice_due_date)}` : ""} · with tax` : f.invoice_total != null ? `${inr(Number(f.invoice_total))} with tax` : ""}</span></>
+                  ? <><BooksInvoice id={f.zoho_books_invoice_id} number={f.invoice_number} /><span className="cell-sub">{f.status === "INVOICED" ? `${inr(Number(f.invoice_balance ?? f.invoice_total ?? 0))} due${f.invoice_due_date ? ` ${date(f.invoice_due_date)}` : ""} · with tax` : f.invoice_total != null ? `${inr(Number(f.invoice_total))} with tax` : ""}</span></>
                   : <span className="muted">—</span> },
                 ...(manage && !closed ? [{ key: "actions", label: "", align: "right" as const, render: (f: Row) => {
                   const busy = act.busy === `f${f.ROWID}`;
@@ -270,7 +270,7 @@ export function Fees() {
                   { key: "label", label: "Instalment", render: (r) => <>{r.label}<span className="cell-sub">{r.kind === "DEPOSIT" ? "Refundable deposit" : "Fee instalment"}</span></> },
                   { key: "amount", label: "Amount", align: "right", sort: (r) => Number(r.amount), render: (r) => inr(Number(r.amount)) },
                   { key: "status", label: "Status", render: (r) => <FeeStatus f={r} /> },
-                  { key: "invoice_number", label: "Invoice", render: (r) => r.invoice_number || r.zoho_books_invoice_id ? <>{String(r.invoice_number ?? "Signing invoice")}<span className="cell-sub">{r.status === "INVOICED" ? `${inr(Number(r.invoice_balance ?? 0))} due${r.invoice_due_date ? ` ${date(r.invoice_due_date)}` : ""}` : r.paid_on ? `Paid ${date(r.paid_on)}` : ""}</span></> : <span className="muted">—</span> },
+                  { key: "invoice_number", label: "Invoice", render: (r) => r.invoice_number || r.zoho_books_invoice_id ? <><BooksInvoice id={r.zoho_books_invoice_id} number={r.invoice_number} fallback="Signing invoice" /><span className="cell-sub">{r.status === "INVOICED" ? `${inr(Number(r.invoice_balance ?? 0))} due${r.invoice_due_date ? ` ${date(r.invoice_due_date)}` : ""}` : r.paid_on ? `Paid ${date(r.paid_on)}` : ""}</span></> : <span className="muted">—</span> },
                 ]} />
             </Panel>
           </>

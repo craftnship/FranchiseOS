@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, zohoLink } from "../api";
 import { useFranchiseeNames, useLoad } from "../hooks";
-import { DataTable, date, ErrorState, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
+import { BooksInvoice, DataTable, date, ErrorState, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
 import { RenewalPanel } from "../components/Launch";
 
 export const FUNNEL = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING", "APPROVED", "AGREEMENT_PENDING", "AGREEMENT_SIGNED", "ONBOARDING", "ACTIVE"];
@@ -92,6 +92,11 @@ export function Agreements() {
   );
 }
 
+/** A link out to Zoho in a new tab, or plain text when the address isn't known. */
+function ExternalLink({ href, text, fallback }: { href: string | null; text: string; fallback: string }) {
+  return href ? <a href={href} target="_blank" rel="noreferrer">{text}</a> : <>{fallback}</>;
+}
+
 export function AgreementDetail() {
   const { id } = useParams();
   const load = useLoad(() => api<Row>("GET", `/agreements/${id}`), [id]);
@@ -106,6 +111,13 @@ export function AgreementDetail() {
       setNotice(r.pending?.length ? `Still pending: ${r.pending.join(", ")}.` : "Onboarding is complete in CRM, Books and Zoho Projects.");
       load.reload();
     } catch (e) { setError(e as ApiError); } finally { setBusy(false); }
+  };
+  // Opened first so the browser treats it as a click, then pointed at the signed link.
+  const download = async () => {
+    const win = window.open("", "_blank");
+    setBusy(true); setError(null);
+    try { const r = await api<Row>("GET", `/agreements/${id}/signed-copy`); if (win) win.location.href = r.url; else window.location.href = r.url; }
+    catch (e) { win?.close(); setError(e as ApiError); } finally { setBusy(false); }
   };
   return (
     <Loaded load={load}>{(g) => (
@@ -126,9 +138,12 @@ export function AgreementDetail() {
         <RenewalPanel agreement={g} onChanged={load.reload} />
         <Panel title="Integration">
           <Facts items={[
-            ["Zoho Sign request", g.zoho_sign_request_id ?? "Not sent through Zoho Sign"],
-            ["Signed copy", g.document_ref ? "Attached to the franchisee's CRM account" : g.status === "SIGNED" ? "Not filed yet" : "After signing"],
-            ["Books invoice", g.zoho_books_invoice_id ?? "No invoice yet"],
+            ["Zoho Sign request", g.zoho_sign_request_id ? <ExternalLink href={zohoLink.sign(g.zoho_sign_request_id)} text="View in Zoho Sign" fallback="Sent through Zoho Sign" /> : "Not sent through Zoho Sign"],
+            ["Signed copy", g.status === "SIGNED" && g.zoho_sign_request_id
+              ? <span className="fact-links"><button className="btn ghost sm" disabled={busy} onClick={download}>{busy ? "Opening…" : "Download signed agreement"}</button>
+                  {g.document_ref && <ExternalLink href={zohoLink.crmAccount(g.crm_account_id)} text="Filed on the CRM account" fallback="Filed on the CRM account" />}</span>
+              : g.document_ref ? "Filed on the franchisee's CRM account" : g.status === "SIGNED" ? "Not filed yet" : "After signing"],
+            ["Books invoice", g.zoho_books_invoice_id ? <BooksInvoice id={g.zoho_books_invoice_id} number={g.invoice_number} /> : "No invoice yet"],
             ["Franchise fee", g.fee_status ? (g.fee_status === "PAID" ? `Paid on ${date(g.fee_paid_on)}` : `${label(g.fee_status)}: ${inr(Number(g.fee_balance ?? 0))} of ${inr(Number(g.fee_total ?? 0))} outstanding`) : g.zoho_books_invoice_id ? "Not checked yet" : "—"],
             ["Fee last checked", g.fee_checked_at ? date(g.fee_checked_at) : "—"],
             ["Last updated", date(g.MODIFIEDTIME)],

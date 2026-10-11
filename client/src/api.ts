@@ -22,7 +22,8 @@ export async function api<T>(method: string, path: string, opts: { query?: Recor
   return json.data as T;
 }
 
-export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; permissions?: string[] }
+export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; permissions?: string[]; zoho_web?: ZohoWeb | null }
+export interface ZohoWeb { crm: string; sign: string; books: string; books_org: string | null }
 
 let current: Me | null = null;
 export const setCurrentUser = (me: Me | null) => { current = me; };
@@ -51,3 +52,10 @@ const STORE_KEY = "fos.portal.store";
 export const portalStore = (): string | null => { try { return localStorage.getItem(STORE_KEY); } catch { return null; } };
 export const setPortalStore = (id: string | null) => { try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch { /* storage blocked: stay on the default store */ } };
 export const portalHome = () => { const id = portalStore(); return api<Row>("GET", "/portal/home", id ? { query: { project_id: id } } : {}); };
+
+/** Web links to a record in Zoho, for staff; null when the tenant's Zoho isn't known. */
+export const zohoLink = {
+  books: (invoiceId: unknown) => { const w = current?.zoho_web; return w?.books_org && invoiceId ? `${w.books}/app/${w.books_org}#/invoices/${invoiceId}` : null; },
+  crmAccount: (accountId: unknown) => { const w = current?.zoho_web; return w && accountId ? `${w.crm}/crm/tab/Accounts/${accountId}` : null; },
+  sign: (requestId: unknown) => { const w = current?.zoho_web; return w && requestId ? `${w.sign}/zs#/request/details/${requestId}` : null; },
+};
