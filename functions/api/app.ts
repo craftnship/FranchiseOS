@@ -13,6 +13,7 @@ import { royaltyRoutes } from "./routes/royalties";
 import { analyticsRoutes } from "./routes/analytics";
 import { constructionRoutes } from "./routes/construction";
 import { staffingRoutes } from "./routes/staffing";
+import { purchasingRoutes } from "./routes/purchasing";
 import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
@@ -46,5 +47,6 @@ export function buildRouter(): Router {
   analyticsRoutes(r);
   constructionRoutes(r);
   staffingRoutes(r);
+  purchasingRoutes(r);
   return r;
 }

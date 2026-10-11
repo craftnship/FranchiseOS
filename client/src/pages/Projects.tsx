@@ -12,6 +12,7 @@ import { ForecastPanel } from "../components/Forecast";
 import { RoyaltyPanel } from "../components/Royalties";
 import { ConstructionPanel } from "../components/Construction";
 import { StaffingPanel } from "../components/Staffing";
+import { PurchasingPanel } from "../components/Purchasing";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -144,6 +145,7 @@ export function ProjectDetail() {
           </Panel>
           {p.status !== "OPENED" && <ConstructionPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} />}
           <StaffingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} onTasks={reload} />
+          <PurchasingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} onTasks={reload} />
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
           <LeaseSummary lease={(p.lease ?? null) as Row | null} siteId={p.site_id} />
           {p.status === "OPENED" && <RoyaltyPanel projectId={String(id)} />}

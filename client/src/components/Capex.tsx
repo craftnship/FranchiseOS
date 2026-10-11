@@ -5,7 +5,7 @@ import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, inr, Loaded, Panel, Pill } from "./ui";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
-const SOURCE: Record<string, string> = { BOOKS: "Zoho Books", MANUAL: "Recorded", PORTAL: "Franchisee" };
+const SOURCE: Record<string, string> = { BOOKS: "Zoho Books", MANUAL: "Recorded", PORTAL: "Franchisee", PO: "Purchase order" };
 const BILL_TONE: Record<string, string> = { PAID: "good", OPEN: "info", OVERDUE: "bad", PARTIALLY_PAID: "warn", RECORDED: "neutral", VOID: "neutral", DRAFT: "neutral" };
 
 const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {

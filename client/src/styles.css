@@ -433,3 +433,12 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .module-list li:last-child { border-bottom: 0; }
 .module-list .cell-sub { display: block; margin-top: .15rem; }
 @media (max-width: 640px) { .staff-plan { grid-template-columns: 1fr; gap: .5rem; } .staff-plan > div { grid-template-columns: 1fr auto auto; align-items: baseline; gap: .6rem; } }
+
+/* Vendors and orders */
+.sub-head { margin: 1rem 1rem .5rem; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.order-lines { display: grid; border: 1px solid var(--border); border-radius: 8px; max-height: 22rem; overflow: auto; }
+.order-lines label { display: grid; grid-template-columns: 1fr 6.5rem; gap: .75rem; align-items: center; padding: .6rem .8rem; border-bottom: 1px solid var(--border); cursor: default; }
+.order-lines label:last-child { border-bottom: 0; }
+.order-lines .cell-sub { display: block; }
+.order-lines input { text-align: right; }
+.order-lines > p { padding: .8rem; }

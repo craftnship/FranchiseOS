@@ -222,3 +222,31 @@ export async function syncTenantBills(store: Store, ctx: TenantContext, books: Z
   }
   return out;
 }
+
+/**
+ * A delivered purchase order counts as spend, one entry per category on it. The key is the order
+ * and category, so a repeat never counts twice.
+ */
+export async function recordPoSpend(store: Store, ctx: TenantContext, project: Row, po: Row, poLines: Array<{ category: string; amount: number }>, vendor: string): Promise<void> {
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const budget = await ensureBudget(store, ctx, project);
+  const byCat = new Map<string, number>();
+  for (const l of poLines) {
+    const cat = budget.some((b) => b.category === l.category) ? l.category : OTHER;
+    byCat.set(cat, round((byCat.get(cat) ?? 0) + toNum(l.amount), 2));
+  }
+  await withOverrunCheck(store, ctx, project, async () => {
+    for (const [category, amount] of byCat) {
+      try {
+        await repo.insert("capex_spend", {
+          project_id: String(project.ROWID), category, vendor, spend_date: String(po.delivered_on).slice(0, 10), amount, balance: 0, status: "RECORDED",
+          source: "PO", reference: String(po.po_number), notes: null, file_ref: po.delivery_ref ?? null, recorded_by: /^\d+$/.test(ctx.userId) ? ctx.userId : null,
+          spend_key: `${ctx.tenantId}:PO:${po.ROWID}:${category}`,
+        });
+      } catch (e) {
+        if (!(e instanceof DuplicateKeyError)) throw e;
+      }
+    }
+    return null;
+  });
+}

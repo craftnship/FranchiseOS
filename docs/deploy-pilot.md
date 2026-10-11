@@ -296,6 +296,17 @@ Each project has a Team and training panel (staff) and a Team page in the franch
 - Notifications: a module waiting for sign-off goes to training and project managers; a module sent back goes to the franchisee.
 - Tables `store_staff` and `staff_training`, and the column `franchise_projects.staffing_plan_json`, were created in Development on 2026-10-11.
 
+## Vendors and purchase orders
+
+Operations → Vendors holds the approved supplier catalogue; each opening project has an Equipment and supplies panel, and the franchisee portal an Orders page.
+
+- **Catalogue.** Vendors (name, what they supply, contact, GSTIN, city) and their items (price before tax, unit, lead time, capex category). An item marked as part of the standard package says how many every store needs. Only `vendor.manage` changes the catalogue; it is a new permission, held by super admins only until a role is given it. A suspended vendor or retired item can't be ordered; orders already placed carry on.
+- **Orders.** The franchisee (or staff with `project.write`) orders from one approved vendor at a time; prices are copied from the catalogue. Each order gets a number like `PO-PROJ-000012-01` and a needed-by date (kitchen equipment: the install task's due date; opening stock: its task; anything else: the target opening). Staff confirm it with the vendor's delivery date; a date after it's needed, or a confirmed order past its date, shows as late. The franchisee or staff mark it delivered with an optional delivery note. The franchisee can cancel only while an order is placed; staff can cancel until delivery.
+- **Capex.** A delivered order is added to the project's capex as spend (source "Purchase order"), one entry per category. Don't record the same invoice again by hand.
+- **Checklist tasks.** "Order kitchen equipment" completes when the standard kitchen equipment is all on order, and "Receive opening inventory" when the standard opening stock is delivered, in Zoho Projects too when linked. Neither, nor "Install and commission equipment", can be marked done by hand before the package allows it. A category with no standard items doesn't hold anything back.
+- Notifications: an order placed from the portal goes to project managers; a confirmed date and a cancellation go to the franchisee; a delivery goes to project managers; a confirmed order past its date reminds both sides daily (job_reminders).
+- Tables `vendors`, `vendor_items` and `purchase_orders` were created in Development on 2026-10-11. The catalogue starts empty.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

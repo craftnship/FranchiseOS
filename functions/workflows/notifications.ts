@@ -1,3 +1,4 @@
+import { overdueOrders } from "./purchasing";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -311,6 +312,35 @@ const RULES: Record<string, Rule> = {
     return { kind: "training.returned", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
       title: `${String(m.name ?? "")}'s ${String(m.module ?? "training").toLowerCase()} training was sent back`, body: String(m.note ?? ""), link: "/portal/team" };
   },
+  "po:placed": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    if (m.source !== "PORTAL") return null;
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "po.placed", entityType: "project", entityId: e.entityId, roles: ["PROJECT_MANAGER"],
+      title: `${code} placed ${String(m.po_number)} with ${String(m.vendor ?? "a vendor")} for ${inr(toNum(m.total))}`, body: "Confirm it once the vendor commits to a delivery date.",
+      link: linkTo("project", e.entityId), dedupe: `po-placed:${m.po_id}` };
+  },
+  "po:confirmed": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "po.confirmed", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${String(m.po_number)} is confirmed: ${String(m.vendor ?? "the vendor")} delivers ${nice(m.expected_delivery)}`, body: "Mark it delivered when it arrives.",
+      link: "/portal/orders", dedupe: `po-confirmed:${m.po_id}:${m.expected_delivery}` };
+  },
+  "po:delivered": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    return { kind: "po.delivered", entityType: "project", entityId: e.entityId, roles: ["PROJECT_MANAGER"],
+      title: `${code}: ${String(m.po_number)} from ${String(m.vendor ?? "the vendor")} was delivered`, body: `${inr(toNum(m.total))} is added to the store's capex.`,
+      link: linkTo("project", e.entityId), dedupe: `po-delivered:${m.po_id}` };
+  },
+  "po:cancelled": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "po.cancelled", entityType: "project", entityId: e.entityId, roles: ["PROJECT_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${code}: ${String(m.po_number)} with ${String(m.vendor ?? "the vendor")} was cancelled`, body: String(m.reason ?? ""),
+      link: linkTo("project", e.entityId), dedupe: `po-cancelled:${m.po_id}` };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
@@ -463,7 +493,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -567,6 +597,18 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
   }
 
   out.sales += await salesReminders(store, ctx, repo, today, now);
+
+  // Confirmed orders past their delivery date: the project manager and the franchisee chase the vendor.
+  for (const po of overdueOrders(await repo.findMany("purchase_orders", { status: "CONFIRMED" }), today)) {
+    const project = projectsById.get(String(po.project_id));
+    if (!project || project.status === "CLOSED") continue;
+    const vendor = await repo.findOne("vendors", { ROWID: String(po.vendor_id) });
+    out.deliveries += await deliver(store, ctx, {
+      kind: "po.overdue", entityType: "project", entityId: String(po.project_id), roles: ["PROJECT_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, po.franchisee_id),
+      title: `${po.po_number} from ${vendor?.name ?? "the vendor"} is late`, body: `It was due ${nice(String(po.expected_delivery).slice(0, 10))} for ${project.project_code}. Chase the vendor and update the date.`,
+      link: linkTo("project", String(po.project_id)), dedupe: `po-overdue:${po.ROWID}:${String(po.expected_delivery).slice(0, 10)}`,
+    }, now);
+  }
   return out;
 }
 
@@ -607,7 +649,7 @@ async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
