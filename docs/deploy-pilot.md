@@ -282,7 +282,7 @@ Each opening project has a Construction panel (staff) and a Construction page in
 - **Site photos.** Staff and the franchisee add photos with a caption and area. The time comes from the photo (a future time becomes now), and the location is optional, asked for in the browser. A photo more than 500 m from the site's pin is flagged.
 - **Snag list.** Staff raise snags as minor, major or critical, with an optional photo. The franchisee marks them fixed with a note and photo; staff verify (close), reopen with a note, or waive with a reason. Major and critical snags that are open or fixed but not verified stop the store opening (`SNAGS_OPEN`); minor ones don't.
 - Notifications: a design waiting for approval goes to franchise and project managers; the decision, major or critical snags and reopened snags go to the franchisee; fixed snags go to project and franchise managers.
-- New projects get the DESIGN task from the template, and FITOUT now depends on it. Existing projects have no DESIGN task, so approving a design there completes nothing, but the fit-out rule still applies.
+- New projects get the DESIGN task from the template, and FITOUT now depends on it. Seeding only adds this for new tenants; for STARK in Development the DESIGN row was added to `project_template_tasks` and FITOUT's `depends_on_json` set to `["PERMITS","DESIGN"]` by hand on 2026-10-11. Do the same for any other existing tenant. Existing projects have no DESIGN task, so approving a design there completes nothing, but the fit-out rule still applies.
 - Tables `design_reviews`, `site_photos` and `snags` were created in Development on 2026-10-11. Photo coordinates are stored to 4 decimal places (about 11 m).
 
 ## Activity log
