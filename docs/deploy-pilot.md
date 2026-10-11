@@ -236,6 +236,29 @@ settings so the test agreement route stops answering.
   `opening_checklists.completed_on`, `franchise_projects.forecast_opening_date`,
   `franchise_projects.forecast_slip_days`, `franchise_projects.forecast_alerted_on`.
 
+## Royalties and sales
+
+- Every opened store reports each calendar month's sales, from its opening month on: gross, net,
+  bills and an optional POS report (stored in Stratus under `tenants/<t>/projects/<p>/sales/`).
+  The franchisee reports from the portal ("Sales reports"); staff with `royalty.manage` can report
+  for them. A report can be changed until it is invoiced.
+- Rates are a percent of net sales: the store's own rate (set on the project page with
+  `royalty.manage`, audited as `royalty:rates`), else its feasibility model's royalty and
+  marketing fund, else `settings_json.royalty_pct` / `marketing_fund_pct`.
+- `royalty.manage` approves a report into one Zoho Books invoice (reference
+  `ROY-<project code>-<YYYYMM>`) with a Royalty line and a Marketing fund line, using the tenant's
+  Books tax and payment terms, and marks it sent; or returns it with a note. The franchisee hears
+  either way. The two-way sync in `fos_jobs` marks invoices paid. Books uses the existing invoices
+  scope; no new scope is needed.
+- Reports are due on day `settings_json.sales_report_due_day` (default 7) of the next month. The
+  franchisee is reminded on the due day; finance and the franchise manager hear once a month is
+  5 or more days late.
+- `royalty.manage` is super-admin only by default; add it to the Finance manager role in
+  `role_permissions` when finance should approve.
+- Staff see every report on Operations > Royalties (`dashboard.view`).
+- Data Store: `sales_reports`, plus `franchise_projects.royalty_pct` and
+  `franchise_projects.marketing_fund_pct` (created in Development on 2026-10-11).
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

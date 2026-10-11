@@ -9,11 +9,11 @@ const STAFF_NAV: [string, NavItem[]][] = [
   ["Overview", [["/", "Dashboard", "dashboard"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"]]],
-  ["Operations", [["/projects", "Opening projects", "projects"]]],
+  ["Operations", [["/projects", "Opening projects", "projects"], ["/royalties", "Royalties", "money", "dashboard.view"]]],
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
-  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/agreement", "Agreement", "agreements"]]],
+  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
 ];
 
 /** Search results open the record's page where the app has one, else its list. */

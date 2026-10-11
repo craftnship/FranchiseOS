@@ -28,6 +28,7 @@ const ENTITIES: Record<string, { table: string; label: (r: Row) => string; href:
   licence: { table: "licences", label: (r) => String(r.name), href: (r) => (r.project_id ? `/projects/${r.project_id}` : null) },
   feasibility: { table: "feasibility_models", label: () => "Feasibility", href: (r) => (r.application_id ? `/applications/${r.application_id}` : null) },
   integration: { table: "integration_logs", label: (r) => `${r.source_system} ${r.operation}`, href: () => "/admin/integrations" },
+  sales_report: { table: "sales_reports", label: (r) => `Sales ${r.period}`, href: (r) => (r.project_id ? `/projects/${r.project_id}` : null) },
   user: { table: "users", label: (r) => String(r.name ?? r.email), href: () => "/admin/users" },
   approval_delegation: { table: "approval_delegations", label: (r) => `Delegation of ${String(r.role ?? "").toLowerCase().replace(/_/g, " ")}`, href: () => "/approvals" },
 };

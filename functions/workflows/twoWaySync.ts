@@ -1,3 +1,4 @@
+import { syncTenantRoyalties } from "./royalties";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { Store } from "../common/store";
@@ -15,7 +16,7 @@ export async function runTwoWaySyncJob(
   zohoFor: (tenantId: string) => Promise<ZohoClients | null>,
   opts: { now: Date; requestId: string; mailer?: Mailer },
 ) {
-  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, bills_added: 0, contacts_updated: 0, failed: 0 };
+  const out = { tenants: 0, fees_checked: 0, fees_paid: 0, bills_added: 0, royalties_paid: 0, contacts_updated: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:job", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };
@@ -28,6 +29,8 @@ export async function runTwoWaySyncJob(
         out.fees_checked += f.checked; out.fees_paid += f.paid; out.failed += f.failed;
         const b = await syncTenantBills(store, ctx, zoho.books);
         out.bills_added += b.added; out.failed += b.failed;
+        const r = await syncTenantRoyalties(store, ctx, zoho.books);
+        out.royalties_paid += r.paid; out.failed += r.failed;
       }
       const c = await syncTenantContacts(store, ctx, zoho.crm);
       out.contacts_updated += c.updated; out.failed += c.failed;

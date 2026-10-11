@@ -4,6 +4,7 @@ import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
 import { expireLicences, renewDays } from "./licences";
 import { derivedDates, openingGap, rentSchedule } from "./leases";
+import { duePeriods, nextPeriod, periodLabel, royaltySettings } from "./royalties";
 
 // Notifications (spec §23): an in-app inbox per user, copied by email when a mailer is configured.
 // Events come from the activity log (notifyFromActivity), so every path that records an action,
@@ -250,6 +251,23 @@ const RULES: Record<string, Rule> = {
       title: `Franchise fee overdue on ${code}`, body: `${await franchiseeName(repo, row?.franchisee_id)} owes ₹${toNum(e.metadata?.balance).toLocaleString("en-IN")} on invoice ${e.metadata?.invoice ?? ""}`.trim() + ".",
       link: linkTo("agreement", e.entityId), dedupe: `fee-overdue:${e.entityId}:${row?.fee_due_date ?? ""}` };
   },
+  "royalty:submitted": async (_s, _c, e, repo) => royaltySubmitted(e, repo),
+  "royalty:resubmitted": async (_s, _c, e, repo) => royaltySubmitted(e, repo),
+  "royalty:returned": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", String(m.project_id));
+    return { kind: "royalty.returned", entityType: "project", entityId: String(m.project_id), userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `Your ${monthName(m.period)} sales report for ${code} needs a correction`, body: String(m.note ?? ""), link: "/portal/sales" };
+  },
+  "royalty:invoiced": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    if (m.zero) return null;
+    const { code, row } = await codeOf(repo, "project", String(m.project_id));
+    return { kind: "royalty.invoiced", entityType: "project", entityId: String(m.project_id), userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `Royalty invoice for ${monthName(m.period)}: ${inr(toNum(m.royalty) + toNum(m.marketing))}`,
+      body: `${code}: royalty ${inr(toNum(m.royalty))}${toNum(m.marketing) ? ` and marketing fund ${inr(toNum(m.marketing))}` : ""} on net sales of ${inr(toNum(m.net_sales))}.${m.invoice_number ? ` Books invoice ${m.invoice_number}.` : ""}`,
+      link: "/portal/sales" };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
@@ -323,6 +341,15 @@ const EXPIRY_WARN_DAYS = 5;
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const monthName = (p: unknown) => periodLabel(String(p ?? ""));
+
+async function royaltySubmitted(e: Entry, repo: TenantRepo): Promise<Notice> {
+  const m = e.metadata ?? {};
+  const { code, row } = await codeOf(repo, "project", String(m.project_id));
+  return { kind: "royalty.submitted", entityType: "project", entityId: String(m.project_id), roles: ["FINANCE_MANAGER"],
+    title: `${code} reported ${monthName(m.period)} sales`, body: `${await franchiseeName(repo, row?.franchisee_id)}: net sales ${inr(toNum(m.net_sales))}. Approve it to raise the royalty invoice.`,
+    link: linkTo("project", String(m.project_id)), dedupe: `royalty-submitted:${e.entityId}:${m.net_sales}` };
+}
 
 /**
  * Lease alerts for one lease, each delivered once: rent starting before the store opens (again when
@@ -384,7 +411,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -486,12 +513,49 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
       link: linkTo("application", String(app.ROWID)), dedupe: `territory-expiring:${r.ROWID}`,
     }, now);
   }
+
+  out.sales += await salesReminders(store, ctx, repo, today, now);
   return out;
+}
+
+/** Days after the due day before finance and the franchise manager hear that a report is missing. */
+const SALES_LATE_DAYS = 5;
+
+/**
+ * Opened stores whose sales for a finished month are missing (or returned and not yet fixed): the
+ * franchisee is reminded on the due day, and finance and the franchise manager hear a few days later.
+ */
+async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo, today: string, now: Date): Promise<number> {
+  const { report_due_day } = royaltySettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
+  let sent = 0;
+  for (const project of await repo.findMany("franchise_projects", { status: "OPENED" }, { limit: 300 })) {
+    const pid = String(project.ROWID);
+    const reports = new Map((await repo.findMany("sales_reports", { project_id: pid }, { limit: 300 })).map((r) => [String(r.period), r]));
+    const missing = duePeriods(project, today).filter((p) => { const r = reports.get(p); return !r || r.status === "RETURNED"; });
+    for (const p of missing.slice(-3)) {
+      const dueOn = `${nextPeriod(p)}-${String(report_due_day).padStart(2, "0")}`;
+      if (today < dueOn) continue;
+      const late = Math.round((Date.parse(today) - Date.parse(dueOn)) / 86_400_000);
+      sent += await deliver(store, ctx, {
+        kind: "sales.due", entityType: "project", entityId: pid, userIds: await portalUsers(store, ctx.tenantId, project.franchisee_id),
+        title: `Report your ${periodLabel(p)} sales for ${project.project_code}`, body: `It was due ${nice(dueOn)}. Your royalty invoice is raised from it.`,
+        link: "/portal/sales", dedupe: `sales-due:${pid}:${p}`,
+      }, now);
+      if (late >= SALES_LATE_DAYS) {
+        sent += await deliver(store, ctx, {
+          kind: "sales.late", entityType: "project", entityId: pid, roles: ["FINANCE_MANAGER", "FRANCHISE_MANAGER"],
+          title: `${project.project_code} hasn't reported ${periodLabel(p)} sales`, body: `${await franchiseeName(repo, project.franchisee_id)} is ${late} days past the ${nice(dueOn)} due date.`,
+          link: linkTo("project", pid), dedupe: `sales-late:${pid}:${p}`,
+        }, now);
+      }
+    }
+  }
+  return sent;
 }
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

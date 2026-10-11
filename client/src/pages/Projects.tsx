@@ -9,6 +9,7 @@ import { LicencePanel, missingLicences } from "../components/Licences";
 import { CapexPanel } from "../components/Capex";
 import { LeaseSummary } from "../components/Lease";
 import { ForecastPanel } from "../components/Forecast";
+import { RoyaltyPanel } from "../components/Royalties";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -141,6 +142,7 @@ export function ProjectDetail() {
           </Panel>
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
           <LeaseSummary lease={(p.lease ?? null) as Row | null} siteId={p.site_id} />
+          {p.status === "OPENED" && <RoyaltyPanel projectId={String(id)} />}
           <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />
           {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}
             onOpen={(date) => act.run("open", () => api<Row>("POST", `/projects/${id}/transition`, { body: { transition: "open", actual_opening_date: date } }), "The store is open. The franchisee is now active.").then((r) => r && setOpening(false))} />}

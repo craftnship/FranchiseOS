@@ -14,6 +14,7 @@ const ACTIONS: Record<string, string> = {
   "checklist:completed": "Task completed", "checklist:reopened": "Task reopened", "checklist:updated": "Task changed", "checklist:blocked": "Task blocked", "checklist:unblocked": "Task unblocked",
   "integration:retried": "Integration retried", "integration:resolved": "Integration item resolved", "user:invited": "Person added", "user:linked": "First sign-in", "user:updated": "Person changed", "user:deactivated": "Person deactivated", "user:reactivated": "Person reactivated",
   "activate:signed": "Activated on signing", "activate:opened": "Activated on opening", "licence:expired": "Licence expired",
+  "royalty:submitted": "Sales reported", "royalty:resubmitted": "Sales report changed", "royalty:returned": "Sales report returned", "royalty:invoiced": "Royalty invoiced", "royalty:paid": "Royalty paid", "royalty:rates": "Royalty rates changed",
 };
 export const actionLabel = (a: unknown) => {
   const s = String(a ?? "");
