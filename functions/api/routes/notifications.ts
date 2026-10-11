@@ -1,3 +1,4 @@
+import { Row } from "../../common/store";
 import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { parse, Router } from "../router";
@@ -10,6 +11,9 @@ export function notificationRoutes(r: Router): void {
     const q = parse(listSchema, call.query);
     const mine = { recipient_user_id: call.ctx.userId };
     const items = await call.repo.findMany("notifications", { ...mine, ...(q.unread === "true" ? { status: "UNREAD" } : {}) }, { orderBy: "created_at", desc: true, limit: q.limit });
+    // Notices raised in the same millisecond keep the order they were written: newest ROWID first.
+    const rowid = (n: Row) => String(n.ROWID).padStart(20, "0");
+    items.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || rowid(b).localeCompare(rowid(a)));
     const unread = (await call.repo.findMany("notifications", { ...mine, status: "UNREAD" }, { limit: 100 })).length;
     return { items, unread };
   });
