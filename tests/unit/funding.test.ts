@@ -128,10 +128,12 @@ describe("franchise fee schedule", () => {
     expect((await s.call("tony", "PATCH", `${s.base}/fees/${added.ROWID}`, { action: "edit", kind: "FEE", label: "x1", amount: 1, raise_on: "SIGNING" })).error?.code).toBe("INVALID_TRANSITION");
   });
 
-  it("gives an agreement signed before schedules its one fee invoice", async () => {
+  it("gives an agreement signed before schedules only its one fee invoice", async () => {
     const s = await setup({ legacy: true });
     const f = (await s.call("pepper", "GET", `${s.base}/funding`)).data;
-    expect(f.instalments.map((i: any) => [i.label, i.amount, i.status])).toEqual([["Franchise fee", 500000, "INVOICED"], ["Security deposit", 100000, "SCHEDULED"]]);
+    expect(f.instalments.map((i: any) => [i.label, i.amount, i.status])).toEqual([["Franchise fee", 500000, "INVOICED"]]);
+    // Nothing new is billed to a store signed before the plan, by the nightly run either.
+    expect(await s.job("2026-10-12T00:30:00Z")).toMatchObject({ instalments_raised: 0 });
   });
 });
 

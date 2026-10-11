@@ -5,7 +5,7 @@ import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
 import { ZohoBooksClient } from "../integrations/clients";
-import { FeeKind, FeeStep, FeeTrigger, feePlan, onboardingSettings } from "./agreements";
+import { FeeKind, FeeStep, FeeTrigger, onboardingSettings } from "./agreements";
 import { ensureBudget } from "./capex";
 import { booksCustomerFor } from "./royalties";
 
@@ -41,21 +41,19 @@ function fromAgreement(agreement: Row): Row {
   };
 }
 
-/**
- * The project's instalments, made once from the plan the agreement was signed on. An agreement
- * signed before schedules existed invoiced the whole fee on signing, so its schedule is that one
- * invoice (plus the deposit, if the tenant charges one).
- */
+/** The project's instalments, made once from the plan the agreement was signed on. */
 export async function ensureSchedule(store: Store, ctx: TenantContext, project: Row, agreement: Row | null): Promise<Row[]> {
   const repo = new TenantRepo(store, ctx.tenantId);
   const pid = String(project.ROWID);
   const existing = await repo.findMany("fee_instalments", { project_id: pid }, { orderBy: "seq", limit: 100 });
   if (existing.length || !agreement) return existing;
   const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  // Only an agreement signed on a plan gets one; one signed before schedules keeps what it was
+  // billed (its one invoice, or nothing), so a plan added later never bills a signed store.
   let steps: FeeStep[];
   if (agreement.fee_plan_json) steps = parse<FeeStep[]>(agreement.fee_plan_json, []);
-  else if (agreement.zoho_books_invoice_id) steps = [{ kind: "FEE", label: "Franchise fee", amount: onboardingSettings(tenant).franchise_fee, trigger: "SIGNING" }, ...feePlan(tenant).filter((s) => s.kind === "DEPOSIT")];
-  else steps = feePlan(tenant);
+  else if (agreement.zoho_books_invoice_id) steps = [{ kind: "FEE", label: "Franchise fee", amount: onboardingSettings(tenant).franchise_fee, trigger: "SIGNING" }];
+  else return [];
   const signedOn = String(agreement.signed_at ?? agreement.effective_date ?? new Date().toISOString()).slice(0, 10);
   let adoptedOne = false;
   const rows: Row[] = [];
