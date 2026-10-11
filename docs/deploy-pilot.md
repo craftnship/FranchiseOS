@@ -283,3 +283,28 @@ settings so the test agreement route stops answering.
   up, a webhook fails, or a job step fails. Each repeats at most once a day per item.
 - No Data Store changes: rows go in `integration_logs` (jobs as source `FOS_JOBS`) and
   `integration_events`, with the new status `RESOLVED`.
+
+## Rotating the webhook secret
+
+The CRM lead webhook and the Sign callback URL both carry `FOS_CRM_WEBHOOK_SECRET`. fos_webhooks
+can accept the old and the new secret side by side for a few days, so nothing breaks while each
+sender is switched over. Integration health → Zoho connection shows "From the function settings"
+when the secret comes from env.local.json (a secret stored on the tenant_integrations row would
+take precedence).
+
+1. Make a new secret on your Mac and keep it on the clipboard (never paste it into chat):
+   `openssl rand -hex 32 | pbcopy`
+2. In `catalyst/env.local.json`, inside `fos_webhooks`:
+   - copy the current `FOS_CRM_WEBHOOK_SECRET` line and rename the copy's key to
+     `FOS_CRM_WEBHOOK_SECRET_PREVIOUS` (same old value);
+   - paste the new secret as the value of `FOS_CRM_WEBHOOK_SECRET`;
+   - add `"FOS_CRM_WEBHOOK_SECRET_PREVIOUS_UNTIL": "YYYY-MM-DD"`, about a week ahead. The old
+     secret stops working after that day, and is never accepted without this date.
+3. Deploy fos_webhooks. Both secrets work now.
+4. Switch each sender to the new secret:
+   - Zoho CRM → Setup → Automation → Actions → Webhooks → the FOS lead webhook → header
+     `x-fos-webhook-secret`.
+   - Zoho Sign → Settings → Developer settings → Webhooks → the FOS callback URL's `token=`.
+5. Watch the fos_webhooks logs for `webhook.previous_secret_used`. Each entry names the route
+   still on the old secret. When none appear for a day, delete the two `..._PREVIOUS` lines and
+   deploy fos_webhooks again.

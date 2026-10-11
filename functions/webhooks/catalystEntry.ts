@@ -27,7 +27,8 @@ export async function handleWebhookRequest(req: IncomingMessage, res: ServerResp
   const store = new CatalystStore(app);
   const result = await handleWebhook(
     { method: req.method ?? "POST", path: url.pathname, headers: req.headers, query: Object.fromEntries(url.searchParams), body, rawBody: raw },
-    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), zoho: zohoFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET, signSecret: process.env.FOS_SIGN_WEBHOOK_SECRET || undefined, mailer: mailerFromEnv(app) },
+    { store, crm: crmFactory(store, zohoCredentialsFromEnv()), zoho: zohoFactory(store, zohoCredentialsFromEnv()), fallbackSecret: process.env.FOS_CRM_WEBHOOK_SECRET,
+      previousSecret: process.env.FOS_CRM_WEBHOOK_SECRET_PREVIOUS || undefined, previousSecretUntil: process.env.FOS_CRM_WEBHOOK_SECRET_PREVIOUS_UNTIL || undefined, signSecret: process.env.FOS_SIGN_WEBHOOK_SECRET || undefined, mailer: mailerFromEnv(app) },
   );
   send(res, result.status, result.body);
 }

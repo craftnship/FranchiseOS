@@ -140,4 +140,21 @@ describe("pilot env fallbacks", () => {
       { store, crm: async () => null, fallbackSecret: "envsecret" });
     expect((res2.body as any).error.code).toBe("ZOHO_SYNC_FAILED");
   });
+
+  it("accepts the previous secret during a rotation, until its end date", async () => {
+    const { handleWebhook } = await import("../../functions/webhooks/router");
+    const store = newStore();
+    const t = await store.insert("tenants", { tenant_code: "STARK", name: "Stark", status: "ACTIVE", zoho_dc: "IN" });
+    await store.insert("tenant_integrations", { tenant_id: String(t.ROWID), provider: "ZOHO", zoho_dc: "IN", status: "ACTIVE", provider_key: "k" });
+    const post = (secret: string, extra: Record<string, unknown>) => handleWebhook(
+      { method: "POST", path: "/webhooks/crm/lead/STARK", headers: {}, query: { token: secret }, body: { lead_id: "1" } },
+      { store, crm: async () => null, fallbackSecret: "new-secret", ...extra });
+    const code = async (secret: string, extra: Record<string, unknown> = {}) => ((await post(secret, extra)).body as any).error.code;
+    const rotating = { previousSecret: "old-secret", previousSecretUntil: "2026-10-20", now: () => new Date("2026-10-15T10:00:00Z") };
+    expect(await code("new-secret", rotating)).toBe("ZOHO_SYNC_FAILED"); // past the secret check
+    expect(await code("old-secret", rotating)).toBe("ZOHO_SYNC_FAILED");
+    expect(await code("old-secret", { ...rotating, now: () => new Date("2026-10-21T00:00:00Z") })).toBe("WEBHOOK_SIGNATURE_INVALID");
+    expect(await code("old-secret", { previousSecret: "old-secret" })).toBe("WEBHOOK_SIGNATURE_INVALID"); // no end date, not accepted
+    expect(await code("other", rotating)).toBe("WEBHOOK_SIGNATURE_INVALID");
+  });
 });
