@@ -384,3 +384,5 @@ td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: fle
   .grid.audit { min-width: 640px; }
   .grid.audit td.nowrap { white-space: normal; min-width: 6.5rem; }
 }
+.chip.static { cursor: default; font-size: .74rem; height: auto; padding: .15rem .55rem; }
+.chip.static:hover { border-color: var(--border-strong); }

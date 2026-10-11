@@ -247,3 +247,21 @@ settings so the test agreement route stops answering.
   entry (up to 5,000).
 - Needs `audit.view`. Only SUPER_ADMIN has it by default; grant it to another role in
   role_permissions if someone else should see the log. API: `GET /audit`.
+
+## Users and roles
+
+- Admin → Users and roles (needs `user.admin`, SUPER_ADMIN only by default) lists everyone with a
+  FranchiseOS account: role, franchisee (for portal users), status and when they were added.
+  Below it, every role with how many active people hold it and what it can do (read-only).
+- "Add person" takes their email, name, role and, for franchisee roles, the franchisee. They
+  start as Invited and become Active the first time they sign in: matched by the Catalyst user
+  the invitation created, or else by their verified Catalyst sign-in email. No more hand-made
+  rows in the users table.
+- Invitation emails: set `FOS_AUTH_ZAID` on fos_api to the environment's ZAID (Catalyst console
+  → Settings → Environments; Development and Production differ) and, optionally, `FOS_APP_URL`
+  for where the invitation lands. FOS then registers the person in Catalyst Authentication,
+  which emails them to set a password. Without it, add them in Catalyst Authentication yourself
+  (or let them sign up); FOS links them on first sign-in.
+- Edit changes name, role and franchisee. Deactivate stops sign-in and notifications at once;
+  Reactivate restores it. You can't deactivate yourself or change your own role, and the last
+  active super admin can't be removed. Every change is in the activity log (`user:*`).

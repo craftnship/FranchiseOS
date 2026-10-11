@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AuthAdmin } from "../common/authAdmin";
 import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
 import { Mailer, TenantContext } from "../common/context";
@@ -41,6 +42,8 @@ export interface ApiDeps {
   files?: FileStorage;
   /** Sends notification emails; absent until a sender is configured. */
   mailer?: Mailer;
+  /** Invites people to Catalyst Authentication; absent until FOS_AUTH_ZAID is set. */
+  auth?: AuthAdmin;
 }
 
 export interface Call {
@@ -57,6 +60,7 @@ export interface Call {
   /** The tenant's Zoho clients, or null when Zoho is not connected. */
   zoho: () => Promise<ZohoClients | null>;
   files: FileStorage | null;
+  auth: AuthAdmin | null;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -121,6 +125,7 @@ export class Router {
         },
         zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
         files: deps.files ?? null,
+        auth: deps.auth ?? null,
       });
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {

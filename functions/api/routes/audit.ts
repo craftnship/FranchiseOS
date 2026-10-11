@@ -27,6 +27,7 @@ const ENTITIES: Record<string, { table: string; label: (r: Row) => string; href:
   checklist: { table: "opening_checklists", label: (r) => String(r.item), href: (r) => (r.project_id ? `/projects/${r.project_id}` : null) },
   licence: { table: "licences", label: (r) => String(r.name), href: (r) => (r.project_id ? `/projects/${r.project_id}` : null) },
   feasibility: { table: "feasibility_models", label: () => "Feasibility", href: (r) => (r.application_id ? `/applications/${r.application_id}` : null) },
+  user: { table: "users", label: (r) => String(r.name ?? r.email), href: () => "/admin/users" },
   approval_delegation: { table: "approval_delegations", label: (r) => `Delegation of ${String(r.role ?? "").toLowerCase().replace(/_/g, " ")}`, href: () => "/approvals" },
 };
 export const AUDIT_ENTITY_TYPES = Object.keys(ENTITIES);
@@ -67,7 +68,8 @@ export function auditRoutes(r: Router): void {
     if (q.entity_id) where.entity_id = q.entity_id;
     if (q.actor_user_id) where.actor_user_id = q.actor_user_id;
     const rows = await call.repo.findMany("activity_logs", where, {
-      orderBy: "created_at", desc: true, offset: q.offset, limit: q.limit + 1,
+      // ROWIDs only grow, and timestamps tie within a second.
+      orderBy: "ROWID", desc: true, offset: q.offset, limit: q.limit + 1,
       ...(q.from || q.to ? { range: { column: "created_at", from: q.from, before: q.to ? nextDay(q.to) : undefined } } : {}),
       ...(q.q ? { contains: { columns: ["action", "entity_id", "metadata_json"], term: q.q } } : {}),
     });

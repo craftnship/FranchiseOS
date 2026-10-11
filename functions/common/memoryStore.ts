@@ -53,7 +53,7 @@ export class MemoryStore implements Store {
     if (opts.orderBy) {
       const k = opts.orderBy;
       const cmp = (x: unknown, y: unknown) =>
-        typeof x === "number" && typeof y === "number" ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0;
+        typeof x === "number" && typeof y === "number" ? x - y : /^\d+$/.test(String(x)) && /^\d+$/.test(String(y)) ? Number(x) - Number(y) : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0;
       out = [...out].sort((a, b) => cmp(a[k], b[k]) * (opts.desc ? -1 : 1));
     }
     const start = opts.offset ?? 0;

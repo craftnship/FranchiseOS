@@ -8,7 +8,7 @@ export interface IdentityUser {
 }
 
 export interface UserDirectory {
-  findActiveByExternalId(externalUserId: string): Promise<{ userId: string; tenantId: string; roleCodes: string[]; franchiseeId?: string } | null>;
+  findActiveByExternalId(externalUserId: string, email?: string): Promise<{ userId: string; tenantId: string; roleCodes: string[]; franchiseeId?: string } | null>;
   findTenant(tenantId: string): Promise<{ tenantId: string; status: string; zohoDc: string } | null>;
 }
 
@@ -22,7 +22,7 @@ export async function resolveTenant(
   ids: { requestId: string; correlationId?: string },
 ): Promise<TenantContext> {
   if (!identity) throw new AppError("AUTH_REQUIRED");
-  const user = await dir.findActiveByExternalId(identity.externalUserId);
+  const user = await dir.findActiveByExternalId(identity.externalUserId, identity.email);
   if (!user) throw new AppError("ACCESS_DENIED", "User is not provisioned for any tenant.");
   const tenant = await dir.findTenant(user.tenantId);
   if (!tenant || tenant.status !== "ACTIVE") throw new AppError("TENANT_NOT_FOUND");

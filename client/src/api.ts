@@ -26,6 +26,7 @@ export interface Me { user_id: string; tenant_id: string; roles: string[]; franc
 
 let current: Me | null = null;
 export const setCurrentUser = (me: Me | null) => { current = me; };
+export const currentUser = () => current;
 /** Hides actions the signed-in user cannot take; the API enforces the same rule. */
 export const can = (permission: string) => !!current?.permissions && (current.permissions.includes("*") || current.permissions.includes(permission));
 /** True for SUPER_ADMIN or a user holding the role; delegations are checked by the API. */

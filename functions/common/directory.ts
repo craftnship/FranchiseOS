@@ -1,13 +1,32 @@
 import { PermissionLookup } from "./rbac";
-import { Store } from "./store";
+import { Row, Store } from "./store";
 import { UserDirectory } from "./tenant";
+
+/** external_user_id of a user invited by email who has not signed in yet. */
+export const pendingKey = (email: string) => `invite:${email.trim().toLowerCase()}`;
 
 /** UserDirectory over the users, roles and tenants tables. */
 export class StoreUserDirectory implements UserDirectory {
   constructor(private readonly store: Store) {}
 
-  async findActiveByExternalId(externalUserId: string) {
-    const user = await this.store.findOne("users", { external_user_id: externalUserId, status: "ACTIVE" });
+  /**
+   * An invited user becomes active on first sign-in: matched by the Catalyst user id when the
+   * invite created one, else by the verified sign-in email. Deactivated users never match.
+   */
+  private async activate(externalUserId: string, email?: string): Promise<Row | null> {
+    let user = await this.store.findOne("users", { external_user_id: externalUserId, status: "INVITED" });
+    if (!user && email) user = await this.store.findOne("users", { external_user_id: pendingKey(email), status: "INVITED" });
+    if (!user) return null;
+    const linked = await this.store.update("users", String(user.ROWID), { external_user_id: externalUserId, status: "ACTIVE" });
+    await this.store.insert("activity_logs", {
+      tenant_id: user.tenant_id, entity_type: "user", entity_id: String(user.ROWID), action: "user:linked", actor_user_id: String(user.ROWID),
+      metadata_json: JSON.stringify({ email: user.email }), created_at: new Date().toISOString(),
+    });
+    return { ...user, ...linked };
+  }
+
+  async findActiveByExternalId(externalUserId: string, email?: string) {
+    const user = (await this.store.findOne("users", { external_user_id: externalUserId, status: "ACTIVE" })) ?? (await this.activate(externalUserId, email));
     if (!user) return null;
     const tenantId = String(user.tenant_id);
     const role = user.role_id ? await this.store.findOne("roles", { ROWID: String(user.role_id), tenant_id: tenantId }) : null;
