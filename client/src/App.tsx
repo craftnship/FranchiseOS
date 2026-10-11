@@ -1,4 +1,5 @@
 import { PortalSales, Royalties } from "./components/Royalties";
+import { Analytics } from "./pages/Analytics";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
@@ -61,6 +62,7 @@ export function App() {
           ) : (
             <>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/analytics" element={<Analytics />} />
               <Route path="/applications" element={<Applications />} />
               <Route path="/applications/:id" element={<ApplicationDetail />} />
               <Route path="/projects" element={<Projects />} />

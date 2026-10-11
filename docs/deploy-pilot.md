@@ -259,6 +259,21 @@ settings so the test agreement route stops answering.
 - Data Store: `sales_reports`, plus `franchise_projects.royalty_pct` and
   `franchise_projects.marketing_fund_pct` (created in Development on 2026-10-11).
 
+## Owner analytics
+
+- Overview > Analytics (`dashboard.view`, `GET /analytics?months=3|6|12|24&region=`) covers the last
+  finished months, filtered by territory region.
+- Sales: net sales reported per month (returned reports left out), royalty and marketing fund
+  billed, collected and unpaid. Each store shows its average over its last three reported months
+  against its feasibility monthly revenue, the change from the month before, and how many due
+  months it reported. The store table exports to CSV.
+- Opening speed: days from agreement signed to store opened (median, by region) and opening date
+  against target.
+- Funnel: how many applications reached each stage (at it or past it, now or before), the share
+  that moved on to the next stage, and the median days spent at a stage. The days come from status
+  changes made in FranchiseOS, so records imported straight into the Data Store show none.
+- Computed live from the Data Store; no new tables or scopes.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

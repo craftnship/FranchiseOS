@@ -388,3 +388,21 @@ td .panel-actions { flex-wrap: nowrap; white-space: nowrap; justify-content: fle
 .chip.static:hover { border-color: var(--border-strong); }
 .error-text { color: var(--bad); font-size: .82rem; overflow-wrap: break-word; display: inline-block; min-width: 11rem; }
 .state .icon { vertical-align: -4px; margin-right: .35rem; color: var(--good, #17b26a); }
+
+/* Analytics */
+.header-actions select { height: 2.25rem; }
+.summary .cell-sub { display: block; margin-top: .2rem; }
+.sales-chart { position: relative; }
+.seg.sales { background: var(--accent); }
+.chart-cols .col.hit { cursor: default; outline: none; border-radius: 6px; }
+.chart-cols .col.hit.on { background: var(--accent-weak); }
+.chart-tip { position: absolute; top: .25rem; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); border-radius: 8px; padding: .55rem .7rem; font-size: .78rem; display: grid; gap: .15rem; min-width: 14rem; pointer-events: none; z-index: 2; color: var(--text-2); }
+.chart-tip strong { color: var(--text); }
+.chart-tip span { display: flex; justify-content: space-between; gap: .9rem; white-space: nowrap; }
+.chart-tip b { color: var(--text); font-weight: 600; }
+.funnel.conv li { grid-template-columns: 9.5rem 1fr 3.5rem 3rem; }
+.funnel.conv li.head { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.funnel.conv .track { position: relative; }
+.funnel.conv .track .n { position: absolute; left: .45rem; top: 0; line-height: 18px; font-size: .72rem; font-weight: 600; color: #fff; mix-blend-mode: normal; }
+.funnel .num { text-align: right; }
+@media (max-width: 640px) { .funnel.conv li { grid-template-columns: 6.5rem 1fr 3rem 2.5rem; gap: .4rem; } .chart-tip { min-width: 10rem; } }

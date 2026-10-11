@@ -6,7 +6,7 @@ import { useLoad } from "../hooks";
 
 type NavItem = [to: string, text: string, icon: string, permission?: string];
 const STAFF_NAV: [string, NavItem[]][] = [
-  ["Overview", [["/", "Dashboard", "dashboard"]]],
+  ["Overview", [["/", "Dashboard", "dashboard"], ["/analytics", "Analytics", "pulse", "dashboard.view"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"]]],
   ["Operations", [["/projects", "Opening projects", "projects"], ["/royalties", "Royalties", "money", "dashboard.view"]]],
