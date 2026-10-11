@@ -4,6 +4,7 @@ import { PortalConstruction } from "./components/Construction";
 import { PortalTeam } from "./components/Staffing";
 import { PortalOrders, Vendors } from "./components/Purchasing";
 import { Fees, PortalFunding } from "./components/Funding";
+import { AuditPage, Audits, PortalAudits } from "./components/Audits";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
@@ -65,6 +66,8 @@ export function App() {
               <Route path="/portal/team" element={<PortalTeam />} />
               <Route path="/portal/orders" element={<PortalOrders />} />
               <Route path="/portal/funding" element={<PortalFunding />} />
+              <Route path="/portal/audits" element={<PortalAudits />} />
+              <Route path="/portal/audits/:id" element={<AuditPage portal />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </>
           ) : (
@@ -78,6 +81,8 @@ export function App() {
               <Route path="/royalties" element={<Royalties />} />
               <Route path="/vendors" element={<Vendors />} />
               <Route path="/fees" element={<Fees />} />
+              <Route path="/audits" element={<Audits />} />
+              <Route path="/audits/:id" element={<AuditPage />} />
               <Route path="/agreements" element={<Agreements />} />
               <Route path="/agreements/:id" element={<AgreementDetail />} />
               <Route path="/franchisees" element={<Franchisees />} />

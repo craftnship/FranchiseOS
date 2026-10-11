@@ -9,11 +9,11 @@ const STAFF_NAV: [string, NavItem[]][] = [
   ["Overview", [["/", "Dashboard", "dashboard"], ["/analytics", "Analytics", "pulse", "dashboard.view"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
   ["Contracts", [["/agreements", "Agreements", "agreements"], ["/fees", "Franchise fees", "bank", "dashboard.view"]]],
-  ["Operations", [["/projects", "Opening projects", "projects"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"]]],
+  ["Operations", [["/projects", "Opening projects", "projects"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"], ["/audits", "Store audits", "audit", "dashboard.view"]]],
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
-  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/funding", "Funding and fees", "bank"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
+  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/funding", "Funding and fees", "bank"], ["/portal/audits", "Audits", "audit"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
 ];
 
 /** Search results open the record's page where the app has one, else its list. */

@@ -1,5 +1,6 @@
 import { overdueOrders } from "./purchasing";
 import { overdueInstalments } from "./funding";
+import { auditReminders } from "./audits";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -378,6 +379,40 @@ const RULES: Record<string, Rule> = {
       title: `${code}: ${inr(toNum(m.amount))} of the loan disbursed`, body: `${inr(toNum(m.total))} of ${inr(toNum(m.sanctioned_amount))} disbursed so far.`,
       link: linkTo("project", e.entityId), dedupe: `loan-disbursed:${e.entityId}:${m.total}` };
   },
+  "audit:scheduled": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    const auditor = m.auditor_user_id && m.auditor_user_id !== ctx.userId ? [String(m.auditor_user_id)] : [];
+    // A surprise visit is not announced to the store.
+    const franchisee = m.audit_type === "SURPRISE" ? [] : await portalUsers(store, ctx.tenantId, row?.franchisee_id);
+    if (!auditor.length && !franchisee.length) return null;
+    return { kind: "audit.scheduled", entityType: "project", entityId: e.entityId, userIds: [...auditor, ...franchisee],
+      title: `${code}: ${human(String(m.audit_type ?? "routine")).toLowerCase()} audit booked for ${nice(m.planned_for)}`, body: `${String(m.audit_code)} checks the store against the brand standards.`,
+      link: linkTo("project", e.entityId), dedupe: `audit-scheduled:${m.audit_id}:${m.planned_for}` };
+  },
+  "audit:completed": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    const acts = toNum(m.actions);
+    return { kind: "audit.completed", entityType: "project", entityId: e.entityId, roles: ["OPERATIONS_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${code} scored ${m.score ?? "—"}% (${human(String(m.rating ?? "")).toLowerCase()}) on audit ${String(m.audit_code)}`,
+      body: `${acts ? `${acts} corrective action${acts === 1 ? "" : "s"} to fix` : "Nothing to fix"}${toNum(m.critical_fails) ? `, ${m.critical_fails} on a critical standard` : ""}.`,
+      link: linkTo("project", e.entityId), dedupe: `audit-completed:${m.audit_id}` };
+  },
+  "action:submitted": async (_s, _c, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code } = await codeOf(repo, "project", e.entityId);
+    const audit = await repo.findOne("audits", { ROWID: String(m.audit_id) });
+    return { kind: "action.submitted", entityType: "project", entityId: e.entityId, roles: ["OPERATIONS_MANAGER"], userIds: audit?.auditor_user_id ? [String(audit.auditor_user_id)] : [],
+      title: `${code} answered a corrective action from ${String(audit?.audit_code ?? "an audit")}`, body: "Check the evidence and close it or send it back.",
+      link: `/audits/${m.audit_id}` };
+  },
+  "action:reopened": async (store, ctx, e, repo) => {
+    const m = e.metadata ?? {};
+    const { code, row } = await codeOf(repo, "project", e.entityId);
+    return { kind: "action.reopened", entityType: "project", entityId: e.entityId, userIds: await portalUsers(store, ctx.tenantId, row?.franchisee_id),
+      title: `${code}: a corrective action was sent back`, body: `${String(m.note ?? "")}${m.due_date ? ` New date: ${nice(m.due_date)}.` : ""}`.trim(), link: "/portal/audits" };
+  },
   "capex:overrun": async (_s, _c, e, repo) => {
     const { code } = await codeOf(repo, "project", e.entityId);
     const cats = (e.metadata?.categories ?? []) as Array<{ name: string; budget: number; actual: number }>;
@@ -530,7 +565,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -660,6 +695,26 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
     }, now);
   }
 
+  // Corrective actions past their date, and opened stores past their audit date with nothing booked.
+  const due = await auditReminders(store, ctx, today);
+  for (const a of due.actions) {
+    const project = projectsById.get(String(a.project_id));
+    if (!project) continue;
+    const by = String(a.due_date).slice(0, 10);
+    out.audits += await deliver(store, ctx, {
+      kind: "action.overdue", entityType: "project", entityId: String(a.project_id), roles: ["OPERATIONS_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, a.franchisee_id),
+      title: `${project.project_code}: a ${String(a.severity).toLowerCase()} corrective action is overdue`, body: `${String(a.description).slice(0, 200)} It was due ${nice(by)}.`,
+      link: linkTo("project", String(a.project_id)), dedupe: `action-overdue:${a.ROWID}:${by}`,
+    }, now);
+  }
+  for (const { project, due: by } of due.stores) {
+    out.audits += await deliver(store, ctx, {
+      kind: "audit.due", entityType: "project", entityId: String(project.ROWID), roles: ["OPERATIONS_MANAGER"],
+      title: `${project.project_code} is due an audit`, body: `It was due ${nice(by)} and none is booked.`,
+      link: linkTo("project", String(project.ROWID)), dedupe: `audit-due:${project.ROWID}:${by}`,
+    }, now);
+  }
+
   // A loan not yet sanctioned when fit-out is a month away puts the opening at risk.
   for (const plan of await repo.findMany("funding_plans", {}, { limit: 300 })) {
     if (!["PLANNED", "APPLIED", "REJECTED"].includes(String(plan.status))) continue;
@@ -714,7 +769,7 @@ async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

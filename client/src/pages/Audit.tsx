@@ -20,6 +20,8 @@ const ACTIONS: Record<string, string> = {
   "training:submitted": "Training sent for sign-off", "training:signed_off": "Training signed off", "training:returned": "Training sent back",
   "fee:added": "Fee instalment added", "fee:changed": "Fee instalment changed", "fee:invoiced": "Fee instalment invoiced", "fee:instalment_paid": "Fee instalment paid", "fee:waived": "Fee instalment waived", "fee:refunded": "Deposit refunded",
   "loan:plan": "Funding plan saved", "loan:applied": "Loan applied for", "loan:sanctioned": "Loan sanctioned", "loan:rejected": "Loan rejected", "loan:disbursed": "Loan disbursed",
+  "audit:scheduled": "Audit booked", "audit:completed": "Audit completed", "audit:cancelled": "Audit cancelled",
+  "action:submitted": "Corrective action answered", "action:closed": "Corrective action closed", "action:reopened": "Corrective action reopened",
   "po:placed": "Order placed", "po:confirmed": "Order confirmed", "po:delivered": "Order delivered", "po:cancelled": "Order cancelled",
   "vendor:added": "Vendor added", "vendor:updated": "Vendor updated", "vendor:approved": "Vendor approved", "vendor:suspended": "Vendor suspended",
   "vendor:item_added": "Catalogue item added", "vendor:item_updated": "Catalogue item updated", "vendor:item_retired": "Catalogue item retired", "vendor:item_restored": "Catalogue item restored",

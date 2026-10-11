@@ -15,6 +15,7 @@ import { constructionRoutes } from "./routes/construction";
 import { staffingRoutes } from "./routes/staffing";
 import { purchasingRoutes } from "./routes/purchasing";
 import { fundingRoutes } from "./routes/funding";
+import { auditRoutes as storeAuditRoutes } from "./routes/audits";
 import { portalRoutes } from "./routes/portal";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
@@ -50,5 +51,6 @@ export function buildRouter(): Router {
   staffingRoutes(r);
   purchasingRoutes(r);
   fundingRoutes(r);
+  storeAuditRoutes(r);
   return r;
 }

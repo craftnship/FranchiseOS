@@ -56,6 +56,9 @@
     "vendor_items": "62105000000098177",
     "purchase_orders": "62105000000103453",
     "fee_instalments": "62105000000094770",
-    "funding_plans": "62105000000108129"
+    "funding_plans": "62105000000108129",
+    "audits": "62105000000106291",
+    "audit_items": "62105000000091756",
+    "corrective_actions": "62105000000093373"
   }
 }

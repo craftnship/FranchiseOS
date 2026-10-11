@@ -319,6 +319,19 @@ Each opening project has a Franchise fee and deposit panel and a Funding panel; 
 - The dashboard's fee tiles include later instalments and drill into Franchise fees.
 - Tables `fee_instalments` and `funding_plans`, and `agreements.fee_plan_json`, were created in Development on 2026-10-11. STARK's settings got the example plan above on 2026-10-11; it applies to agreements signed from then on.
 
+## Store audits
+
+Opened stores (and stores ready to open) get brand-standard audits. Each project page has a Store audits panel, Operations → Store audits shows the whole network, and the franchisee portal has an Audits page.
+
+- **Standards.** Tenant settings `audit_standards` replace the 18 built-in standards (food safety, cleanliness, brand, product, service, operations, people). Each is `{"code","section","text","weight","critical"}`. Other keys: `audit_every_days` (90), `audit_first_within_days` of opening (30), `audit_pass_score` (85), `audit_amber_score` (70), `audit_action_days` (14), `audit_critical_action_days` (3), `audit_follow_up_days` (30).
+- **Running one.** `audit.conduct` books an audit (routine, pre-opening, follow-up or surprise) with an auditor, starts it at the store and judges each standard Pass, Fail or N/A on a phone, with a note on each fail and an optional photo. Every answer saves as it's given. One open audit per store.
+- **Scoring.** The score is the weight passed over the weight judged (N/A doesn't count). Green is at or above the pass mark with no critical fails; red is any critical fail or below the amber mark. Completing an audit turns each fail into a corrective action for the franchisee, due in 3 days if critical and 14 otherwise. A red audit books a follow-up audit 30 days later.
+- **Corrective actions.** The franchisee marks each fixed with a note and photo; the auditor closes it or sends it back with a new due date. The franchisee sees finished audits only, and never a surprise visit before it happens.
+- `audit.conduct` is a new permission, held by super admins only until a role is given it in role_permissions. Anyone with `dashboard.view` can see audits and the network page.
+- Notifications: a booked audit goes to the auditor and franchisee (not for surprise visits); a completed one to operations managers and the franchisee; an answered action to operations managers and the auditor; a sent-back one to the franchisee. Daily reminders cover overdue corrective actions and stores due an audit.
+- The dashboard's Brand standards tile is the average latest score of opened stores and drills into Store audits.
+- Tables `audits`, `audit_items` and `corrective_actions` were created in Development on 2026-10-11. The item verdict column is `verdict` because Catalyst reserves `result`.
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

@@ -14,6 +14,7 @@ import { ConstructionPanel } from "../components/Construction";
 import { StaffingPanel } from "../components/Staffing";
 import { PurchasingPanel } from "../components/Purchasing";
 import { FundingPanel } from "../components/Funding";
+import { AuditPanel } from "../components/Audits";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -150,6 +151,7 @@ export function ProjectDetail() {
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
           <LeaseSummary lease={(p.lease ?? null) as Row | null} siteId={p.site_id} />
           {p.status === "OPENED" && <RoyaltyPanel projectId={String(id)} />}
+          {(p.status === "READY_FOR_OPENING" || p.status === "OPENED") && <AuditPanel projectId={String(id)} />}
           <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />
           <FundingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} />
           {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}

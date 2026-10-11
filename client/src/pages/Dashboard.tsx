@@ -36,6 +36,7 @@ export function Dashboard() {
           <KpiTile label="Average payback" kpi={n.average_payback_months} format={(v) => `${v} mo`} icon="clock" tone="accent" hint="Across approved feasibility models" />
           {n.fees_collected && <KpiTile label="Fees collected" kpi={n.fees_collected} format={inrShort} icon="money" tone="good" hint="Franchise fees paid in Books" />}
           {n.fees_outstanding && <KpiTile label="Fees outstanding" kpi={n.fees_outstanding} format={inrShort} icon="money" tone={n.fees_overdue?.value ? "bad" : "warn"} hint={n.fees_overdue?.value ? `${n.fees_overdue.value} overdue` : "Invoiced, not yet paid"} />}
+          {n.audit_score && <KpiTile label="Brand standards" kpi={n.audit_score} format={(v) => `${v}%`} icon="audit" tone="accent" hint="Average latest audit score of open stores" />}
         </div>
       )}</Loaded>
 
