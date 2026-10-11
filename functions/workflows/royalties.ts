@@ -95,7 +95,7 @@ export async function submitReport(store: Store, ctx: TenantContext, project: Ro
   }
   await logActivity(store, ctx, {
     entityType: "sales_report", entityId: String(row.ROWID), action: existing ? "royalty:resubmitted" : "royalty:submitted",
-    metadata: { project_id: String(project.ROWID), period: input.period, gross_sales: fields.gross_sales, net_sales: fields.net_sales, by },
+    metadata: { project_id: String(project.ROWID), period: input.period, gross_sales: fields.gross_sales, net_sales: fields.net_sales, by, submitted_at: fields.submitted_at },
   });
   return row;
 }

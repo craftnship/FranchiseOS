@@ -142,6 +142,14 @@ export async function actOnApproval(
   return { outcome, instance: updated };
 }
 
+/** Closes a pending approval when its application is withdrawn or rejected outside it, so it leaves approvers' inboxes. */
+export async function cancelApprovals(store: Store, ctx: TenantContext, entityType: string, entityId: string, now: Date): Promise<number> {
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const live = await repo.findMany("approval_instances", { entity_type: entityType, entity_id: entityId, status: "PENDING" });
+  for (const i of live) await repo.update("approval_instances", String(i.ROWID), { status: "CANCELLED", completed_at: now.toISOString(), active_key: `closed:${i.ROWID}` });
+  return live.length;
+}
+
 /** SLA sweep for job_approval_sla (D-19): pending steps past due get escalated once. */
 export async function findOverdueSteps(store: Store, tenantId: string, now: Date): Promise<Array<{ instance: Row; step: PinnedStep }>> {
   const pending = await store.findMany("approval_instances", { tenant_id: tenantId, status: "PENDING" });

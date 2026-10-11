@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Row } from "../api";
+import { api, ApiError, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, label, Loaded, PageHeader, Panel, Pill } from "./ui";
@@ -254,7 +254,7 @@ function NoteDialog({ title, hint, noteLabel, required, confirm, busy, error, on
 
 /** Portal: the franchisee's design, photos and snags. */
 export function PortalConstruction() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Construction" subtitle="Your store design, site photos and the snags to fix before opening." />

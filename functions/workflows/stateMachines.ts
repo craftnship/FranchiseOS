@@ -34,7 +34,7 @@ const application: Rule[] = [
   // Driven by the approval engine (system permission), never directly by a user.
   { from: ["APPROVAL_PENDING"], transition: "approve", to: "APPROVED", permission: "system.approval" },
   { from: ["APPROVAL_PENDING"], transition: "return", to: "FEASIBILITY_REVIEW", permission: "system.approval" },
-  { from: ["APPROVAL_PENDING", "UNDER_REVIEW"], transition: "reject", to: "REJECTED", permission: "application.reject" },
+  { from: ["UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING"], transition: "reject", to: "REJECTED", permission: "application.reject" },
   { from: ["APPROVED"], transition: "send_agreement", to: "AGREEMENT_PENDING", permission: "agreement.write" },
   { from: ["AGREEMENT_PENDING"], transition: "agreement_signed", to: "AGREEMENT_SIGNED", permission: "system.sign" },
   { from: ["AGREEMENT_SIGNED"], transition: "start_onboarding", to: "ONBOARDING", permission: "system.project" },

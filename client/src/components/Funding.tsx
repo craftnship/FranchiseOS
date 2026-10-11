@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
@@ -230,7 +230,7 @@ function LoanStepDialog({ step, plan, busy, error, onSave, onClose }: { step: st
 
 /** Portal: the franchisee's fee instalments and loan. */
 export function PortalFunding() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Funding and fees" subtitle="Your franchise fee instalments, and how the store is funded." />

@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { api, can, isPortal, Me, Row } from "../api";
+import { api, can, isPortal, Me, portalHome, Row, setPortalStore } from "../api";
 import { Icon, label, Pill } from "./ui";
 import { useLoad } from "../hooks";
 
@@ -13,7 +13,10 @@ const STAFF_NAV: [string, NavItem[]][] = [
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"]]],
 ];
 const PORTAL_NAV: [string, NavItem[]][] = [
-  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/todo", "To do", "check"], ["/portal/messages", "Messages", "chat"], ["/portal/documents", "Documents", "folder"], ["/portal/tasks", "Opening tasks", "projects"], ["/portal/launch", "Opening day", "flag"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/funding", "Funding and fees", "bank"], ["/portal/audits", "Audits", "audit"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/sales", "Sales reports", "money"]]],
+  ["My franchise", [["/portal", "Home", "dashboard"], ["/portal/todo", "To do", "check"], ["/portal/messages", "Messages", "chat"], ["/portal/documents", "Documents", "folder"]]],
+  ["Getting started", [["/portal/application", "Application", "applications"], ["/portal/site", "Site", "sites"], ["/portal/agreement", "Agreement", "agreements"], ["/portal/funding", "Funding and fees", "bank"]]],
+  ["Opening", [["/portal/tasks", "Opening tasks", "projects"], ["/portal/construction", "Construction", "store"], ["/portal/team", "Team", "franchisees"], ["/portal/orders", "Orders", "box"], ["/portal/launch", "Opening day", "flag"]]],
+  ["Trading", [["/portal/sales", "Sales reports", "money"], ["/portal/audits", "Audits", "audit"]]],
 ];
 
 /** Search results open the record's page where the app has one, else its list. */
@@ -25,6 +28,34 @@ function searchHref(r: Row): string {
   if (r.type === "territory") return "/territories";
   if (r.type === "site") return `/sites/${r.id}`;
   return "/";
+}
+
+// Notices name staff pages; a franchisee lands on the portal page for the same thing.
+const PORTAL_PAGE: [string, string][] = [
+  ["action.", "/portal/audits"], ["audit.", "/portal/audits"], ["fee.", "/portal/funding"], ["funding.", "/portal/funding"], ["loan.", "/portal/funding"],
+  ["launch.", "/portal/launch"], ["licence.", "/portal/tasks"], ["project.", "/portal/tasks"], ["task.", "/portal/tasks"], ["po.", "/portal/orders"],
+  ["royalty.", "/portal/sales"], ["sales.", "/portal/sales"], ["renewal.", "/portal/agreement"], ["agreement.", "/portal/agreement"],
+  ["snag.", "/portal/construction"], ["design.", "/portal/construction"], ["training.", "/portal/team"],
+];
+function portalLink(n: Row): string {
+  const link = String(n.link ?? "");
+  if (link.startsWith("/portal")) return link;
+  return PORTAL_PAGE.find(([k]) => String(n.kind ?? "").startsWith(k))?.[1] ?? "/portal/todo";
+}
+
+/** Franchisees with more than one store choose which one the portal pages show. */
+function StorePicker() {
+  const home = useLoad(() => portalHome(), []);
+  const stores = (home.data?.stores ?? []) as Row[];
+  if (stores.length < 2) return null;
+  const current = String(home.data?.project?.ROWID ?? "");
+  return (
+    <label className="store-picker"><Icon name="store" size={16} />
+      <select aria-label="Store" value={current} onChange={(e) => { setPortalStore(e.target.value); window.location.reload(); }}>
+        {stores.map((st) => <option key={String(st.ROWID)} value={String(st.ROWID)}>{st.project_code}</option>)}
+      </select>
+    </label>
+  );
 }
 
 function Search() {
@@ -71,7 +102,7 @@ const ago = (iso: unknown) => {
 };
 
 /** Inbox in the top bar: unread count, newest 20, refreshed every minute and on opening. */
-function Bell() {
+function Bell({ portal }: { portal: boolean }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<{ items: Row[]; unread: number }>({ items: [], unread: 0 });
   const box = useRef<HTMLDivElement>(null);
@@ -88,7 +119,7 @@ function Bell() {
   const go = async (n: Row) => {
     setOpen(false);
     if (n.status !== "READ") await api("POST", `/notifications/${n.ROWID}/read`).catch(() => {});
-    if (n.link) nav(String(n.link));
+    if (n.link || portal) nav(portal ? portalLink(n) : String(n.link));
     refresh();
   };
   const readAll = async () => { await api("POST", "/notifications/read-all").catch(() => {}); refresh(); };
@@ -164,8 +195,8 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
       <div className="main-col">
         <header className="topbar">
           <button className="icon-btn menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Menu"><Icon name="menu" /></button>
-          {!portal ? <Search /> : <div className="grow" />}
-          <Bell />
+          {!portal ? <Search /> : <><StorePicker /><div className="grow" /></>}
+          <Bell portal={portal} />
           <div className="user">
             <span className="avatar">{initials}</span>
             <span className="user-meta"><strong>{label(role)}</strong><small>Tenant {me.tenant_id.slice(-6)}</small></span>

@@ -119,15 +119,22 @@ export function ProjectDetail() {
           {act.error && !opening && !editing && !blocking && <FormError error={act.error} />}
           <FeeNotice fee={p.fee} />
           <dl className="summary">
-            <div><dt>Readiness</dt><dd>{p.readiness_score ?? "—"}%<Pill value={p.readiness_rag} /></dd></div>
+            <div><dt>{p.status === "OPENED" ? "Readiness at opening" : "Readiness"}</dt><dd>{p.readiness_score ?? "—"}%<Pill value={p.readiness_rag} /></dd></div>
             <div><dt>Risk</dt><dd><Pill value={p.risk_level} /></dd></div>
             <div><dt>Target opening</dt><dd>{date(p.target_opening_date)}</dd></div>
             <div><dt>{p.actual_opening_date ? "Opened" : "Days to opening"}</dt><dd style={{ color: !p.actual_opening_date && d !== null && d < 0 ? "var(--bad)" : undefined }}>{p.actual_opening_date ? date(p.actual_opening_date) : d === null ? "—" : d < 0 ? `${-d} days late` : `${d} days`}</dd></div>
           </dl>
-          {PATH.includes(p.status) && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
+          {PATH.includes(p.status) && p.status !== "OPENED" && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
+          {/* An open store leads with how it is trading; the opening work moves below. */}
+          {p.status === "OPENED" && <>
+            <LaunchPanel projectId={String(id)} target={p.target_opening_date} />
+            <RoyaltyPanel projectId={String(id)} />
+            <AuditPanel projectId={String(id)} />
+            <h2 className="section-head">Before opening</h2>
+          </>}
           <Loaded load={readiness}>{(r) => <>
-            <ReadinessCard r={r} />
-            {r.forecast && <ForecastPanel f={r.forecast} target={p.target_opening_date} items={items} canRetarget={writable} busy={act.busy === "target"} error={act.error} onClear={act.clear}
+            {p.status !== "OPENED" && <ReadinessCard r={r} />}
+            {r.forecast && p.status !== "OPENED" && <ForecastPanel f={r.forecast} target={p.target_opening_date} items={items} canRetarget={writable} busy={act.busy === "target"} error={act.error} onClear={act.clear}
               onRetarget={(day, reason) => act.run("target", () => api<Row>("POST", `/projects/${id}/target`, { body: { target_opening_date: day, reason } }), `Target opening moved to ${date(day)}.`)} />}
           </>}</Loaded>
           <Panel title="Opening checklist" action={<span className="muted">{done} of {items.length} complete</span>} flush>
@@ -151,9 +158,8 @@ export function ProjectDetail() {
           <PurchasingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} onTasks={reload} />
           <LicencePanel projectId={String(id)} licences={(p.licences ?? []) as Row[]} editable={writable} onChanged={reload} />
           <LeaseSummary lease={(p.lease ?? null) as Row | null} siteId={p.site_id} />
-          {p.status !== "CLOSED" && <LaunchPanel projectId={String(id)} target={p.target_opening_date} />}
-          {p.status === "OPENED" && <RoyaltyPanel projectId={String(id)} />}
-          {(p.status === "READY_FOR_OPENING" || p.status === "OPENED") && <AuditPanel projectId={String(id)} />}
+          {p.status !== "CLOSED" && p.status !== "OPENED" && <LaunchPanel projectId={String(id)} target={p.target_opening_date} />}
+          {p.status === "READY_FOR_OPENING" && <AuditPanel projectId={String(id)} />}
           <CapexPanel projectId={String(id)} editable={can("project.write") && p.status !== "CLOSED"} />
           <FundingPanel projectId={String(id)} editable={can("project.write")} closed={p.status === "CLOSED"} />
           {opening && <OpenStoreDialog project={p} items={items} licences={(p.licences ?? []) as Row[]} busy={act.busy === "open"} error={act.error} onClose={() => { setOpening(false); act.clear(); }}

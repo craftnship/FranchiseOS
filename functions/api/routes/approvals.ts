@@ -36,6 +36,12 @@ async function delegatedRoles(call: Call): Promise<string[]> {
 
 async function act(call: Call, action: ApprovalAction) {
   const body = parse(actSchema, call.body);
+  // A held application keeps its approval, but nobody can decide it until it is resumed.
+  const pending = await call.repo.findOne("approval_instances", { ROWID: call.params.id });
+  if (pending?.entity_type === "application") {
+    const app = await call.repo.findOne("franchise_applications", { ROWID: String(pending.entity_id) });
+    if (app && app.status !== "APPROVAL_PENDING") throw new AppError("INVALID_TRANSITION", `The application is ${String(app.status).toLowerCase().replace(/_/g, " ")}; resume it before deciding.`);
+  }
   const { outcome, instance } = await actOnApproval(call.store, call.ctx, { approvalId: call.params.id, action, stepSequence: body.step, comments: body.comments, now: call.now });
   const transition = APPLICATION_TRANSITION[outcome];
   let entity: Record<string, unknown> | null = null;

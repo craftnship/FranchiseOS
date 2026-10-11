@@ -45,3 +45,9 @@ export function drillHref(k: Kpi): string | undefined {
 
 export const PORTAL_ROLES = ["FRANCHISEE", "FRANCHISEE_STAFF", "VENDOR"];
 export const isPortal = (me: Me) => me.roles.every((r) => PORTAL_ROLES.includes(r));
+
+// A franchisee with several stores picks the one the portal pages show; kept per browser.
+const STORE_KEY = "fos.portal.store";
+export const portalStore = (): string | null => { try { return localStorage.getItem(STORE_KEY); } catch { return null; } };
+export const setPortalStore = (id: string | null) => { try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch { /* storage blocked: stay on the default store */ } };
+export const portalHome = () => { const id = portalStore(); return api<Row>("GET", "/portal/home", id ? { query: { project_id: id } } : {}); };

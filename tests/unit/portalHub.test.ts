@@ -61,6 +61,13 @@ describe("portal v2", () => {
     expect((await s.call("fm", "GET", "/portal/todo")).error?.code).toBe("ACCESS_DENIED");
   });
 
+  it("flags a mandatory licence still missing once the store is open", async () => {
+    const s = await setup();
+    await s.store.insert("licences", { tenant_id: s.tid, project_id: String(s.opened.ROWID), franchisee_id: s.fr.ROWID, licence_code: "TRADE", name: "Trade licence", mandatory: true, status: "APPLIED" });
+    const items = (await s.call("pepper", "GET", "/portal/todo")).data.items;
+    expect(items.find((i: any) => i.kind === "licence")).toMatchObject({ level: "overdue", title: "Chase the Trade licence", project_code: "PROJ-000001" });
+  });
+
   it("carries messages both ways, tells the other side, and marks them read", async () => {
     const s = await setup();
     const sent = await s.call("pepper", "POST", "/portal/messages", { text: "Can we move the grand opening a week?", project_id: String(s.building.ROWID) });

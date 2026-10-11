@@ -22,6 +22,7 @@ import { SiteDetail } from "./pages/SiteDetail";
 import { Franchisees } from "./pages/Franchisees";
 import { ProjectDetail, Projects } from "./pages/Projects";
 import { PortalAgreement, PortalHome, PortalTasks } from "./pages/Portal";
+import { PortalApplication, PortalSite } from "./pages/PortalApplication";
 import { AuditLog } from "./pages/Audit";
 import { Users } from "./pages/Users";
 import { Integrations } from "./pages/Integrations";
@@ -62,6 +63,8 @@ export function App() {
             <>
               <Route path="/portal" element={<PortalHome />} />
               <Route path="/portal/tasks" element={<PortalTasks />} />
+              <Route path="/portal/application" element={<PortalApplication />} />
+              <Route path="/portal/site" element={<PortalSite />} />
               <Route path="/portal/agreement" element={<PortalAgreement />} />
               <Route path="/portal/sales" element={<PortalSales />} />
               <Route path="/portal/construction" element={<PortalConstruction />} />

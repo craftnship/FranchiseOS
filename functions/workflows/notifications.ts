@@ -6,6 +6,7 @@ import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
+import { isPortalUser } from "../common/rbac";
 import { expireLicences, renewDays } from "./licences";
 import { derivedDates, openingGap, rentSchedule } from "./leases";
 import { duePeriods, nextPeriod, periodLabel, royaltySettings } from "./royalties";
@@ -229,6 +230,19 @@ const RULES: Record<string, Rule> = {
     return { kind: "agreement.signed", entityType: "agreement", entityId: e.entityId, roles: ["FRANCHISE_MANAGER", "FRANCHISE_DIRECTOR", "FINANCE_MANAGER"],
       title: `${code} was signed by ${await franchiseeName(repo, row?.franchisee_id)}`, body: "Onboarding has started: CRM account, fee invoice and opening project.",
       link: linkTo("agreement", e.entityId), dedupe: `agreement-signed:${e.entityId}` };
+  },
+  // Work the franchisee did on the portal reaches the person who owns their application.
+  "transition:submit": async (_s, _c, e, repo) => {
+    if (e.entityType !== "application") return null;
+    const { code, row } = await codeOf(repo, "application", e.entityId);
+    return { kind: "application.submitted", entityType: "application", entityId: e.entityId, ...(row?.owner_user_id ? { userIds: [String(row.owner_user_id)] } : { roles: ["FRANCHISE_MANAGER"] }),
+      title: `${code} submitted by ${await franchiseeName(repo, row?.franchisee_id)}`, body: "Review the application and its documents.", link: linkTo("application", e.entityId), dedupe: `app-submitted:${e.entityId}` };
+  },
+  "transition:site_submitted": async (_s, ctx, e, repo) => {
+    if (e.entityType !== "application" || !isPortalUser(ctx)) return null;
+    const { code, row } = await codeOf(repo, "application", e.entityId);
+    return { kind: "site.proposed", entityType: "application", entityId: e.entityId, ...(row?.owner_user_id ? { userIds: [String(row.owner_user_id)] } : { roles: ["FRANCHISE_MANAGER"] }),
+      title: `${await franchiseeName(repo, row?.franchisee_id)} proposed a site for ${code}`, body: "Screen it and book a visit.", link: linkTo("application", e.entityId), dedupe: `site-proposed:${e.entityId}:${row?.site_id ?? ""}` };
   },
   "transition:declined": async (_s, _c, e, repo) => agreementEnded(repo, e, "declined"),
   "transition:expired": async (_s, _c, e, repo) => agreementEnded(repo, e, "expired"),
@@ -550,7 +564,7 @@ async function royaltySubmitted(e: Entry, repo: TenantRepo): Promise<Notice> {
   const { code, row } = await codeOf(repo, "project", String(m.project_id));
   return { kind: "royalty.submitted", entityType: "project", entityId: String(m.project_id), roles: ["FINANCE_MANAGER"],
     title: `${code} reported ${monthName(m.period)} sales`, body: `${await franchiseeName(repo, row?.franchisee_id)}: net sales ${inr(toNum(m.net_sales))}. Approve it to raise the royalty invoice.`,
-    link: linkTo("project", String(m.project_id)), dedupe: `royalty-submitted:${e.entityId}:${m.net_sales}` };
+    link: linkTo("project", String(m.project_id)), dedupe: `royalty-submitted:${e.entityId}:${m.submitted_at ?? m.net_sales}` };
 }
 
 /**

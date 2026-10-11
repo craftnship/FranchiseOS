@@ -7,7 +7,7 @@ import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
 import { documentKey, MAX_UPLOAD_BYTES, STRATUS_PREFIX, UPLOAD_TYPES } from "../../common/files";
 import { DEFAULT_QUALIFICATION_WEIGHTS, DEFAULT_THRESHOLDS, scoreQualification, territoryAvailabilityRating } from "../../scoring/qualification";
-import { startApproval } from "../../workflows/approvals";
+import { cancelApprovals, startApproval } from "../../workflows/approvals";
 import { allowedTransitions, findRule, transitionsFrom } from "../../workflows/stateMachines";
 import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
@@ -136,6 +136,8 @@ export function applicationRoutes(r: Router): void {
     const body = parse(documentSchema, call.body);
     const app = await getApp(call);
     await authorize(call.ctx, isPortalUser(call.ctx) ? "application.submit" : "application.review", call.permissions);
+    // A link is a web address; stored files only come in through the upload route, under this application's prefix.
+    if (!/^https?:\/\//i.test(body.file_ref)) throw new AppError("VALIDATION_FAILED", "Add the document as a web link (https://…), or upload the file.", { file_ref: "not a web link" });
     const row = await call.repo.insert("application_documents", { ...body, application_id: String(app.ROWID), verification_status: "PENDING" });
     await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "document:add", metadata: { document_type: body.document_type } });
     return row;
@@ -166,6 +168,7 @@ export function applicationRoutes(r: Router): void {
     if (String(doc.application_id) !== call.params.id) throw new AppError("NOT_FOUND");
     const ref = String(doc.file_ref ?? "");
     if (!ref.startsWith(STRATUS_PREFIX)) return { url: ref };
+    if (!ref.slice(STRATUS_PREFIX.length).startsWith(`tenants/${call.ctx.tenantId}/applications/${doc.application_id}/`)) throw new AppError("NOT_FOUND");
     if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
     return { url: await call.files.downloadUrl(ref.slice(STRATUS_PREFIX.length)) };
   });
@@ -226,6 +229,7 @@ export function applicationRoutes(r: Router): void {
       throw new AppError("VALIDATION_FAILED", `The score is ${app.qualification_score} (${String(app.qualification_class).toLowerCase()}), below the qualified threshold. Give a reason to qualify anyway.`, { override_reason: "required below the qualified threshold" });
     }
     const updated = await transitionEntity("application", String(app.ROWID), transition, call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
+    if (transition === "withdraw" || transition === "reject") await cancelApprovals(call.store, call.ctx, "application", String(app.ROWID), call.now);
     if (below) await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "qualify:override", metadata: { score: app.qualification_score, class: app.qualification_class, reason: override_reason } });
     return updated;
   });
@@ -237,6 +241,8 @@ export function applicationRoutes(r: Router): void {
     if (feas.status !== "CALCULATED") throw new AppError("FEASIBILITY_NOT_FOUND", "Feasibility has not been calculated.");
     if (feas.passed !== true && String(feas.passed) !== "true") throw new AppError("FEASIBILITY_FAILED", "Feasibility did not meet the thresholds.");
     const site = app.site_id ? await call.repo.findOne("sites", { ROWID: String(app.site_id) }) : null;
+    if (site && ["REJECTED", "DROPPED"].includes(String(site.status))) throw new AppError("VALIDATION_FAILED", `Site ${site.site_code} was ${String(site.status).toLowerCase()}. Propose a replacement first.`, { site_id: String(site.status).toLowerCase() });
+    if (site && String(feas.site_id) !== String(site.ROWID)) throw new AppError("VALIDATION_FAILED", "The feasibility model is for a different site. Model the current site.", { feasibility_id: "different site" });
 
     const updated = await transitionEntity("application", String(app.ROWID), "start_approval", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: call.permissions });
     try {

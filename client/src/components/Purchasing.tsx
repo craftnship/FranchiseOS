@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
@@ -200,7 +200,7 @@ function CancelDialog({ po, busy, error, onSave, onClose }: { po: Row; busy: boo
 
 /** Portal: the franchisee's orders. */
 export function PortalOrders() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Orders" subtitle="Order the standard store package from approved vendors and record deliveries." />

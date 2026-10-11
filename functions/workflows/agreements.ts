@@ -11,7 +11,7 @@ import { processOnce } from "../integrations/idempotency";
 import { ProviderError } from "../integrations/retry";
 import { CRM_ACCOUNT_FIELDS, CRM_LEAD_FIELDS } from "../integrations/crmSync";
 import { DEFAULTS } from "../../database/seed/defaults";
-import { buildOpeningProject, TemplateTask } from "./projectCreation";
+import { buildLocalProject, buildOpeningProject, TemplateTask } from "./projectCreation";
 import { ensureLicences } from "./licences";
 import { allocateTerritory } from "./territoryReservation";
 import { transitionEntity, TransitionDeps } from "./transition";
@@ -354,6 +354,14 @@ export async function onboardSignedAgreement(
     const books = clients.books;
     await step("books_invoice", async () => {
       const code = String(agreement!.agreement_code);
+      // The daily fee run may already have billed the signing instalment (Books was down at signing);
+      // adopt that invoice rather than raising the fee a second time.
+      const billed = (await repo.findMany("fee_instalments", { agreement_id: args.agreementId }, { limit: 50 })).find((r) => r.raise_on === "SIGNING" && r.zoho_books_invoice_id);
+      if (billed) {
+        invoiceId = String(billed.zoho_books_invoice_id);
+        agreement = await repo.update("agreements", args.agreementId, { zoho_books_invoice_id: invoiceId });
+        return;
+      }
       const ref = await books.findInvoice(code) ?? await books.createInvoice({
         customer_id: String(franchisee.zoho_books_customer_id), reference_number: code, date: dateOnly(now), payment_terms: settings.books_payment_terms,
         line_items: [{ name: "Franchise fee", description: `${onSigning < settings.franchise_fee ? "Franchise fee on signing" : "Initial franchise fee"}, agreement ${code}`, rate: onSigning, quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) }],
@@ -382,6 +390,15 @@ export async function onboardSignedAgreement(
         template: await loadProjectTemplate(repo, String(franchisee.franchise_type || "QSR")),
         startDate: dateOnly(now),
         dependencies: settings.projects_dependencies,
+      });
+    });
+  } else {
+    // No Zoho Projects: the checklist is kept here only, so the project can still be planned and opened.
+    await step("opening_checklist", async () => {
+      await buildLocalProject(store, ctx, {
+        projectRowId: String(project!.ROWID),
+        template: await loadProjectTemplate(repo, String(franchisee.franchise_type || "QSR")),
+        startDate: dateOnly(now),
       });
     });
   }

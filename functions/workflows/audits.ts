@@ -69,15 +69,18 @@ export function nextDue(project: Row, lastCompleted: Row | null, s: AuditSetting
 export interface ScheduleInput { audit_type: AuditType; planned_for: string; auditor_user_id?: string | null; notes?: string | null }
 
 /** Books an audit. A store has one open audit at a time. */
+async function assertAuditor(repo: TenantRepo, userId: string): Promise<void> {
+  const u = await repo.findOne("users", { ROWID: userId });
+  if (!u || u.franchisee_id || u.status !== "ACTIVE") throw new AppError("VALIDATION_FAILED", "Choose an active staff member as auditor.", { auditor_user_id: "not a staff member" });
+}
+
 export async function scheduleAudit(store: Store, ctx: TenantContext, project: Row, input: ScheduleInput): Promise<Row> {
   const repo = new TenantRepo(store, ctx.tenantId);
   if (!AUDITABLE.includes(String(project.status))) throw new AppError("INVALID_TRANSITION", "A store is audited once it's ready to open.");
   const open = (await repo.findMany("audits", { project_id: String(project.ROWID) }, { limit: 300 })).find((a) => OPEN_AUDIT.includes(String(a.status)));
   if (open) throw new AppError("INVALID_TRANSITION", `${open.audit_code} is already booked for this store. Change its date instead.`);
-  if (input.auditor_user_id) {
-    const u = await repo.findOne("users", { ROWID: input.auditor_user_id });
-    if (!u || u.franchisee_id || u.status !== "ACTIVE") throw new AppError("VALIDATION_FAILED", "Choose an active staff member as auditor.", { auditor_user_id: "not a staff member" });
-  }
+  if (input.auditor_user_id) await assertAuditor(repo, input.auditor_user_id);
+
   const code = await nextBusinessId(store, ctx.tenantId, "audit");
   const row = await repo.insert("audits", {
     audit_code: code, tenant_code_key: `${ctx.tenantId}:${code}`, project_id: String(project.ROWID), franchisee_id: project.franchisee_id ?? null, site_id: project.site_id ?? null,
@@ -89,7 +92,12 @@ export async function scheduleAudit(store: Store, ctx: TenantContext, project: R
 
 export async function rescheduleAudit(store: Store, ctx: TenantContext, audit: Row, change: { planned_for: string; auditor_user_id?: string | null }): Promise<Row> {
   if (audit.status !== "SCHEDULED") throw new AppError("INVALID_TRANSITION", "Only an audit that hasn't started can be moved.");
-  return new TenantRepo(store, ctx.tenantId).update("audits", String(audit.ROWID), { planned_for: change.planned_for, ...(change.auditor_user_id ? { auditor_user_id: change.auditor_user_id } : {}) });
+  const repo = new TenantRepo(store, ctx.tenantId);
+  if (change.auditor_user_id) await assertAuditor(repo, change.auditor_user_id);
+  const row = await repo.update("audits", String(audit.ROWID), { planned_for: change.planned_for, ...(change.auditor_user_id ? { auditor_user_id: change.auditor_user_id } : {}) });
+  // Logged as a fresh booking, so the store and the auditor hear about the new date.
+  await logActivity(store, ctx, { entityType: "project", entityId: String(audit.project_id), action: "audit:scheduled", metadata: { audit_id: String(audit.ROWID), audit_code: audit.audit_code, audit_type: audit.audit_type, planned_for: change.planned_for, auditor_user_id: row.auditor_user_id, moved_from: audit.planned_for } });
+  return row;
 }
 
 export async function cancelAudit(store: Store, ctx: TenantContext, audit: Row, reason: string): Promise<Row> {

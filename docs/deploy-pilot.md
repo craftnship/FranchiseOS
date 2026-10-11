@@ -354,6 +354,13 @@ The portal home now opens with what needs the franchisee, and the portal adds To
 - New permission `document.share` (share or remove brand documents) is super-admin only by default; add it to a role in `role_permissions` (for example Marketing or Operations manager) when they should share documents. Everyone with `dashboard.view` can see the library.
 - Tables `brand_documents` and `messages` were created in Development on 2026-10-11.
 
+## Polish pass (2026-10-11)
+
+- **Portal.** New Application and Site pages: a franchisee starts or edits their draft application, adds documents, submits (once the required documents are in), and proposes a site, or a replacement if one is rejected. The franchise manager (or the application's owner) is told on submit and on a proposed site. Franchisees with more than one store pick the store in the top bar. Notices open the matching portal page. The nav is grouped into My franchise, Getting started, Opening and Trading. An open store with a mandatory licence still missing shows as overdue on the to-do list.
+- **Phones.** Tables show one card per row. An open store's project page leads with opening day, sales and royalties and audits; the opening checklist follows under "Before opening".
+- **Fixes.** Without Zoho Projects, signing builds the opening checklist in FranchiseOS and the project starts planning (it used to stay Not started). Re-running onboarding adopts a signing-fee invoice the daily fee run already raised, so the fee is never billed twice. Approvals can't be decided while the application is on hold, and are closed when it is withdrawn or rejected. Applications can be rejected at any open stage. A site proposed after a rejected or dropped one replaces it on the application (feasibility is redone); feasibility and approval refuse a rejected site or another franchisee's. A resubmitted sales report with the same figures tells finance again. Moving an audit tells the store and the auditor. Linked application documents must be web links. Refunded deposits no longer count as collected.
+- Not changed: a closed store can't report its final months yet (there is no closing date to stop at).
+
 ## Activity log
 
 - Admin → Activity log lists every activity_logs entry for the tenant, newest first: when, what

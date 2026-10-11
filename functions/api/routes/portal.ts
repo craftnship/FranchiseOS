@@ -47,8 +47,10 @@ export function portalRoutes(r: Router): void {
     ]);
     // The application furthest along is the one the franchisee is working on.
     const open = apps.filter((a) => !CLOSED.includes(String(a.status))).sort((a, b) => FUNNEL.indexOf(String(b.status)) - FUNNEL.indexOf(String(a.status)));
-    const application = open[0] ?? apps[0] ?? null;
-    const project = application ? projects.find((p) => p.application_id === application.ROWID) ?? null : null;
+    // A franchisee with several stores picks one; the default is the application furthest along.
+    const picked = call.query?.project_id ? projects.find((p) => String(p.ROWID) === String(call.query!.project_id)) ?? null : null;
+    const application = (picked && apps.find((a) => a.ROWID === picked.application_id)) || open[0] || apps[0] || null;
+    const project = picked ?? (application ? projects.find((p) => p.application_id === application.ROWID) ?? null : null);
     const today = call.now.toISOString().slice(0, 10);
     const readiness = project ? await computeReadiness(call.store, call.ctx, String(project.ROWID), today) : null;
     const tasks = project
@@ -61,6 +63,7 @@ export function portalRoutes(r: Router): void {
       agreement: application ? agreements.find((a) => a.application_id === application.ROWID) ?? null : null,
       project: project && readiness ? { ...project, readiness: { score: readiness.score, rag: readiness.rag, blockers: readiness.blockers.length, overdue: readiness.overdue.length } } : project,
       upcoming_tasks: tasks,
+      stores: projects.map((p) => ({ ROWID: p.ROWID, project_code: p.project_code, status: p.status })),
       next_action: nextAction(application, { blockers: readiness?.blockers.length, overdue: readiness?.overdue.length }),
     };
   });

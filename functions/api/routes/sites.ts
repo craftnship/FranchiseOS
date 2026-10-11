@@ -74,6 +74,8 @@ async function siteTemplate(call: Call): Promise<{ id: string | null; items: Tem
   };
 }
 
+const DEAD_SITE = ["REJECTED", "DROPPED"];
+
 export function siteRoutes(r: Router): void {
   r.on("GET", "/sites", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), application_id: z.string().optional() }), call.query);
@@ -97,6 +99,13 @@ export function siteRoutes(r: Router): void {
     if (app.status === "SITE_REQUIRED") {
       await call.repo.update("franchise_applications", String(app.ROWID), { site_id: String(site.ROWID) });
       await transitionEntity("application", String(app.ROWID), "site_submitted", call.ctx, { store: call.store, onTransition: call.onTransition, permissions: async () => new Set(["site.write"]) });
+    } else if (["SITE_SUBMITTED", "FEASIBILITY_REVIEW"].includes(String(app.status))) {
+      // A replacement for a rejected or dropped site takes its place; feasibility is redone for it.
+      const current = app.site_id ? await call.repo.findOne("sites", { ROWID: String(app.site_id) }) : null;
+      if (!current || DEAD_SITE.includes(String(current.status))) {
+        await call.repo.update("franchise_applications", String(app.ROWID), { site_id: String(site.ROWID), feasibility_id: null });
+        await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(app.ROWID), action: "site:replaced", metadata: { from: current ? String(current.ROWID) : null, to: String(site.ROWID) } });
+      }
     }
     return site;
   }, 201);

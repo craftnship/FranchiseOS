@@ -137,7 +137,7 @@ export function DataTable({ rows, columns, href, searchKeys, toolbar, empty = "N
         </div>
       )}
       <div className="grid-scroll">
-        <table className="grid">
+        <table className="grid cards">
           <thead><tr>{columns.map((c) => (
             <th key={c.key} style={{ width: c.width }} className={c.align === "right" ? "right" : ""}>
               <button className="th-sort" onClick={() => setSort((s) => (s?.key === c.key ? { key: c.key, dir: s.dir === 1 ? -1 : 1 } : { key: c.key, dir: 1 }))}>
@@ -148,7 +148,7 @@ export function DataTable({ rows, columns, href, searchKeys, toolbar, empty = "N
           <tbody>
             {shown.map((r, i) => (
               <tr key={r.ROWID ?? r.id ?? i} className={href ? "clickable" : ""} onClick={href ? (e) => { if (!(e.target as HTMLElement).closest("a,button")) nav(href(r)); } : undefined}>
-                {columns.map((c) => <td key={c.key} className={c.align === "right" ? "right num" : ""}>{c.render ? c.render(r) : r[c.key] ?? <span className="muted">—</span>}</td>)}
+                {columns.map((c) => <td key={c.key} data-label={c.label} className={c.align === "right" ? "right num" : ""}><span className="td-v">{c.render ? c.render(r) : r[c.key] ?? <span className="muted">—</span>}</span></td>)}
               </tr>
             ))}
             {!shown.length && <tr><td colSpan={columns.length} className="grid-empty">{empty}</td></tr>}

@@ -78,7 +78,7 @@ export function ApplicationDetail() {
           <div className="row c2">
             <Panel title="Application details">
               <Facts items={[
-                ["Application", a.application_code], ["Format", label(a.application_type ?? "")], ["Country", a.preferred_country], ["State", a.preferred_state], ["City", a.preferred_city],
+                ["Application", a.application_code], ["Format", a.application_type], ["Country", a.preferred_country], ["State", a.preferred_state], ["City", a.preferred_city],
                 ["Status", <Pill value={a.status} />], ...(a.held_from ? [["Held from", label(a.held_from)] as [string, string]] : []), ["Created", date(a.CREATEDTIME)], ["Last updated", date(a.MODIFIEDTIME)],
               ]} />
             </Panel>
@@ -244,7 +244,7 @@ function QualificationPanel({ a, onScore }: { a: Row; onScore?: () => void }) {
   );
 }
 
-function DocumentsPanel({ a, onAdd, onVerify, busy }: { a: Row; onAdd?: () => void; onVerify: (doc: Row, status: "VERIFIED" | "REJECTED", reason?: string) => void; busy: string | null }) {
+export function DocumentsPanel({ a, onAdd, onVerify, busy }: { a: Row; onAdd?: () => void; onVerify: (doc: Row, status: "VERIFIED" | "REJECTED", reason?: string) => void; busy: string | null }) {
   const docs = (a.documents ?? []) as Row[];
   const required = (a.required_documents ?? []) as string[];
   const [rejecting, setRejecting] = useState<Row | null>(null);
@@ -406,7 +406,7 @@ const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
   r.readAsDataURL(file);
 });
 
-function DocumentDialog({ a, required, onClose, onSaved }: { a: Row; required: string[]; onClose: () => void; onSaved: (d: Row) => void }) {
+export function DocumentDialog({ a, required, onClose, onSaved }: { a: Row; required: string[]; onClose: () => void; onSaved: (d: Row) => void }) {
   const docs = (a.documents ?? []) as Row[];
   const firstMissing = required.find((t) => !docs.some((d) => d.document_type === t && d.verification_status !== "REJECTED"));
   const f = useFields({ document_type: firstMissing ?? DOC_TYPES[0], file_ref: "", document_number: "", issue_date: "", expiry_date: "" });
@@ -473,7 +473,7 @@ function DocumentLink({ a, d }: { a: Row; d: Row }) {
   return <><button className="btn ghost sm" onClick={open} disabled={busy}>{busy ? "Opening…" : "Download"}</button><span className="cell-sub">{failed ? "Couldn't open it. Try again." : name}</span></>;
 }
 
-function SiteDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; onSaved: (s: Row) => void }) {
+export function SiteDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; onSaved: (s: Row) => void }) {
   const f = useFields({ address_line_1: "", city: String(a.territory?.city ?? a.preferred_city ?? ""), state: String(a.territory?.state ?? a.preferred_state ?? ""), postal_code: "", area_sqft: "", rent: "", deposit: "" });
   const act = useAction();
   const save = async () => {

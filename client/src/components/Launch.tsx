@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, inr, inrShort, Loaded, PageHeader, Panel, Pill } from "./ui";
@@ -179,7 +179,7 @@ function WeekDialog({ week, busy, error, onSave, onClose }: { week: Row; busy: b
 
 /** Portal: the franchisee's launch plan and first-weeks sales. */
 export function PortalLaunch() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Opening day" subtitle="Your grand-opening plan, and how your first weeks are going against plan." />

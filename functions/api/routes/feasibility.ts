@@ -54,7 +54,9 @@ export function feasibilityRoutes(r: Router): void {
     if (!OPEN_APP_STATES.includes(String(app.status))) throw new AppError("APPLICATION_INVALID_STATE", `An application in ${app.status} is not ready for feasibility.`);
     const siteId = body.site_id ?? (app.site_id ? String(app.site_id) : undefined);
     if (!siteId) throw new AppError("VALIDATION_FAILED", "site_id is required.", { site_id: "required" });
-    await mustGet(call.repo, "sites", siteId, "SITE_NOT_FOUND");
+    const site = await mustGet(call.repo, "sites", siteId, "SITE_NOT_FOUND");
+    if (String(site.franchisee_id) !== String(app.franchisee_id)) throw new AppError("VALIDATION_FAILED", "That site belongs to another franchisee.", { site_id: "not this application's" });
+    if (["REJECTED", "DROPPED"].includes(String(site.status))) throw new AppError("VALIDATION_FAILED", `That site was ${String(site.status).toLowerCase()}. Model the replacement site.`, { site_id: String(site.status).toLowerCase() });
     const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
     const model = await call.repo.insert("feasibility_models", {
       ...body, site_id: siteId, currency: body.currency ?? String(tenant?.currency ?? "INR"), status: "DRAFT",

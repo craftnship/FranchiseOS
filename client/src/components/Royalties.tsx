@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
@@ -166,7 +166,7 @@ function RatesDialog({ rates, busy, error, onSave, onClose }: { rates: Row; busy
 
 /** Portal: the franchisee's sales reports and royalty invoices. */
 export function PortalSales() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Sales reports" subtitle="Report each month's sales. We invoice the royalty and marketing fund from them." />

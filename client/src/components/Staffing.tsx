@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, ApiError, Row } from "../api";
+import { api, ApiError, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
@@ -221,7 +221,7 @@ function TrainingDialog({ person, modules, base, editable, canRecord, portal, bu
 
 /** Portal: the franchisee's team and training. */
 export function PortalTeam() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Team and training" subtitle="The people you hire for the store and the brand training each one completes before opening." />

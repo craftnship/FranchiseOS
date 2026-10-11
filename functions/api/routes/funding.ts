@@ -125,7 +125,7 @@ export function fundingRoutes(r: Router): void {
       items,
       totals: {
         scheduled: sum((i) => i.status === "SCHEDULED"), outstanding: sum((i) => i.status === "INVOICED", "invoice_balance"),
-        collected: sum((i) => i.status === "PAID" || i.status === "REFUNDED", "invoice_total") + sum((i) => i.status === "INVOICED", "invoice_total") - sum((i) => i.status === "INVOICED", "invoice_balance"),
+        collected: sum((i) => i.status === "PAID", "invoice_total") + sum((i) => i.status === "INVOICED", "invoice_total") - sum((i) => i.status === "INVOICED", "invoice_balance"),
         overdue: items.filter((i) => i.overdue).length, deposits_held: sum((i) => i.kind === "DEPOSIT" && i.status === "PAID"),
       },
     };

@@ -88,7 +88,7 @@ describe("franchise pipeline through the API", () => {
     const missing = await call("pepper", "POST", `/applications/${id}/submit`);
     expect(missing.error?.code).toBe("APPLICATION_DOCUMENT_MISSING");
     for (const t of ["ID_PROOF", "ADDRESS_PROOF", "BANK_STATEMENT"]) {
-      expect((await call("pepper", "POST", `/applications/${id}/documents`, { document_type: t, file_ref: `stratus://docs/${t}` })).status).toBe(201);
+      expect((await call("pepper", "POST", `/applications/${id}/documents`, { document_type: t, file_ref: `https://workdrive.zoho.in/docs/${t}` })).status).toBe(201);
     }
     expect((await call("pepper", "POST", `/applications/${id}/submit`)).data.status).toBe("SUBMITTED");
     expect((await call("pepper", "PATCH", `/applications/${id}`, { preferred_city: "Pune" })).error?.code).toBe("APPLICATION_INVALID_STATE");

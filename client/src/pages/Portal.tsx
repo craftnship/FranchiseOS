@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { api, Row } from "../api";
+import { api, Row, portalHome } from "../api";
 import { useLoad } from "../hooks";
 import { date, Facts, Icon, Loaded, PageHeader, Panel, Pill, Progress } from "../components/ui";
 import { Checklist, ReadinessCard } from "./Projects";
@@ -8,7 +8,7 @@ import { CapexPanel } from "../components/Capex";
 import { TodoList } from "../components/PortalHub";
 
 export function PortalHome() {
-  const load = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const load = useLoad(() => portalHome(), []);
   const todo = useLoad(() => api<Row>("GET", "/portal/todo"), []);
   return (
     <Loaded load={load}>{(h) => (
@@ -32,7 +32,11 @@ export function PortalHome() {
           <Panel title="Site">{h.site ? <div className="stat-line">{h.site.site_code} · {h.site.city}<Pill value={h.site.status} /></div> : <p className="muted">No site yet</p>}</Panel>
           <Panel title="Agreement">{h.agreement ? <><div className="stat-line">{h.agreement.agreement_code}<Pill value={h.agreement.status} /></div>{h.agreement.signed_at && <p className="muted">Signed {date(h.agreement.signed_at)}</p>}</> : <p className="muted">Not sent yet</p>}</Panel>
         </div>
-        {h.project && (
+        {h.project?.status === "OPENED" ? (
+          <Panel title={<>Your store {h.project.project_code}<Pill value={h.project.status} /></>} action={<Link to="/portal/sales">Sales reports</Link>}>
+            <Facts items={[["Opened", date(h.project.actual_opening_date)], ["Grand opening", date(h.project.grand_opening_date ?? h.project.actual_opening_date)]]} />
+          </Panel>
+        ) : h.project && (
           <Panel title={<>Store opening {h.project.project_code}<Pill value={h.project.readiness?.rag} /></>} action={<Link to="/portal/tasks">All tasks</Link>} flush>
             <div className="panel-body"><Facts items={[["Readiness", <Progress value={h.project.readiness?.score} rag={h.project.readiness?.rag} />], ["Target opening", date(h.project.target_opening_date)]]} /></div>
             <Checklist items={h.upcoming_tasks} />
@@ -44,7 +48,7 @@ export function PortalHome() {
 }
 
 export function PortalTasks() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <Loaded load={home}>{(h) => h.project ? <ProjectTasks id={String(h.project.ROWID)} /> : <div className="state">Your opening tasks appear here once your agreement is signed.</div>}</Loaded>
   );

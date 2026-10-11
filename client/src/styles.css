@@ -507,3 +507,22 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .chat-tools { display: flex; gap: .5rem; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .module-list.docs li { flex-wrap: nowrap; }
 .module-list.docs li > span { min-width: 0; display: grid; gap: .15rem; }
+
+/* Phone: tables become one card per row, the first column as its title and the rest as labelled lines. */
+@media (max-width: 640px) {
+  table.grid.cards, table.grid.cards tbody, table.grid.cards tr, table.grid.cards td { display: block; width: auto; }
+  table.grid.cards thead { display: none; }
+  table.grid.cards tr { padding: .7rem 1rem; border-bottom: 1px solid var(--border); }
+  table.grid.cards tbody tr:last-child { border-bottom: 0; }
+  table.grid.cards td { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .2rem 0; border: 0; text-align: right; }
+  table.grid.cards td::before { content: attr(data-label); flex: none; max-width: 45%; color: var(--muted); font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; text-align: left; }
+  table.grid.cards td .td-v { min-width: 0; overflow-wrap: anywhere; }
+  table.grid.cards td:first-child { display: block; text-align: left; font-size: .92rem; padding-bottom: .35rem; }
+  table.grid.cards td:first-child::before, table.grid.cards td[data-label=""]::before { content: none; }
+  table.grid.cards td[data-label=""] { justify-content: flex-end; }
+  table.grid.cards td.grid-empty { display: block; text-align: center; }
+  table.grid.cards td .cell-sub { text-align: inherit; }
+}
+.section-head { margin: 1.75rem 0 .75rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.store-picker { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); }
+.store-picker select { border: 1px solid var(--border); border-radius: 8px; padding: .35rem .5rem; background: var(--surface); color: var(--text); font: inherit; font-size: .85rem; max-width: 12rem; }

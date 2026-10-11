@@ -75,7 +75,9 @@ export async function portalTodo(store: Store, ctx: TenantContext, franchiseeId:
     }
     // Licences: mandatory ones missing before opening, and renewals coming up.
     for (const l of licences) {
-      if (ACTIVE.includes(String(p.status)) && toBool(l.mandatory) && l.status !== "ISSUED") {
+      if (p.status === "OPENED" && toBool(l.mandatory) && l.status !== "ISSUED") {
+        push({ key: `lic:${l.ROWID}`, kind: "licence", level: "overdue", title: `${l.status === "APPLIED" ? "Chase" : "Get"} the ${l.name}`, detail: "Your store is open without this mandatory licence.", project_code: code, path: "/portal/tasks" });
+      } else if (ACTIVE.includes(String(p.status)) && toBool(l.mandatory) && l.status !== "ISSUED") {
         const target = day(p.target_opening_date);
         push({ key: `lic:${l.ROWID}`, kind: "licence", level: target && target <= addDays(today, 30) ? "due" : "soon", title: `${l.status === "APPLIED" ? "Chase" : "Apply for"} the ${l.name}`, detail: `Needed before the store opens${target ? ` on ${target}` : ""}.`, project_code: code, path: "/portal/tasks" });
       }

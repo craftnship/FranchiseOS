@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, can, Row } from "../api";
+import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
@@ -287,7 +287,7 @@ function CancelDialog({ busy, error, onSave, onClose }: { busy: boolean; error: 
 
 /** Portal: the franchisee's audits and what to fix. */
 export function PortalAudits() {
-  const home = useLoad(() => api<Row>("GET", "/portal/home"), []);
+  const home = useLoad(() => portalHome(), []);
   return (
     <>
       <PageHeader title="Audits" subtitle="How your store scored against the brand standards, and what to fix." />
