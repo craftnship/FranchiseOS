@@ -24,7 +24,10 @@ async function setup(opts: { feasibilityRoyalty?: number } = {}) {
   const project = await store.insert("franchise_projects", { tenant_id: tid, project_code: "PROJ-000001", tenant_code_key: `${tid}:PROJ-000001`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "OPENED", actual_opening_date: "2026-08-20" });
   const invoices = new Map<string, { id: string; ref: string; lines: any[]; status: string; total: number; balance: number }>();
   const sent: string[][] = [];
+  const customers: string[] = [];
   const books = {
+    findCustomer: async () => null,
+    createCustomer: async (d: any) => { customers.push(d.contact_name); return { id: `CUST-NEW-${customers.length}` }; },
     findInvoice: async (ref: string) => { const i = [...invoices.values()].find((x) => x.ref === ref); return i ? { id: i.id } : null; },
     createInvoice: async (d: any) => {
       const id = `INV-${invoices.size + 1}`;
@@ -42,7 +45,7 @@ async function setup(opts: { feasibilityRoyalty?: number } = {}) {
   };
   const base = `/projects/${project.ROWID}`;
   const inbox = async (ext: string) => (await call(ext, "GET", "/notifications")).data.items.map((n: any) => n.title) as string[];
-  return { store, tid, project, call, base, inbox, invoices, sent, books };
+  return { store, tid, project, call, base, inbox, invoices, sent, books, customers, fr };
 }
 
 describe("monthly sales and royalties", () => {
@@ -117,6 +120,15 @@ describe("monthly sales and royalties", () => {
     await runReminderJob(s.store, { now: new Date("2026-10-12T03:00:00Z"), requestId: "J" });
     expect((await s.inbox("pepper")).filter((t) => t.includes("sales"))).toHaveLength(1);
     expect((await s.inbox("fin")).filter((t) => t.includes("sales"))).toEqual(["PROJ-000001 hasn't reported Sep 2026 sales"]);
+  });
+
+  it("creates the Books customer when the franchisee has none yet", async () => {
+    const s = await setup();
+    await s.store.update("franchisees", String(s.fr.ROWID), { zoho_books_customer_id: null });
+    const rep = (await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-09", gross_sales: 100, net_sales: 100 })).data;
+    expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).data).toMatchObject({ status: "INVOICED" });
+    expect(s.customers).toEqual(["Pepper Potts"]);
+    expect((await s.store.findOne("franchisees", { ROWID: String(s.fr.ROWID) }))?.zoho_books_customer_id).toBe("CUST-NEW-1");
   });
 
   it("gives finance a network view", async () => {

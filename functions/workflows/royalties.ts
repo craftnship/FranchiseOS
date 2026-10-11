@@ -120,8 +120,15 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
   const rates = await ratesFor(store, ctx, project);
   if (rates.royalty_pct == null) throw new AppError("VALIDATION_FAILED", "Set this store's royalty rate first.", { royalty_pct: "not set" });
   if (!books) throw new AppError("ZOHO_SYNC_FAILED", "Zoho Books is not connected for this tenant.");
-  const franchisee = project.franchisee_id ? await repo.findOne("franchisees", { ROWID: String(project.franchisee_id) }) : null;
-  if (!franchisee?.zoho_books_customer_id) throw new AppError("VALIDATION_FAILED", "The franchisee has no Books customer yet; it is created when the agreement is signed.", { franchisee: "no Books customer" });
+  let franchisee = project.franchisee_id ? await repo.findOne("franchisees", { ROWID: String(project.franchisee_id) }) : null;
+  if (!franchisee) throw new AppError("VALIDATION_FAILED", "This store has no franchisee to invoice.", { franchisee: "missing" });
+  if (!franchisee.zoho_books_customer_id) {
+    // Normally made when the agreement is signed; stores set up another way get one here.
+    const name = String(franchisee.legal_name || franchisee.display_name || franchisee.franchise_code);
+    const email = franchisee.email ? String(franchisee.email) : undefined;
+    const ref = await books.findCustomer(name, email) ?? await books.createCustomer({ contact_name: name, company_name: franchisee.legal_name ? String(franchisee.legal_name) : undefined, email, phone: franchisee.phone ? String(franchisee.phone) : undefined });
+    franchisee = await repo.update("franchisees", String(franchisee.ROWID), { zoho_books_customer_id: ref.id });
+  }
   const net = toNum(report.net_sales);
   const royalty = round2(net * rates.royalty_pct / 100);
   const marketing = round2(net * (rates.marketing_fund_pct ?? 0) / 100);
