@@ -540,3 +540,9 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .color-field { display: flex; gap: .5rem; align-items: center; }
 .field .color-field input { flex: 1; min-width: 0; }
 .field .color-field input[type="color"] { width: 44px; flex: none; padding: 2px; cursor: pointer; }
+.setup-rows { display: grid; gap: .5rem; margin-bottom: .5rem; }
+.setup-row { display: grid; grid-template-columns: 2fr 2fr 90px auto; gap: .5rem; align-items: center; }
+.setup-row.module { grid-template-columns: 2fr 3fr auto; }
+.setup-checks { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .85rem; }
+.setup-checks label { display: inline-flex; align-items: center; gap: .3rem; }
+@media (max-width: 640px) { .setup-row, .setup-row.module { grid-template-columns: 1fr 1fr; } .setup-row > :first-child, .setup-checks { grid-column: 1 / -1; } }

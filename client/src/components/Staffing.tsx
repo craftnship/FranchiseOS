@@ -5,7 +5,8 @@ import { upload } from "./Construction";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, Loaded, PageHeader, Panel, Pill } from "./ui";
 
-const ROLES: [string, string, string][] = [["STORE_MANAGER", "Store manager", "Store managers"], ["SHIFT_LEAD", "Shift lead", "Shift leads"], ["CREW", "Crew", "Crew"]];
+// The tenant's store roles (Settings → Store setup), as the staffing API returns them; the first is the manager.
+let ROLES: [string, string, string][] = [["STORE_MANAGER", "Store manager", "Store managers"], ["SHIFT_LEAD", "Shift lead", "Shift leads"], ["CREW", "Crew", "Crew"]];
 const roleName = (code: unknown) => ROLES.find((r) => r[0] === code)?.[1] ?? String(code ?? "");
 const TRAIN_TONE: Record<string, string> = { SUBMITTED: "info", SIGNED_OFF: "good", RETURNED: "warn" };
 const TRAIN_TEXT: Record<string, string> = { SUBMITTED: "Waiting for sign-off", SIGNED_OFF: "Signed off", RETURNED: "Sent back" };
@@ -32,13 +33,14 @@ export function StaffingPanel({ projectId, editable, portal, closed, onTasks }: 
   const tasksNote = (r: Row) => {
     const t = (r.tasks_completed ?? []) as string[];
     if (t.length) onTasks?.();
-    const names: Record<string, string> = { HIRE_MANAGER: "Hire store manager", HIRE_CREW: "Hire crew", TRAIN_CREW: "Complete crew training" };
+    const names: Record<string, string> = { HIRE_MANAGER: `Hire ${ROLES[0][1].toLowerCase()}`, HIRE_CREW: "Hire the team", TRAIN_CREW: "Complete team training" };
     return t.length ? ` ${t.map((c) => `“${names[c] ?? c}”`).join(" and ")} ${t.length === 1 ? "is" : "are"} now done.` : "";
   };
 
   return (
     <Loaded load={load}>{(s) => {
       const plan = s.plan as Row[], staff = s.staff as Row[], modules = s.modules as Row[];
+      if (Array.isArray(s.roles) && s.roles.length) ROLES = (s.roles as Row[]).map((r) => [String(r.code), String(r.name), String(r.plural)]);
       const active = staff.filter((p) => p.status === "ACTIVE");
       const shown = showLeft ? staff : active;
       const left = staff.length - active.length;
@@ -121,7 +123,7 @@ function PlanDialog({ plan, busy, error, onSave, onClose }: { plan: Row[]; busy:
 }
 
 function StaffDialog({ person, busy, error, onSave, onClose }: { person: Row | null; busy: boolean; error: ApiError | null; onSave: (b: Row) => void; onClose: () => void }) {
-  const [v, setV] = useState({ full_name: String(person?.full_name ?? ""), role_code: String(person?.role_code ?? "CREW"), phone: String(person?.phone ?? ""), email: String(person?.email ?? ""), hired_on: String(person?.hired_on ?? today()).slice(0, 10), start_date: String(person?.start_date ?? "").slice(0, 10) });
+  const [v, setV] = useState({ full_name: String(person?.full_name ?? ""), role_code: String(person?.role_code ?? ROLES[ROLES.length - 1][0]), phone: String(person?.phone ?? ""), email: String(person?.email ?? ""), hired_on: String(person?.hired_on ?? today()).slice(0, 10), start_date: String(person?.start_date ?? "").slice(0, 10) });
   const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((p) => ({ ...p, [k]: e.target.value }));
   const submit = () => {
     const common = { full_name: v.full_name.trim(), role_code: v.role_code, phone: v.phone.trim() || null, email: v.email.trim() || null, start_date: v.start_date || null };

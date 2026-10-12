@@ -453,3 +453,19 @@ tab title and icon, and notification emails ("Open in <name>", button colour).
   Brand it in the Catalyst console, in the Authentication section's hosted login page settings
   (the menu path was not checked from here): upload the same logo and set the title. Do this once
   per environment.
+
+## Store setup (2026-10-12)
+
+Admin → Settings → Store setup (`settings.manage`) makes three things that were QSR-only per tenant:
+
+- **Default format** (`settings_json.default_franchise_type`, fallback `QSR`): new franchisees, CRM
+  leads without a format, and agreements or projects for a franchisee without one use it to find
+  their agreement and project templates.
+- **Store roles** (`settings_json.staff_roles`: `code`, `name`, `plural`, `default_count`): the people
+  a store hires and how many a new store needs. The first role is the manager the `HIRE_MANAGER`
+  task waits for; the others count towards `HIRE_CREW`. A role with active staff can't be removed.
+- **Training modules** (`settings_json.training_modules`: `code`, `name`, `roles`, `certificate`):
+  what each role completes; `TRAIN_CREW` completes when everyone planned is trained.
+
+Without these settings the restaurant defaults stay (store manager, shift lead, crew; food safety
+and so on). API: `GET` and `PUT /api/v1/settings/store-setup`.

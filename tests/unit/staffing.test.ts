@@ -3,6 +3,7 @@ import { buildRouter } from "../../functions/api/app";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { MemoryFileStorage } from "../../functions/common/files";
 import { newStore } from "./helpers";
+import { franchiseTypeOf } from "../../functions/common/franchiseType";
 
 const router = buildRouter();
 const NOW = new Date("2026-10-09T06:00:00Z");
@@ -31,7 +32,7 @@ async function setup() {
   const base = `/projects/${project.ROWID}`;
   const status = async (id: unknown) => (await store.findOne("opening_checklists", { ROWID: String(id) }))?.status;
   const inbox = async (ext: string) => (await call(ext, "GET", "/notifications")).data.items.map((n: any) => n.title) as string[];
-  return { store, call, base, tasks, status, inbox };
+  return { store, call, base, tasks, status, inbox, t };
 }
 
 describe("hiring", () => {
@@ -108,5 +109,34 @@ describe("training", () => {
     expect(team.to_sign_off).toBe(0);
     expect((await s.call("pepper", "GET", `${s.base}/training/${fs.data.ROWID}/certificate`)).data.url).toBeTruthy();
     expect((await s.call("happy", "GET", `${s.base}/staffing`)).error?.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("store setup", () => {
+  it("uses the tenant's own roles, training and default format", async () => {
+    const s = await setup();
+    await s.store.insert("users", { tenant_id: s.t.tenantId, email: "admin@x.test", status: "ACTIVE", role_id: s.t.roleIds.SUPER_ADMIN, external_user_id: "admin" });
+    const ev = {
+      default_franchise_type: "EV_EXPERIENCE_CENTRE",
+      staff_roles: [{ code: "CENTRE_MANAGER", name: "Centre manager", plural: "Centre managers", default_count: 1 }, { code: "TECHNICIAN", name: "EV technician", plural: "EV technicians", default_count: 2 }],
+      training_modules: [{ code: "HV_SAFETY", name: "High-voltage safety", roles: ["CENTRE_MANAGER", "TECHNICIAN"], certificate: true }, { code: "TEST_RIDE", name: "Test rides", roles: ["CENTRE_MANAGER"] }],
+    };
+    expect((await s.call("pm", "PUT", "/settings/store-setup", ev)).error?.code).toBe("ACCESS_DENIED");
+    expect((await s.call("admin", "PUT", "/settings/store-setup", { ...ev, training_modules: [{ code: "X_RAY", name: "X", roles: ["CREW"] }] })).error?.fields).toEqual({ training_modules: "unknown role" });
+    expect((await s.call("admin", "PUT", "/settings/store-setup", ev)).data).toMatchObject({ default_franchise_type: "EV_EXPERIENCE_CENTRE", staff_roles: ev.staff_roles });
+    const team = (await s.call("pepper", "GET", `${s.base}/staffing`)).data;
+    expect(team.plan.map((r: any) => [r.role_code, r.required])).toEqual([["CENTRE_MANAGER", 1], ["TECHNICIAN", 2]]);
+    expect((await s.call("pepper", "POST", `${s.base}/staff`, { full_name: "Old Crew", role_code: "CREW", hired_on: "2026-10-01" })).error?.fields).toEqual({ role_code: "unknown role" });
+    const mgr = await s.call("pepper", "POST", `${s.base}/staff`, { full_name: "Tony Stark", role_code: "CENTRE_MANAGER", hired_on: "2026-10-01" });
+    expect(mgr.data.tasks_completed).toEqual(["HIRE_MANAGER"]);
+    const hv = await s.call("pepper", "POST", `${s.base}/staff/${mgr.data.ROWID}/training`, { module_code: "HV_SAFETY", completed_on: "2026-10-05" });
+    expect(hv.error?.fields).toEqual({ certificate: "required" });
+    expect((await s.call("pm", "PATCH", `${s.base}/staffing/plan`, { TECHNICIAN: 3 })).data.plan.map((r: any) => r.required)).toEqual([1, 3]);
+    expect((await s.call("pm", "PATCH", `${s.base}/staffing/plan`, { CREW: 3 })).error?.fields).toEqual({ CREW: "unknown role" });
+    // A role with people on it can't be dropped.
+    expect((await s.call("admin", "PUT", "/settings/store-setup", { ...ev, staff_roles: ev.staff_roles.slice(1), training_modules: [ev.training_modules[0]].map((m) => ({ ...m, roles: ["TECHNICIAN"] })) })).error?.fields).toEqual({ staff_roles: "role in use" });
+    // Franchisees without a format of their own get the default, so they find its templates.
+    expect(await franchiseTypeOf(s.store, s.t.tenantId, { franchise_type: null })).toBe("EV_EXPERIENCE_CENTRE");
+    expect(await franchiseTypeOf(s.store, s.t.tenantId, { franchise_type: "QSR" })).toBe("QSR");
   });
 });

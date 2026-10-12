@@ -6,6 +6,7 @@ import { log } from "../common/logger";
 import { PermissionLookup } from "../common/rbac";
 import { Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
+import { franchiseTypeOf } from "../common/franchiseType";
 import { ZohoBooksClient, ZohoCrmClient, ZohoProjectsClient, ZohoSignClient } from "../integrations/clients";
 import { processOnce } from "../integrations/idempotency";
 import { ProviderError } from "../integrations/retry";
@@ -132,7 +133,7 @@ export async function sendAgreement(
   const franchisee = await repo.findOne("franchisees", { ROWID: String(app.franchisee_id) });
   if (!franchisee) throw new AppError("FRANCHISEE_NOT_FOUND");
   if (!franchisee.email) throw new AppError("VALIDATION_FAILED", "The franchisee needs an email address to sign.", { email: "required" });
-  const type = String(franchisee.franchise_type || "QSR");
+  const type = await franchiseTypeOf(store, ctx.tenantId, franchisee);
   const templates = await repo.findMany("agreement_templates", { franchise_type: type, status: "ACTIVE" }, { orderBy: "version", desc: true, limit: 1 });
   const template = templates[0];
   if (!template?.zoho_sign_template_id) {
@@ -387,7 +388,7 @@ export async function onboardSignedAgreement(
     await step("zoho_project", async () => {
       build = await buildOpeningProject(store, ctx, projects, {
         projectRowId: String(project!.ROWID),
-        template: await loadProjectTemplate(repo, String(franchisee.franchise_type || "QSR")),
+        template: await loadProjectTemplate(repo, await franchiseTypeOf(store, ctx.tenantId, franchisee)),
         startDate: dateOnly(now),
         dependencies: settings.projects_dependencies,
       });
@@ -397,7 +398,7 @@ export async function onboardSignedAgreement(
     await step("opening_checklist", async () => {
       await buildLocalProject(store, ctx, {
         projectRowId: String(project!.ROWID),
-        template: await loadProjectTemplate(repo, String(franchisee.franchise_type || "QSR")),
+        template: await loadProjectTemplate(repo, await franchiseTypeOf(store, ctx.tenantId, franchisee)),
         startDate: dateOnly(now),
       });
     });

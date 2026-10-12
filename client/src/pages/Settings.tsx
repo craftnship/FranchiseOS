@@ -8,6 +8,7 @@ import { upload } from "../components/Construction";
 
 // Admin → Settings. Branding: the company name, logo and colour shown in place of FranchiseOS
 // in the app, the franchisee portal, the sign-in screen, the browser tab and notification emails.
+// Store setup: the default format, the roles a store hires and the training each role takes.
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
@@ -84,6 +85,86 @@ export function Settings() {
         </Form>
       </Panel>
       <p className="muted">“Continue to sign in” opens Zoho Catalyst's own sign-in page. Its logo and title are set in the Catalyst console's Authentication settings.</p>
+      <StoreSetup />
     </>
+  );
+}
+
+interface RoleRow { code: string; name: string; plural: string; default_count: number }
+interface ModuleRow { code: string; name: string; roles: string[]; certificate?: boolean }
+interface Setup { default_franchise_type: string; franchise_types: string[]; staff_roles: RoleRow[]; training_modules: ModuleRow[] }
+
+/** A code from a name: "Service advisor" → SERVICE_ADVISOR. */
+const codeOf = (name: string, taken: string[]) => {
+  const base = name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(\d)/, "R_$1").slice(0, 36) || "ITEM";
+  let c = base.length < 2 ? `${base}_X` : base, i = 2;
+  while (taken.includes(c)) c = `${base}_${i++}`;
+  return c;
+};
+
+/** The format new franchisees get, the roles a store hires and the training each role takes. */
+function StoreSetup() {
+  const act = useAction();
+  const [s, setS] = useState<Setup | null>(null);
+  useEffect(() => { api<Setup>("GET", "/settings/store-setup").then(setS).catch(() => setS(null)); }, []);
+  if (!s) return null;
+  const roles = s.staff_roles, mods = s.training_modules;
+  const setRole = (i: number, k: keyof RoleRow, v: string) => setS({ ...s, staff_roles: roles.map((r, j) => (j === i ? { ...r, [k]: k === "default_count" ? Number(v) : v } : r)) });
+  const setMod = (i: number, patch: Partial<ModuleRow>) => setS({ ...s, training_modules: mods.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
+  const addRole = () => setS({ ...s, staff_roles: [...roles, { code: "", name: "", plural: "", default_count: 1 }] });
+  const addMod = () => setS({ ...s, training_modules: [...mods, { code: "", name: "", roles: roles.map((r) => r.code).filter(Boolean), certificate: false }] });
+  const save = async () => {
+    const taken = roles.map((r) => r.code).filter(Boolean);
+    const staff_roles = roles.filter((r) => r.name.trim()).map((r) => { const code = r.code || codeOf(r.name, taken); taken.push(code); return { code, name: r.name.trim(), plural: r.plural.trim() || r.name.trim(), default_count: r.default_count || 0 }; });
+    const mtaken = mods.map((m) => m.code).filter(Boolean);
+    const training_modules = mods.filter((m) => m.name.trim()).map((m) => { const code = m.code || codeOf(m.name, mtaken); mtaken.push(code); return { code, name: m.name.trim(), roles: m.roles.filter((r) => staff_roles.some((x) => x.code === r)), certificate: !!m.certificate }; });
+    const r = await act.run("setup", () => api<Setup>("PUT", "/settings/store-setup", { body: { default_franchise_type: s.default_franchise_type.trim(), staff_roles, training_modules } }), "Saved.");
+    if (r) setS(r);
+  };
+  return (
+    <Panel title="Store setup">
+      {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
+      <Form onSubmit={save} footer={<button className="btn" disabled={!!act.busy || !s.default_franchise_type.trim()}>{act.busy ? "Saving…" : "Save store setup"}</button>}>
+        <Field label="Default format" hint="New franchisees and CRM leads without a format get this one, so they pick up its templates.">
+          <input list="fos-formats" value={s.default_franchise_type} maxLength={50} onChange={(e) => setS({ ...s, default_franchise_type: e.target.value })} />
+          <datalist id="fos-formats">{s.franchise_types.map((t) => <option key={t} value={t} />)}</datalist>
+        </Field>
+        <div className="span">
+          <div className="field-label">Store roles</div>
+          <p className="field-hint" style={{ margin: "0 0 .5rem" }}>The people a store hires, with how many a new store needs. The first role is the manager the “hire manager” task waits for.</p>
+          <div className="setup-rows">
+            {roles.map((r, i) => (
+              <div key={i} className="setup-row">
+                <input aria-label="Role" placeholder="Role, e.g. Service advisor" value={r.name} maxLength={60} onChange={(e) => setRole(i, "name", e.target.value)} />
+                <input aria-label="Plural" placeholder="Plural" value={r.plural} maxLength={60} onChange={(e) => setRole(i, "plural", e.target.value)} />
+                <input aria-label="People per store" type="number" min={0} max={100} value={r.default_count} onChange={(e) => setRole(i, "default_count", e.target.value)} />
+                <button type="button" className="btn ghost sm" disabled={roles.length < 2} onClick={() => setS({ ...s, staff_roles: roles.filter((_, j) => j !== i), training_modules: mods.map((m) => ({ ...m, roles: m.roles.filter((x) => x !== r.code) })) })}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="btn ghost sm" onClick={addRole}>Add role</button>
+        </div>
+        <div className="span">
+          <div className="field-label">Training modules</div>
+          <p className="field-hint" style={{ margin: "0 0 .5rem" }}>What each role completes before opening. Tick “Certificate” when the franchisee must attach one.</p>
+          <div className="setup-rows">
+            {mods.map((m, i) => (
+              <div key={i} className="setup-row module">
+                <input aria-label="Module" placeholder="Module, e.g. High-voltage safety" value={m.name} maxLength={100} onChange={(e) => setMod(i, { name: e.target.value })} />
+                <span className="setup-checks">
+                  {roles.filter((r) => r.code).map((r) => (
+                    <label key={r.code}><input type="checkbox" checked={m.roles.includes(r.code)} onChange={(e) => setMod(i, { roles: e.target.checked ? [...m.roles, r.code] : m.roles.filter((x) => x !== r.code) })} />{r.name}</label>
+                  ))}
+                  <label><input type="checkbox" checked={!!m.certificate} onChange={(e) => setMod(i, { certificate: e.target.checked })} />Certificate</label>
+                </span>
+                <button type="button" className="btn ghost sm" disabled={mods.length < 2} onClick={() => setS({ ...s, training_modules: mods.filter((_, j) => j !== i) })}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="btn ghost sm" onClick={addMod}>Add module</button>
+        </div>
+        <div className="span"><FormError error={act.error} /></div>
+      </Form>
+    </Panel>
   );
 }

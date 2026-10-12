@@ -1,3 +1,4 @@
+import { defaultFranchiseType } from "../../common/franchiseType";
 import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { pullFranchiseeContact } from "../../workflows/crmContacts";
@@ -28,7 +29,8 @@ export function franchiseeRoutes(r: Router): void {
     const body = parse(createSchema, call.body);
     const franchise_code = await nextBusinessId(call.store, call.ctx.tenantId, "franchisee");
     const row = await call.repo.insert("franchisees", {
-      ...body, franchise_code, tenant_code_key: `${call.ctx.tenantId}:${franchise_code}`, status: "PROSPECT",
+      ...body, franchise_type: body.franchise_type || defaultFranchiseType(await call.store.findOne("tenants", { ROWID: call.ctx.tenantId })),
+      franchise_code, tenant_code_key: `${call.ctx.tenantId}:${franchise_code}`, status: "PROSPECT",
     });
     await logActivity(call.store, call.ctx, { entityType: "franchisee", entityId: String(row.ROWID), action: "create" });
     return row;

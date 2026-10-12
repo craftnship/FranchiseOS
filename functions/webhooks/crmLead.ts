@@ -3,6 +3,7 @@ import { logActivity } from "../common/audit";
 import { nextBusinessId } from "../common/ids";
 import { Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
+import { defaultFranchiseType } from "../common/franchiseType";
 import { ZohoCrmClient } from "../integrations/clients";
 import { CRM_LEAD_FIELDS, pushApplicationStatus } from "../integrations/crmSync";
 import { processOnce } from "../integrations/idempotency";
@@ -53,7 +54,7 @@ export async function handleCrmLead(
 
 async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClient, leadId: string, lead: Row, sleep?: (ms: number) => Promise<void>): Promise<LeadOutcome> {
   const repo = new TenantRepo(store, ctx.tenantId);
-  const franchiseType = text(lead[CRM_LEAD_FIELDS.franchiseType]) ?? "QSR";
+  const franchiseType = text(lead[CRM_LEAD_FIELDS.franchiseType]) ?? defaultFranchiseType(await store.findOne("tenants", { ROWID: ctx.tenantId }));
 
   let franchisee = await repo.findOne("franchisees", { zoho_lead_id: leadId });
   if (!franchisee) {

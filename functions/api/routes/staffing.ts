@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
-import { addStaff, decideTraining, markLeft, metTasks, MODULE_CODES, recordTraining, setPlan, STAFF_ROLES, staffingFor, updateStaff } from "../../workflows/staffing";
+import { addStaff, decideTraining, markLeft, metTasks, recordTraining, setPlan, staffingFor, updateStaff } from "../../workflows/staffing";
 import { Call, parse, Router } from "../router";
 import { assertOwner, completeTasks, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
 
@@ -13,19 +13,20 @@ import { assertOwner, completeTasks, mustGet, signedUrl, storeUpload, uploadSche
 const text = (max: number) => z.string().trim().max(max);
 const day = z.string().date();
 const phone = z.string().trim().regex(/^[+0-9 ()-]{6,20}$/, "Enter a phone number.");
-const planSchema = z.object(Object.fromEntries(STAFF_ROLES.map((r) => [r, z.number().int().min(0).max(100).optional()]))).strict()
-  .refine((b) => Object.values(b).some((v) => v !== undefined), "Nothing to change.");
+// Roles and modules are the tenant's own (settings), so their codes are checked in the workflow.
+const roleCode = z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/, "unknown role");
+const planSchema = z.record(roleCode, z.number().int().min(0).max(100)).refine((b) => Object.keys(b).length > 0, "Nothing to change.");
 const staffSchema = z.object({
-  full_name: text(120).min(2), role_code: z.enum(STAFF_ROLES), phone: phone.nullish(), email: z.string().trim().email().max(200).nullish(),
+  full_name: text(120).min(2), role_code: roleCode, phone: phone.nullish(), email: z.string().trim().email().max(200).nullish(),
   hired_on: day, start_date: day.nullish(),
 }).strict();
 const staffChangeSchema = z.union([
   z.object({ action: z.literal("leave"), left_on: day, reason: text(500).nullish() }).strict(),
-  z.object({ full_name: text(120).min(2).optional(), role_code: z.enum(STAFF_ROLES).optional(), phone: phone.nullish(), email: z.string().trim().email().max(200).nullish(), start_date: day.nullish() }).strict()
+  z.object({ full_name: text(120).min(2).optional(), role_code: roleCode.optional(), phone: phone.nullish(), email: z.string().trim().email().max(200).nullish(), start_date: day.nullish() }).strict()
     .refine((b) => Object.keys(b).length > 0, "Nothing to change."),
 ]);
 const trainingSchema = z.object({
-  module_code: z.enum(MODULE_CODES), completed_on: day, score: z.number().min(0).max(100).nullish(), trainer: text(120).nullish(), certificate: uploadSchema.optional(),
+  module_code: z.string().trim().min(1).max(40), completed_on: day, score: z.number().min(0).max(100).nullish(), trainer: text(120).nullish(), certificate: uploadSchema.optional(),
 }).strict();
 const decisionSchema = z.object({ decision: z.enum(["SIGNED_OFF", "RETURNED"]), note: text(1000).nullish() }).strict();
 

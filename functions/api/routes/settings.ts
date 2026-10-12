@@ -7,6 +7,8 @@ import { FileStorage, safeFileName, STRATUS_PREFIX } from "../../common/files";
 import { Row, Store } from "../../common/store";
 import { parse, Router } from "../router";
 import { uploadSchema } from "./shared";
+import { defaultFranchiseType } from "../../common/franchiseType";
+import { staffConfig } from "../../workflows/staffing";
 
 // Settings → Branding: the company name, logo and colour shown in place of FranchiseOS, on the
 // sign-in screen too, so GET /branding answers signed-out visitors.
@@ -37,7 +39,49 @@ async function view(tenant: Row | null, files: FileStorage | null) {
   return { name: b.name, tagline: b.tagline, color: b.color, logo_url };
 }
 
+const code = z.string().trim().regex(/^[A-Z][A-Z0-9_]{1,39}$/, "use capitals, digits and _ (e.g. SERVICE_ADVISOR)");
+const setupSchema = z.object({
+  default_franchise_type: z.string().trim().min(1).max(50),
+  staff_roles: z.array(z.object({ code, name: z.string().trim().min(1).max(60), plural: z.string().trim().min(1).max(60), default_count: z.number().int().min(0).max(100) }).strict()).min(1).max(12),
+  training_modules: z.array(z.object({ code, name: z.string().trim().min(1).max(100), roles: z.array(code).min(1), certificate: z.boolean().optional() }).strict()).min(1).max(40),
+}).strict();
+
+const settingsOf = (tenant: Row | null): Row => { try { return tenant?.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { return {}; } };
+
+async function setupView(store: Store, tenantId: string) {
+  const tenant = await store.findOne("tenants", { ROWID: tenantId });
+  const cfg = staffConfig(tenant);
+  // Formats that have templates, so the default can be picked from what exists.
+  const types = new Set<string>();
+  for (const t of ["project_templates", "agreement_templates"]) for (const row of await store.findMany(t, { tenant_id: tenantId })) if (row.franchise_type) types.add(String(row.franchise_type));
+  return { default_franchise_type: defaultFranchiseType(tenant), franchise_types: [...types].sort(), staff_roles: cfg.roles, training_modules: cfg.modules };
+}
+
 export function settingsRoutes(r: Router): void {
+  r.on("GET", "/settings/store-setup", "settings.manage", async (call) => setupView(call.store, call.ctx.tenantId));
+
+  r.on("PUT", "/settings/store-setup", "settings.manage", async (call) => {
+    const b = parse(setupSchema, call.body);
+    const dup = (xs: { code: string }[]) => xs.find((x, i) => xs.findIndex((y) => y.code === x.code) !== i)?.code;
+    if (dup(b.staff_roles)) throw new AppError("VALIDATION_FAILED", `Two roles use the code ${dup(b.staff_roles)}.`, { staff_roles: "duplicate code" });
+    if (dup(b.training_modules)) throw new AppError("VALIDATION_FAILED", `Two modules use the code ${dup(b.training_modules)}.`, { training_modules: "duplicate code" });
+    const roles = new Set(b.staff_roles.map((x) => x.code));
+    const stray = b.training_modules.find((m) => m.roles.some((x) => !roles.has(x)));
+    if (stray) throw new AppError("VALIDATION_FAILED", `${stray.name} is for a role that isn't in the list.`, { training_modules: "unknown role" });
+    // Roles already on a team can't disappear, or those people would drop out of the plan.
+    const removed = [...staffConfig(await call.store.findOne("tenants", { ROWID: call.ctx.tenantId })).roles].map((x) => x.code).filter((c) => !roles.has(c));
+    for (const c of removed) {
+      if ((await call.repo.findMany("store_staff", { role_code: c, status: "ACTIVE" }, { limit: 1 })).length) throw new AppError("VALIDATION_FAILED", `People are still employed as ${c}; change their role first.`, { staff_roles: "role in use" });
+    }
+    const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
+    if (!tenant) throw new AppError("TENANT_NOT_FOUND");
+    const settings = settingsOf(tenant);
+    Object.assign(settings, { default_franchise_type: b.default_franchise_type, staff_roles: b.staff_roles, training_modules: b.training_modules.map((m) => ({ ...m, certificate: !!m.certificate })) });
+    await call.store.update("tenants", call.ctx.tenantId, { settings_json: JSON.stringify(settings) });
+    await logActivity(call.store, call.ctx, { entityType: "tenant", entityId: call.ctx.tenantId, action: "settings:store_setup", metadata: { default_franchise_type: b.default_franchise_type, roles: b.staff_roles.length, modules: b.training_modules.length } });
+    return setupView(call.store, call.ctx.tenantId);
+  });
+
   r.onPublic("GET", "/branding", async (call) => {
     const tenant = call.tenantId ? await call.store.findOne("tenants", { ROWID: call.tenantId }) : await publicTenant(call.store);
     return view(tenant, call.files);
