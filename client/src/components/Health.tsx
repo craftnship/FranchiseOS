@@ -41,10 +41,14 @@ export function HealthPanel({ region = "" }: { region?: string }) {
             <p className="muted small" style={{ margin: ".25rem 0 .75rem" }}>
               {d.as_of ? <>Sales, payments, compliance and reporting of {total} trading store{total === 1 ? "" : "s"}; the centre is the average score. Healthy from {d.thresholds.healthy_from}, Watch from {d.thresholds.watch_from}.</> : <>Not scored yet. The score runs every night{can("settings.manage") ? ", or now with “Score now”" : ""}.</>}
             </p>
-            {d.lowest.length > 0 && <>
-              <div className="field-label" style={{ marginBottom: ".35rem" }}>Needing a look</div>
+            {d.lowest.length > 0 && (() => {
+              // Stores off Healthy need a look; when every store is Healthy, the lowest few still show what to watch.
+              const weak = d.lowest.filter((s: Row) => s.band !== "HEALTHY");
+              const shown: Row[] = weak.length ? weak : d.lowest.slice(0, 3);
+              return <>
+              <div className="field-label" style={{ marginBottom: ".35rem" }}>{weak.length ? "Needing a look" : "All healthy · lowest scores"}</div>
               <ul className="health-list">
-                {d.lowest.map((s: Row) => (
+                {shown.map((s: Row) => (
                   <li key={s.project_id}>
                     <Link to={`/projects/${s.project_id}`} className="health-row">
                       <Score value={s.score} band={s.band} />
@@ -55,7 +59,8 @@ export function HealthPanel({ region = "" }: { region?: string }) {
                   </li>
                 ))}
               </ul>
-            </>}
+              </>;
+            })()}
           </>
         );
       }}</Loaded>
@@ -77,6 +82,7 @@ export function HealthCard({ projectId }: { projectId: string }) {
             {d.score === null
               ? <p className="muted" style={{ margin: 0 }}>Scored every night once the store has a full month of trading, a bill or an audit.</p>
               : <>
+                {d.band === "HEALTHY" && <div className="muted small">Weakest parts</div>}
                 <ul className="reasons" style={{ paddingLeft: "1rem" }}>{d.reasons.map((r: Row) => <li key={r.part}>{r.text}</li>)}</ul>
                 <p className="muted small" style={{ margin: ".35rem 0 0" }}>Out of 100, as of {d.updated_on}{d.capped ? ". Held at Watch because one part is very weak" : ""}.</p>
               </>}
