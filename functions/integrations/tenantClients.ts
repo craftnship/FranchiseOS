@@ -17,6 +17,16 @@ export function zohoCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): Zo
   return env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : null;
 }
 
+/**
+ * The OAuth client franchisees consent to when connecting their own Books (docs/pos-sales.md). A
+ * Server-based client with the web app as its redirect URI: ZOHO_POS_CLIENT_ID/SECRET when the
+ * brand's own client is a Self Client (which has no redirect URI), else the brand's client.
+ */
+export function posCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): ZohoAppCredentials | null {
+  if (env.ZOHO_POS_CLIENT_ID && env.ZOHO_POS_CLIENT_SECRET) return { clientId: env.ZOHO_POS_CLIENT_ID, clientSecret: env.ZOHO_POS_CLIENT_SECRET };
+  return zohoCredentialsFromEnv(env);
+}
+
 /** Clients for one tenant. Books and Projects are null until their org or portal is configured. */
 export interface ZohoClients {
   crm: ZohoCrmClient;

@@ -5,7 +5,7 @@ import { authAdminFromEnv } from "../common/authAdmin";
 import { mailerFromEnv } from "../common/mailer";
 import { newRequestId } from "../common/response";
 import { IdentityUser } from "../common/tenant";
-import { crmFactory, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
+import { crmFactory, posCredentialsFromEnv, zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClients";
 import { buildRouter } from "./app";
 
 // Entry point of the fos_api Advanced I/O function. API Gateway forwards /api/v1/* here with
@@ -82,8 +82,8 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       // Document uploads are on once FOS_STRATUS_BUCKET names the bucket.
       const bucket = process.env.FOS_STRATUS_BUCKET?.trim();
       const files = bucket ? new StratusFileStorage(admin.stratus().bucket(bucket)) : undefined;
-      // Franchisees connect their own Books with the same OAuth client; the state is signed with FOS_STATE_SECRET.
-      const oauth = { app: creds, stateSecret: process.env.FOS_STATE_SECRET?.trim() || null, redirectUri: process.env.FOS_WEB_URL?.trim() || null };
+      // Franchisees connect their own Books through the POS OAuth client; the state is signed with FOS_STATE_SECRET.
+      const oauth = { app: posCredentialsFromEnv(), stateSecret: process.env.FOS_STATE_SECRET?.trim() || null, redirectUri: process.env.FOS_WEB_URL?.trim() || null };
       return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files, mailer: mailerFromEnv(admin), auth: authAdminFromEnv(admin), oauth };
     })(),
   );

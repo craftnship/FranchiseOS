@@ -11,7 +11,7 @@ Stores whose till does not post to Books (or no till at all) can upload a daily 
 ## Connecting a store
 
 1. On the portal home, a **Connect your Zoho Books** card (one per franchisee, covering all their stores). The owner clicks Connect.
-2. `POST /portal/connections/zoho/start` returns the Zoho consent URL: the brand's OAuth client, scopes `ZohoBooks.invoices.READ`, `ZohoBooks.creditnotes.READ`, `ZohoBooks.settings.READ`, `access_type=offline`, and a signed `state` (tenant, franchisee, user, expiry, HMAC with `FOS_STATE_SECRET`).
+2. `POST /portal/connections/zoho/start` returns the Zoho consent URL: the POS OAuth client (`ZOHO_POS_CLIENT_ID`, a Server-based client; the brand's own client when that is one too), scopes `ZohoBooks.invoices.READ`, `ZohoBooks.creditnotes.READ`, `ZohoBooks.settings.READ`, `access_type=offline`, and a signed `state` (tenant, franchisee, user, expiry, HMAC with `FOS_STATE_SECRET`).
 3. Zoho sends the browser to the web app at `/connect/zoho/callback?code=…&state=…`. That page posts both to `POST /portal/connections/zoho/exchange`, which checks the state, swaps the code for a refresh token, lists the organisations the token can see, and stores the connection. If the token sees more than one organisation the page asks which one is the store's.
 4. The connection row holds `provider = ZOHO_BOOKS`, `org_id`, the refresh token (encrypted column), the scopes, who connected it and when, the last pull and the last error. The franchisee can disconnect; the brand can see the status.
 
@@ -72,8 +72,8 @@ The Reporting part gains the feed: a store on `POS` scores 100 when its feed is 
 
 ## Deploy
 
-1. On the Zoho API console, add the web app's `/connect/zoho/callback` URL as a redirect URI of the FranchiseOS OAuth client, and make sure the client is a "Server-based" client. Add the three Books scopes to what the client may ask for.
-2. Set `FOS_STATE_SECRET` (long random) on fos_api.
+1. On the Zoho API console, a Server-based client with the web app's address as its redirect URI (the brand's Self Client cannot take one). Its ID and secret go in `ZOHO_POS_CLIENT_ID` and `ZOHO_POS_CLIENT_SECRET` on fos_api and fos_jobs.
+2. Set `FOS_STATE_SECRET` (long random) on fos_api and fos_jobs.
 3. Create `franchisee_connections` and `pos_sales`; add the columns on `franchise_projects` and `sales_reports`.
 4. Deploy the functions and the web app.
 
