@@ -22,8 +22,8 @@ async function setup() {
   await store.insert("users", { tenant_id: tid, email: "tony@x.test", name: "Tony", status: "ACTIVE", role_id: a.roleIds.SUPER_ADMIN, external_user_id: "tony" });
   await store.insert("users", { tenant_id: tid, email: "pm@x.test", status: "ACTIVE", role_id: a.roleIds.PROJECT_MANAGER, external_user_id: "pm" });
   const crm = { current: crmClient(false) };
-  const call = async (ext: string, method: string, path: string, body?: unknown) => {
-    const res = await router.handle({ method, path: `/api/v1${path}`, body, identity: { externalUserId: ext, email: `${ext}@x.test` } }, { store, zoho: async () => ({ crm: crm.current } as any) });
+  const call = async (ext: string, method: string, path: string, body?: unknown, now?: string) => {
+    const res = await router.handle({ method, path: `/api/v1${path}`, body, identity: { externalUserId: ext, email: `${ext}@x.test` } }, { store, zoho: async () => ({ crm: crm.current } as any), ...(now ? { now: () => new Date(now) } : {}) });
     return res.body as { success: boolean; data?: any; error?: { code: string; fields?: Record<string, string> } };
   };
   const sys = { tenantId: tid, userId: "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: "IN", requestId: "R1", correlationId: "R1" };
@@ -59,6 +59,20 @@ describe("integration health", () => {
     expect(h.data.problems).toMatchObject([{ kind: "event", what: "Lead webhook", subject: { label: "CRM lead L1" }, retryable: true }]);
     const r = await s.call("tony", "POST", "/admin/integrations/retry", { kind: "event", id: String(ev.ROWID) });
     expect(r.data.outcome).toMatchObject({ action: "created", application_code: "APP-000001" });
+    expect(await s.store.findOne("integration_events", { ROWID: String(ev.ROWID) })).toMatchObject({ status: "PROCESSED" });
+  });
+
+  it("lists an event a dead function left in flight, and lets it be retried", async () => {
+    const s = await setup();
+    const ev = await s.store.insert("integration_events", { tenant_id: s.tid, source_system: "CRM", event_id: `lead:${lead.Modified_Time}`, record_id: "L1", event_key: eventKey("CRM", `lead:${lead.Modified_Time}`, "L1"), status: "PROCESSING", payload_json: "{}" });
+    // Just started: in flight, not a problem.
+    expect((await s.call("tony", "GET", "/admin/integrations")).data.problems).toEqual([]);
+    // Twenty minutes on, still PROCESSING: it was cut off.
+    const later = new Date(Date.now() + 20 * 60_000).toISOString();
+    const h = (await s.call("tony", "GET", "/admin/integrations", undefined, later)).data;
+    expect(h.problems).toMatchObject([{ kind: "event", what: "Lead webhook", error: expect.stringContaining("cut off"), retryable: true }]);
+    const r = await s.call("tony", "POST", "/admin/integrations/retry", { kind: "event", id: String(ev.ROWID) }, later);
+    expect(r.data.outcome).toMatchObject({ action: "created" });
     expect(await s.store.findOne("integration_events", { ROWID: String(ev.ROWID) })).toMatchObject({ status: "PROCESSED" });
   });
 

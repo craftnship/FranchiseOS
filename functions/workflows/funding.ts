@@ -1,5 +1,6 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
+import { claim } from "../integrations/idempotency";
 import { AppError } from "../common/errors";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -166,6 +167,8 @@ export async function raiseInstalment(store: Store, ctx: TenantContext, books: Z
   const line = deposit
     ? { name: "Security deposit", description: `Refundable security deposit, agreement ${agreement.agreement_code}, store ${project.project_code}`, rate: toNum(row.amount), quantity: 1 }
     : { name: "Franchise fee", description: `${row.label}, agreement ${agreement.agreement_code}, store ${project.project_code}`, rate: toNum(row.amount), quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) };
+  // One raise at a time per instalment: a second click, or the job, waits for this one (idempotency.ts).
+  return claim(store, ctx.tenantId, "fee_invoice", String(row.ROWID), async () => {
   const invoice = await books.findInvoice(ref) ?? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: [line] });
   let state: Row = {};
   try {
@@ -183,6 +186,7 @@ export async function raiseInstalment(store: Store, ctx: TenantContext, books: Z
     metadata: { fee_id: String(row.ROWID), label: row.label, kind: row.kind, amount: toNum(row.amount), invoice_number: state.invoice_number ?? null, due: state.invoice_due_date ?? null, auto },
   });
   return out;
+  }, now);
 }
 
 /** Re-reads an invoiced instalment: its own invoice from Books, or the agreement's stored copy. */

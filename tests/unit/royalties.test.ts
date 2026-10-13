@@ -49,6 +49,19 @@ async function setup(opts: { feasibilityRoyalty?: number } = {}) {
 }
 
 describe("monthly sales and royalties", () => {
+  it("raises one invoice when two people approve the same report at the same moment", async () => {
+    const s = await setup();
+    const rep = await s.store.insert("sales_reports", { tenant_id: s.tid, project_id: s.project.ROWID, franchisee_id: s.fr.ROWID, period: "2026-09", period_key: `${s.tid}:${s.project.ROWID}:2026-09`, status: "SUBMITTED", gross_sales: 100, net_sales: 100 });
+    const [a, b] = await Promise.all([s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`), s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)]);
+    expect([a.success, b.success].sort()).toEqual([false, true]);
+    expect((a.error ?? b.error)?.code).toBe("INVALID_TRANSITION");
+    expect(s.invoices.size).toBe(1);
+    const claims = await s.store.findMany("integration_events", { tenant_id: s.tid, source_system: "FOS" });
+    expect(claims).toMatchObject([{ event_id: "royalty_invoice", record_id: String(rep.ROWID), status: "PROCESSED" }]);
+    // The claim is gone once the work is done: approving again is refused on the report's state, not the claim.
+    expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).error?.code).toBe("INVALID_TRANSITION");
+  });
+
   it("lists the months a store owes from its opening month, at its feasibility rates", async () => {
     const s = await setup();
     const l = (await s.call("pepper", "GET", `${s.base}/royalties`)).data;

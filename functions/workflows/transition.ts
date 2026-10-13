@@ -48,6 +48,10 @@ export async function transitionEntity(
   await deps.businessRules?.[entityType]?.(entity, transition);
 
   const to = typeof rule.to === "function" ? rule.to(entity) : rule.to;
+  // Data Store has no conditional write, so the state is read once more just before it changes:
+  // two people moving the same record at the same moment then collide here rather than both winning.
+  const fresh = await repo.findOne(table, { ROWID: entityId });
+  if (!fresh || String(fresh.status) !== from) throw new AppError("INVALID_TRANSITION", `This ${entityType} was changed by someone else a moment ago; refresh and try again.`);
   const updated = await repo.update(table, entityId, { status: to, ...(rule.sideFields?.(entity) ?? {}) });
 
   await logActivity(deps.store, ctx, { entityType, entityId, action: `transition:${transition}`, metadata: { from, to } });

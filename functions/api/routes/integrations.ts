@@ -3,6 +3,7 @@ import { logActivity } from "../../common/audit";
 import { AppError } from "../../common/errors";
 import { Row } from "../../common/store";
 import { pushApplicationStatus } from "../../integrations/crmSync";
+import { isStaleProcessing } from "../../integrations/idempotency";
 import { DEFAULT_CRM_TRIGGER_STATUS, handleCrmLead } from "../../webhooks/crmLead";
 import { handleSignEvent } from "../../workflows/agreements";
 import { JOB_LABEL, JOB_STEPS } from "../../workflows/systemAlerts";
@@ -40,7 +41,7 @@ const OPERATION: Record<string, string> = { "account.status": "Push status to CR
 async function problem(call: Call, r: Row, kind: "log" | "event"): Promise<Row> {
   return {
     kind, id: String(r.ROWID), at: at(r), source: r.source_system,
-    what: kind === "log" ? OPERATION[String(r.operation)] ?? String(r.operation) : r.source_system === "CRM" ? "Lead webhook" : r.source_system === "SIGN" ? "Signature callback" : "Webhook",
+    what: kind === "log" ? OPERATION[String(r.operation)] ?? String(r.operation) : r.source_system === "CRM" ? "Lead webhook" : r.source_system === "SIGN" ? "Signature callback" : r.source_system === "FOS" ? (r.event_id === "royalty_invoice" ? "Royalty invoice" : r.event_id === "fee_invoice" ? "Fee invoice" : "Work in progress") : "Webhook",
     error: r.error_message ?? null, attempts: kind === "log" ? Number(r.attempt ?? 1) : null,
     subject: await subject(call, r, kind),
     retryable: kind === "event" ? ["CRM", "SIGN"].includes(String(r.source_system)) : r.source_system === "CRM" && r.entity_type === "application",
@@ -50,7 +51,7 @@ async function problem(call: Call, r: Row, kind: "log" | "event"): Promise<Row> 
 async function load(call: Call, kind: "log" | "event", id: string): Promise<Row> {
   const r = await call.repo.findOne(kind === "log" ? "integration_logs" : "integration_events", { ROWID: id });
   if (!r) throw new AppError("NOT_FOUND", "Item not found.");
-  if (kind === "log" ? r.status !== "DEAD_LETTER" : r.status !== "FAILED") throw new AppError("INVALID_TRANSITION", "This item no longer needs attention.");
+  if (kind === "log" ? r.status !== "DEAD_LETTER" : r.status !== "FAILED" && !isStaleProcessing(r, call.now)) throw new AppError("INVALID_TRANSITION", "This item no longer needs attention.");
   return r;
 }
 
@@ -75,7 +76,9 @@ export function integrationRoutes(r: Router): void {
       const lastOk = runs.find((x) => x.status === "SUCCESS");
       return { step, name: JOB_LABEL[step], last_run: last ? at(last) : null, ok: last ? last.status === "SUCCESS" : null, error: last?.status === "SUCCESS" ? null : last?.error_message ?? null, last_success: lastOk ? at(lastOk) : null };
     });
-    const problems = [...await Promise.all(dead.map((x) => problem(call, x, "log"))), ...await Promise.all(failed.map((x) => problem(call, x, "event")))]
+    // An event still PROCESSING after a function died is a failure nobody reported; it shows here too.
+    const stuck = events.filter((e) => isStaleProcessing(e, call.now)).map((e) => ({ ...e, error_message: "Did not finish; the function was probably cut off. Retry it." }));
+    const problems = [...await Promise.all(dead.map((x) => problem(call, x, "log"))), ...await Promise.all([...failed, ...stuck].map((x) => problem(call, x, "event")))]
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
     return {
       zoho: integration ? {
@@ -91,6 +94,8 @@ export function integrationRoutes(r: Router): void {
   r.on("POST", "/admin/integrations/retry", "integration.admin", async (call) => {
     const b = parse(target, call.body);
     const row = await load(call, b.kind, b.id);
+    // An event a dead function left in flight is failed first, so the handler's own once-only check lets it run.
+    if (b.kind === "event" && isStaleProcessing(row, call.now)) await call.repo.update("integration_events", b.id, { status: "FAILED", error_message: "Did not finish; the function was probably cut off." });
     const zoho = await call.zoho();
     let outcome: unknown;
     if (b.kind === "log") {
@@ -119,6 +124,7 @@ export function integrationRoutes(r: Router): void {
       // The lead may have changed since, which makes a new event; the old one is then settled.
       const again = await call.repo.findOne("integration_events", { ROWID: b.id });
       if (again?.status === "FAILED") await call.repo.update("integration_events", b.id, { status: "RESOLVED", error_message: `${String(again.error_message ?? "")} (retried as a newer event)`.slice(0, 500) });
+      else if (again?.status === "PROCESSING") await call.repo.update("integration_events", b.id, { status: "PROCESSED", processed_at: call.now.toISOString() });
     }
     await logActivity(call.store, call.ctx, { entityType: "integration", entityId: b.id, action: "integration:retried", metadata: { kind: b.kind, source: row.source_system, operation: row.operation ?? null, record_id: row.record_id ?? row.entity_id ?? null } });
     return { retried: true, outcome };

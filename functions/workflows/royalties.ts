@@ -1,5 +1,6 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
+import { claim } from "../integrations/idempotency";
 import { AppError } from "../common/errors";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -154,6 +155,8 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
     { name: "Royalty", description: `${rates.royalty_pct}% of net sales ${label}, store ${project.project_code}`, rate: royalty, quantity: 1, ...tax },
     ...(marketing > 0 ? [{ name: "Marketing fund", description: `${rates.marketing_fund_pct}% of net sales ${label}, store ${project.project_code}`, rate: marketing, quantity: 1, ...tax }] : []),
   ];
+  // One approval at a time per report: a second click, or the job, waits for this one (idempotency.ts).
+  return claim(store, ctx.tenantId, "royalty_invoice", String(report.ROWID), async () => {
   const found = await books.findInvoice(ref);
   const invoice = found ?? (royalty + marketing > 0 ? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: lines }) : null);
   let state: Row = {};
@@ -178,6 +181,7 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
     metadata: { project_id: String(project.ROWID), period: report.period, net_sales: net, royalty, marketing, invoice_ref: ref, invoice_number: state.invoice_number ?? null, zero },
   });
   return row;
+  }, now);
 }
 
 /** Re-reads an invoiced report's Books invoice; paid moves the report to PAID. */
