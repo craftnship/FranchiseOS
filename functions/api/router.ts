@@ -12,7 +12,8 @@ import { Store, TenantRepo } from "../common/store";
 import { IdentityUser, resolveTenant } from "../common/tenant";
 import { CrmFactory, pushApplicationStatus } from "../integrations/crmSync";
 import { ProviderError } from "../integrations/retry";
-import { ZohoClients, ZohoFactory } from "../integrations/tenantClients";
+import { ZohoAppCredentials, ZohoClients, ZohoFactory } from "../integrations/tenantClients";
+import type { FetchLike } from "../integrations/zohoHttp";
 import { TransitionDeps } from "../workflows/transition";
 
 // Framework-free router for the /api/v1 Advanced I/O function (D-14). The Catalyst entry point
@@ -45,7 +46,11 @@ export interface ApiDeps {
   mailer?: Mailer;
   /** Invites people to Catalyst Authentication; absent until FOS_AUTH_ZAID is set. */
   auth?: AuthAdmin;
+  /** The app's Zoho OAuth client and state secret, for franchisees connecting their own Books (docs/pos-sales.md). */
+  oauth?: OAuthDeps;
 }
+
+export interface OAuthDeps { app: ZohoAppCredentials | null; stateSecret: string | null; redirectUri: string | null; fetchFn?: FetchLike }
 
 export interface Call {
   ctx: TenantContext;
@@ -62,6 +67,7 @@ export interface Call {
   zoho: () => Promise<ZohoClients | null>;
   files: FileStorage | null;
   auth: AuthAdmin | null;
+  oauth: OAuthDeps;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
@@ -151,6 +157,7 @@ export class Router {
         zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
         files: deps.files ?? null,
         auth: deps.auth ?? null,
+        oauth: deps.oauth ?? { app: null, stateSecret: null, redirectUri: null },
       });
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {

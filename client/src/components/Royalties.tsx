@@ -4,6 +4,7 @@ import { api, ApiError, can, Row, portalHome } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "./forms";
 import { BooksInvoice, DataTable, date, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
+import { FeedPill, PosPanel, Variance } from "./Pos";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 export const REPORT_TONE: Record<string, string> = { SUBMITTED: "info", RETURNED: "warn", INVOICED: "warn", PAID: "good" };
@@ -52,9 +53,11 @@ export function RoyaltyPanel({ projectId, portal }: { projectId: string; portal?
       const refresh = (r: Row) => act.run(`r${r.ROWID}`, () => api<Row>("POST", `${base}/sales/${r.ROWID}/refresh`), (x) => x.status === "PAID" ? "The invoice is paid." : `Invoice balance ${inr(Number(x.invoice_balance ?? 0))}.`);
       const dialogOpen = !!(reporting || returning || rates);
       const late = months.filter((m) => m.late || (m.report as Row | null)?.status === "RETURNED");
+      const feed = l.feed as Row;
+      const hasTill = feed.status !== "NONE" || months.some((m) => m.pos);
       return (
         <>
-          <Panel title="Sales and royalties" flush action={<span className="panel-actions">
+          <Panel title={<>Sales and royalties{hasTill && <FeedPill status={feed.status} />}</>} flush action={<span className="panel-actions">
             {manage && <button className="btn ghost sm" onClick={() => setRates(true)}>Edit rates</button>}
             {canReport && months.length > 0 && <button className="btn sm" onClick={() => setReporting(months.find((m) => !m.report || ["SUBMITTED", "RETURNED"].includes(String((m.report as Row).status))) ?? months[0])}>Report sales</button>}
           </span>}>
@@ -64,6 +67,7 @@ export function RoyaltyPanel({ projectId, portal }: { projectId: string; portal?
               <div><dt>Invoiced so far</dt><dd>{inr(Number(t.royalty) + Number(t.marketing))}<span className="cell-sub">on {inr(Number(t.net_sales))} net sales</span></dd></div>
               <div><dt>Unpaid</dt><dd style={{ color: t.outstanding > 0 ? "var(--warn)" : undefined }}>{inr(Number(t.outstanding))}</dd></div>
             </dl>
+            {feed.basis === "POS" && hasTill && <div className="notice info" style={{ margin: ".75rem 1rem 0" }}><Icon name="store" /><span>Royalty is billed on the till's sales. {portal ? "Your own figure is kept beside it; a difference beyond " : "The franchisee's figure is kept beside it; a difference beyond "}{String(feed.tolerance_pct)}% waits for finance.</span></div>}
             {!months.length && <div className="state">The first month to report is the month the store opened, once it ends.</div>}
             {late.length > 0 && <div className="notice warn" style={{ margin: ".75rem 1rem 0" }}><Icon name="alert" /><span>{portal ? "Please report" : "Not reported yet"}: {late.map((m) => m.label).join(", ")}. Reports are due by day {l.report_due_day} of the next month.</span></div>}
             {rt.royalty_pct === null && manage && <div className="notice warn" style={{ margin: ".75rem 1rem 0" }}><Icon name="alert" /><span>No royalty rate. Set one before approving reports.</span></div>}
@@ -71,8 +75,10 @@ export function RoyaltyPanel({ projectId, portal }: { projectId: string; portal?
             {act.error && !dialogOpen && <div style={{ margin: ".75rem 1rem 0" }}><FormError error={act.error} /></div>}
             {months.length > 0 && <DataTable rows={months} empty="No months yet." columns={[
               { key: "label", label: "Month", render: (m) => <>{m.label}<span className="cell-sub">Due {date(m.due_on)}</span></> },
-              { key: "status", label: "Status", render: (m) => <><ReportStatus m={m} />{(m.report as Row | null)?.status === "RETURNED" && m.report.review_note && <span className="cell-sub">{String(m.report.review_note)}</span>}</> },
+              { key: "status", label: "Status", render: (m) => <><ReportStatus m={m} />{(m.report as Row | null)?.basis === "POS" && <Pill value="From till" tone="good" />}{(m.report as Row | null)?.status === "RETURNED" && m.report.review_note && <span className="cell-sub">{String(m.report.review_note)}</span>}</> },
               { key: "net", label: "Net sales", align: "right", render: (m) => <>{money(m.report?.net_sales)}{m.report && <span className="cell-sub">Gross {money(m.report.gross_sales)}</span>}</> },
+              ...(hasTill ? [{ key: "pos", label: "Till", align: "right" as const, render: (m: Row) => m.pos ? <>{inr(Number(m.pos.net_sales))}<span className="cell-sub">{m.report?.basis === "POS" ? `reported ${money(m.report.reported_net_sales)}` : `${m.pos.days} days${m.pos.gaps ? `, ${m.pos.gaps} missing` : ""}`}</span></> : <span className="muted">—</span> },
+                { key: "variance", label: "Diff.", align: "right" as const, render: (m: Row) => <Variance pct={m.variance_pct} tolerance={Number(feed.tolerance_pct)} /> }] : []),
               { key: "due", label: "Royalty + fund", align: "right", render: (m) => m.report?.royalty_amount != null ? <>{inr(Number(m.report.royalty_amount) + Number(m.report.marketing_amount ?? 0))}<span className="cell-sub">{inr(Number(m.report.royalty_amount))} + {inr(Number(m.report.marketing_amount ?? 0))}</span></> : <span className="muted">—</span> },
               { key: "invoice", label: "Invoice", render: (m) => m.report?.invoice_number ? <><BooksInvoice id={m.report.zoho_books_invoice_id} number={m.report.invoice_number} /><span className="cell-sub">{m.report.status === "PAID" ? "Paid" : `${money(m.report.invoice_balance)} due ${date(m.report.invoice_due_date)}`}</span></> : <span className="muted">—</span> },
               { key: "actions", label: "", align: "right", render: (m) => {
@@ -170,7 +176,7 @@ export function PortalSales() {
   return (
     <>
       <PageHeader title="Sales reports" subtitle="Report each month's sales. We invoice the royalty and marketing fund from them." />
-      <Loaded load={home}>{(h) => h.project?.status === "OPENED" ? <RoyaltyPanel projectId={String(h.project.ROWID)} portal />
+      <Loaded load={home}>{(h) => h.project?.status === "OPENED" ? <><RoyaltyPanel projectId={String(h.project.ROWID)} portal /><PosPanel projectId={String(h.project.ROWID)} portal /></>
         : <div className="state">Monthly sales reports start once your store opens.</div>}</Loaded>
     </>
   );
@@ -191,7 +197,7 @@ export function Royalties() {
           <>
             <dl className="summary">
               <div><dt>Opened stores</dt><dd>{t.stores}</dd></div>
-              <div><dt>Waiting for review</dt><dd>{t.waiting}</dd></div>
+              <div><dt>Waiting for review</dt><dd>{t.waiting}{t.strayed > 0 && <span className="cell-sub" style={{ color: "var(--bad)" }}>{t.strayed} differ from the till</span>}</dd></div>
               <div><dt>Invoiced</dt><dd>{inr(Number(t.invoiced))}</dd></div>
               <div><dt>Unpaid</dt><dd style={{ color: t.outstanding > 0 ? "var(--warn)" : undefined }}>{inr(Number(t.outstanding))}</dd></div>
             </dl>
@@ -203,7 +209,8 @@ export function Royalties() {
                   { key: "label", label: "Month" },
                   { key: "project_code", label: "Store", render: (r) => <><Link to={`/projects/${r.project_id}`}>{String(r.project_code ?? "—")}</Link><span className="cell-sub">{String(r.franchisee ?? "")}</span></> },
                   { key: "status", label: "Status", render: (r) => <Pill value={STATUS_TEXT[String(r.status)] ?? r.status} tone={REPORT_TONE[String(r.status)]} /> },
-                  { key: "net_sales", label: "Net sales", align: "right", render: (r) => money(r.net_sales) },
+                  { key: "net_sales", label: "Net sales", align: "right", render: (r) => <>{money(r.net_sales)}{r.basis === "POS" && <span className="cell-sub">from the till</span>}</> },
+                  { key: "variance_pct", label: "Till diff.", align: "right", render: (r) => <Variance pct={r.variance_pct} tolerance={Number(d.tolerance_pct)} /> },
                   { key: "royalty_amount", label: "Royalty + fund", align: "right", render: (r) => r.royalty_amount != null ? inr(Number(r.royalty_amount) + Number(r.marketing_amount ?? 0)) : <span className="muted">—</span> },
                   { key: "invoice_number", label: "Invoice", render: (r) => r.invoice_number ? <><BooksInvoice id={r.zoho_books_invoice_id} number={r.invoice_number} /><span className="cell-sub">{r.status === "PAID" ? "Paid" : `${money(r.invoice_balance)} due`}</span></> : <span className="muted">—</span> },
                 ]} />

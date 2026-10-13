@@ -6,6 +6,7 @@ import { Checklist, ReadinessCard } from "./Projects";
 import { LicencePanel } from "../components/Licences";
 import { CapexPanel } from "../components/Capex";
 import { TodoList } from "../components/PortalHub";
+import { ConnectCard } from "../components/Pos";
 
 export function PortalHome() {
   const load = useLoad(() => portalHome(), []);
@@ -32,11 +33,12 @@ export function PortalHome() {
           <Panel title="Site">{h.site ? <div className="stat-line">{h.site.site_code} · {h.site.city}<Pill value={h.site.status} /></div> : <p className="muted">No site yet</p>}</Panel>
           <Panel title="Agreement">{h.agreement ? <><div className="stat-line">{h.agreement.agreement_code}<Pill value={h.agreement.status} /></div>{h.agreement.signed_at && <p className="muted">Signed {date(h.agreement.signed_at)}</p>}</> : <p className="muted">Not sent yet</p>}</Panel>
         </div>
-        {h.project?.status === "OPENED" ? (
+        {h.project?.status === "OPENED" ? (<>
           <Panel title={<>Your store {h.project.project_code}<Pill value={h.project.status} /></>} action={<Link to="/portal/sales">Sales reports</Link>}>
             <Facts items={[["Opened", date(h.project.actual_opening_date)], ["Grand opening", date(h.project.grand_opening_date ?? h.project.actual_opening_date)]]} />
           </Panel>
-        ) : h.project && (
+          <ConnectCard />
+        </>) : h.project && (
           <Panel title={<>Store opening {h.project.project_code}<Pill value={h.project.readiness?.rag} /></>} action={<Link to="/portal/tasks">All tasks</Link>} flush>
             <div className="panel-body"><Facts items={[["Readiness", <Progress value={h.project.readiness?.score} rag={h.project.readiness?.rag} />], ["Target opening", date(h.project.target_opening_date)]]} /></div>
             <Checklist items={h.upcoming_tasks} />

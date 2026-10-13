@@ -1,4 +1,4 @@
-import { Store } from "../common/store";
+import { Row, Store } from "../common/store";
 import { HttpBooksClient } from "./booksClient";
 import { ZohoBooksClient, ZohoCrmClient, ZohoProjectsClient, ZohoSignClient } from "./clients";
 import { HttpCrmClient } from "./crmClient";
@@ -58,4 +58,12 @@ const str = (v: unknown) => (v == null || v === "" ? undefined : String(v));
 export function crmFactory(store: Store, app: ZohoAppCredentials | null, fetchFn?: FetchLike, env: NodeJS.ProcessEnv = process.env): CrmFactory {
   const zoho = zohoFactory(store, app, fetchFn, env);
   return async (tenantId) => (await zoho(tenantId))?.crm ?? null;
+}
+
+/** A franchisee's own Books, from their connection row (docs/pos-sales.md); the app's OAuth client, their refresh token. */
+export function franchiseeBooks(app: ZohoAppCredentials, conn: Row, fetchFn?: FetchLike): ZohoBooksClient | null {
+  if (!conn.refresh_token || !conn.org_id) return null;
+  const endpoints = endpointsFor(String(conn.zoho_dc || "IN"));
+  const http = new ZohoHttp(new RefreshTokenProvider(endpoints, { ...app, refreshToken: String(conn.refresh_token) }, fetchFn), fetchFn);
+  return new HttpBooksClient(http, endpoints.books, String(conn.org_id));
 }

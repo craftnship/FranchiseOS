@@ -56,7 +56,13 @@ export interface ZohoBooksClient {
   getInvoice(id: string): Promise<BooksInvoiceState>;
   /** Vendor bills whose reference number contains `text` (the project code), newest first. Optional: a client without it has no capex actuals. */
   listBills?(text: string): Promise<BooksBill[]>;
+  /** The organisations the token can see (a franchisee's connection picks one). */
+  listOrganizations?(): Promise<Array<{ id: string; name: string }>>;
+  /** Sales per day from invoices and credit notes between two dates (inclusive), optionally for one location. */
+  dailySales?(from: string, to: string, locationId?: string | null): Promise<BooksDay[]>;
 }
+
+export interface BooksDay { day: string; gross_sales: number; discounts: number; returns: number; tax: number; transactions: number }
 
 /** Books bill status: draft, open, overdue, partially_paid, paid, void. */
 export interface BooksBill { id: string; number: string; reference: string; vendor: string; date: string | null; status: string; total: number; balance: number }

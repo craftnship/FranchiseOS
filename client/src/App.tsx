@@ -1,4 +1,5 @@
 import { PortalSales, Royalties } from "./components/Royalties";
+import { ZohoCallback } from "./components/Pos";
 import { Analytics } from "./pages/Analytics";
 import { PortalConstruction } from "./components/Construction";
 import { PortalTeam } from "./components/Staffing";
@@ -28,6 +29,13 @@ import { Users } from "./pages/Users";
 import { Integrations } from "./pages/Integrations";
 import { Settings } from "./pages/Settings";
 import { Brand, BrandContext, BrandMark, DEFAULT_BRAND, useApplyBrand } from "./branding";
+
+// Zoho's OAuth consent sends the browser back to the app root with ?code=&state=; the hash router
+// takes over from there (docs/pos-sales.md).
+(() => {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("code") && q.get("state")) window.history.replaceState(null, "", `${window.location.pathname}#/connect/zoho/callback?${q}`);
+})();
 
 // Catalyst's hosted sign-in page; it returns to the app after login.
 const LOGIN_URL = "/__catalyst/auth/login";
@@ -74,6 +82,7 @@ export function App() {
               <Route path="/portal/site" element={<PortalSite />} />
               <Route path="/portal/agreement" element={<PortalAgreement />} />
               <Route path="/portal/sales" element={<PortalSales />} />
+              <Route path="/connect/zoho/callback" element={<ZohoCallback />} />
               <Route path="/portal/construction" element={<PortalConstruction />} />
               <Route path="/portal/team" element={<PortalTeam />} />
               <Route path="/portal/orders" element={<PortalOrders />} />

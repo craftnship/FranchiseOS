@@ -22,6 +22,7 @@ import { fundingRoutes } from "./routes/funding";
 import { auditRoutes as storeAuditRoutes } from "./routes/audits";
 import { launchRoutes } from "./routes/launch";
 import { portalHubRoutes, portalRoutes } from "./routes/portal";
+import { posRoutes } from "./routes/pos";
 import { projectRoutes } from "./routes/projects";
 import { searchRoutes } from "./routes/search";
 import { settingsRoutes } from "./routes/settings";
@@ -68,6 +69,7 @@ export function buildRouter(): Router {
   userRoutes(r);
   integrationRoutes(r);
   royaltyRoutes(r);
+  posRoutes(r);
   analyticsRoutes(r);
   constructionRoutes(r);
   staffingRoutes(r);

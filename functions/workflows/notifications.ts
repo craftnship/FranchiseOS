@@ -34,7 +34,7 @@ export interface Notice {
   dedupe?: string;
 }
 
-const DEFAULT_APP_URL = "https://franchiseos-60082871087.development.catalystserverless.in/app/";
+export const DEFAULT_APP_URL = "https://franchiseos-60082871087.development.catalystserverless.in/app/";
 
 /** "1 Oct 2026" for a date or ISO string. */
 const nice = (d: unknown) => {

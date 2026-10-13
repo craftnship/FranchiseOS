@@ -10,6 +10,7 @@ import { CapexPanel } from "../components/Capex";
 import { LeaseSummary } from "../components/Lease";
 import { ForecastPanel } from "../components/Forecast";
 import { RoyaltyPanel } from "../components/Royalties";
+import { PosPanel } from "../components/Pos";
 import { ConstructionPanel } from "../components/Construction";
 import { StaffingPanel } from "../components/Staffing";
 import { PurchasingPanel } from "../components/Purchasing";
@@ -132,6 +133,7 @@ export function ProjectDetail() {
             <HealthCard projectId={String(id)} />
             <LaunchPanel projectId={String(id)} target={p.target_opening_date} />
             <RoyaltyPanel projectId={String(id)} />
+            <PosPanel projectId={String(id)} />
             <AuditPanel projectId={String(id)} />
             <h2 className="section-head">Before opening</h2>
           </>}

@@ -6,6 +6,7 @@ import { Field, Form, FormError } from "../components/forms";
 import { Icon, PageHeader, Panel } from "../components/ui";
 import { upload } from "../components/Construction";
 import { HealthSettings } from "../components/Health";
+import { RoyaltySettings } from "../components/Pos";
 
 // Admin → Settings. Branding: the company name, logo and colour shown in place of FranchiseOS
 // in the app, the franchisee portal, the sign-in screen, the browser tab and notification emails.
@@ -87,6 +88,7 @@ export function Settings() {
       </Panel>
       <p className="muted">“Continue to sign in” opens Zoho Catalyst's own sign-in page. Its logo and title are set in the Catalyst console's Authentication settings.</p>
       <StoreSetup />
+      <RoyaltySettings />
       <HealthSettings />
     </>
   );

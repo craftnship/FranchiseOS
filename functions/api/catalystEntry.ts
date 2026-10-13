@@ -82,7 +82,9 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       // Document uploads are on once FOS_STRATUS_BUCKET names the bucket.
       const bucket = process.env.FOS_STRATUS_BUCKET?.trim();
       const files = bucket ? new StratusFileStorage(admin.stratus().bucket(bucket)) : undefined;
-      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files, mailer: mailerFromEnv(admin), auth: authAdminFromEnv(admin) };
+      // Franchisees connect their own Books with the same OAuth client; the state is signed with FOS_STATE_SECRET.
+      const oauth = { app: creds, stateSecret: process.env.FOS_STATE_SECRET?.trim() || null, redirectUri: process.env.FOS_WEB_URL?.trim() || null };
+      return { store, crm: crmFactory(store, creds), zoho: zohoFactory(store, creds), files, mailer: mailerFromEnv(admin), auth: authAdminFromEnv(admin), oauth };
     })(),
   );
   send(res, result.status, result.body);

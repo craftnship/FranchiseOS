@@ -7,6 +7,7 @@ import { HealthBand, HealthInputs, HealthResult, HealthSettings, healthSettings,
 import { auditSettings, nextDue } from "./audits";
 import { addDays } from "./launch";
 import { deliver, usersInRoles } from "./notifications";
+import { feedStatus, posSettings } from "./posSales";
 import { daysLate, owedRows, projectOfOwed } from "./receivables";
 import { duePeriods, nextPeriod, periodOf, prevPeriod, ratesFrom, royaltySettings, tradedFullMonth } from "./royalties";
 
@@ -37,6 +38,7 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
   const settings = healthSettingsFor(tenant);
   const audit = auditSettings(tenant);
   const dueDay = royaltySettings(tenant).report_due_day;
+  const pos = posSettings(tenant);
   const by = (rows: Row[]) => new Map(rows.map((x) => [String(x.ROWID), x]));
   const siteOf = by(sites), terOf = by(territories), appOf = by(apps);
   const latestModel = new Map<string, Row>();
@@ -89,7 +91,12 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
       const dueOn = `${nextPeriod(per)}-${String(dueDay).padStart(2, "0")}`;
       if (!r.submitted_at || day(r.submitted_at)! <= dueOn) onTime++; else late++;
     }
-    const reporting = periods.length ? { due: periods.length, on_time: onTime, late } : null;
+    // A store on the till feed is judged by the feed instead: is it current, and did any recent month's report stray from it.
+    const feed = feedStatus(p, today, pos);
+    const strayed = mine.slice(-3).filter((x) => x.variance_pct != null && Math.abs(toNum(x.variance_pct)) > pos.pos_variance_tolerance_pct).map((x) => ({ period: String(x.period), pct: toNum(x.variance_pct) })).reverse();
+    const reporting = feed !== "NONE"
+      ? { due: periods.length, on_time: onTime, late, feed: { status: feed, last_day: day(p.pos_last_day), variance: strayed } }
+      : periods.length ? { due: periods.length, on_time: onTime, late } : null;
 
     const inputs: HealthInputs = { sales, payments, compliance, reporting, customer: null };
     return { ...scoreHealth(inputs, settings), project: p, region: (ter?.region as string | null) ?? null, inputs };

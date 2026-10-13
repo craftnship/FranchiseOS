@@ -7,6 +7,7 @@ import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
 import { ZohoBooksClient } from "../integrations/clients";
 import { onboardingSettings } from "./agreements";
+import { feedStatus, posByPeriod, posSettings, variancePct } from "./posSales";
 
 // Royalties (plan Phase 2 "Operations"): an opened store reports its monthly sales; finance approves
 // the report, which raises the royalty and marketing-fund invoice in Books; payment comes back by sync.
@@ -217,18 +218,26 @@ export async function royaltyLedger(store: Store, ctx: TenantContext, project: R
   const repo = new TenantRepo(store, ctx.tenantId);
   const reports = await repo.findMany("sales_reports", { project_id: String(project.ROWID) }, { orderBy: "period", desc: true, limit: 300 });
   const byPeriod = new Map(reports.map((r) => [String(r.period), r]));
-  const s = royaltySettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
+  const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  const s = royaltySettings(tenant);
+  const pos = posSettings(tenant);
   const due = duePeriods(project, today);
   const thisMonth = periodOf(today);
+  // The till's figure for each month, beside what was reported (docs/pos-sales.md).
+  const till = await posByPeriod(repo, project, [...due, thisMonth], today);
   const months = [...due].reverse().map((p) => {
     const r = byPeriod.get(p) ?? null;
     const dueOn = `${nextPeriod(p)}-${String(s.report_due_day).padStart(2, "0")}`;
-    return { period: p, label: periodLabel(p), due_on: dueOn, late: !r && today > dueOn, report: r };
+    const t = till.get(p) ?? null;
+    const variance = r ? (r.basis === "POS" ? (r.variance_pct == null ? null : toNum(r.variance_pct)) : t ? variancePct(toNum(r.net_sales), t.net_sales) : null) : null;
+    return { period: p, label: periodLabel(p), due_on: dueOn, late: !r && today > dueOn, report: r, pos: t, variance_pct: variance, strayed: variance !== null && Math.abs(variance) > pos.pos_variance_tolerance_pct };
   });
+  const mtd = till.get(thisMonth) ?? null;
   const sum = (k: string, f: (r: Row) => boolean = () => true) => round2(reports.filter(f).reduce((a, r) => a + toNum(r[k]), 0));
   const invoiced = (r: Row) => r.status === "INVOICED" || r.status === "PAID";
   return {
     rates: await ratesFor(store, ctx, project), report_due_day: s.report_due_day, this_month: thisMonth,
+    feed: { status: feedStatus(project, today, pos), last_day: project.pos_last_day ? String(project.pos_last_day).slice(0, 10) : null, basis: pos.royalty_basis, tolerance_pct: pos.pos_variance_tolerance_pct, month_to_date: mtd },
     months,
     totals: {
       net_sales: sum("net_sales", invoiced), royalty: sum("royalty_amount", invoiced), marketing: sum("marketing_amount", invoiced),

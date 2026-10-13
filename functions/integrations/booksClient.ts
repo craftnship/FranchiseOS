@@ -1,4 +1,4 @@
-import { BooksBill, BooksInvoiceState, ZohoBooksClient } from "./clients";
+import { BooksBill, BooksDay, BooksInvoiceState, ZohoBooksClient } from "./clients";
 import { ProviderError } from "./retry";
 import { ZohoHttp } from "./zohoHttp";
 
@@ -6,7 +6,8 @@ import { ZohoHttp } from "./zohoHttp";
 
 interface BooksInvoice { invoice_id?: string; invoice_number?: string; reference_number?: string; status?: string; total?: number; balance?: number; due_date?: string; last_payment_date?: string }
 interface BooksBillRow { bill_id?: string; bill_number?: string; reference_number?: string; vendor_name?: string; date?: string; status?: string; total?: number; balance?: number }
-interface BooksRes { bills?: BooksBillRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
+interface BooksSaleRow { invoice_id?: string; creditnote_id?: string; date?: string; status?: string; total?: number; sub_total?: number; tax_total?: number; discount_total?: number; discount?: number }
+interface BooksRes { bills?: BooksBillRow[]; organizations?: Array<{ organization_id?: string; name?: string }>; creditnotes?: BooksSaleRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
 
 function check(res: BooksRes | undefined, what: string): BooksRes {
   if (!res || (res.code !== undefined && res.code !== 0)) throw new ProviderError(`Books ${what} failed: ${res?.code ?? "no response"} ${res?.message ?? ""}`.trim(), 400, false);
@@ -71,6 +72,38 @@ export class HttpBooksClient implements ZohoBooksClient {
 
   // Needs the ZohoBooks.bills.READ scope. search_text also matches bill numbers and vendor names,
   // so only bills whose reference number carries the text are kept.
+  async listOrganizations(): Promise<Array<{ id: string; name: string }>> {
+    // Organisations are not scoped by organisation; the plain endpoint lists what the token can see.
+    const res = check(await this.http.request<BooksRes>("GET", `${this.baseUrl}/organizations`), "organizations");
+    return (res.organizations ?? []).filter((o) => o.organization_id).map((o) => ({ id: String(o.organization_id), name: String(o.name ?? o.organization_id) }));
+  }
+
+  /**
+   * Sales per day: every invoice dated in the window that is not a draft or void (gross before tax,
+   * with its discount and tax), less credit notes as returns. The list rows carry `total`; when Books
+   * also sends `sub_total` and `tax_total` they are used, else tax is taken as zero and gross = total.
+   */
+  async dailySales(from: string, to: string, locationId?: string | null): Promise<BooksDay[]> {
+    const days = new Map<string, BooksDay>();
+    const at = (d: string) => days.get(d) ?? days.set(d, { day: d, gross_sales: 0, discounts: 0, returns: 0, tax: 0, transactions: 0 }).get(d)!;
+    const loc: Record<string, string> = locationId ? { location_id: locationId } : {};
+    for (const [path, key] of [["/invoices", "invoices"], ["/creditnotes", "creditnotes"]] as const) {
+      for (let page = 1; page <= 50; page++) {
+        const res = check(await this.http.request<BooksRes>("GET", this.url(path, { date_start: from, date_end: to, per_page: "200", page: String(page), ...loc })), `${key} by date`);
+        for (const r of (res[key] ?? []) as BooksSaleRow[]) {
+          const status = String(r.status ?? "").toLowerCase();
+          if (!r.date || status === "draft" || status === "void") continue;
+          const d = at(String(r.date).slice(0, 10));
+          const total = Number(r.total ?? 0), tax = Number(r.tax_total ?? 0), sub = r.sub_total != null ? Number(r.sub_total) : total - tax;
+          if (key === "invoices") { d.gross_sales += sub; d.tax += tax; d.discounts += Number(r.discount_total ?? r.discount ?? 0); d.transactions++; }
+          else d.returns += sub;
+        }
+        if (!res.page_context?.has_more_page) break;
+      }
+    }
+    return [...days.values()].map((d) => ({ ...d, gross_sales: round2(d.gross_sales), discounts: round2(d.discounts), returns: round2(d.returns), tax: round2(d.tax) })).sort((a, b) => a.day.localeCompare(b.day));
+  }
+
   async listBills(text: string): Promise<BooksBill[]> {
     const out: BooksBill[] = [];
     for (let page = 1; page <= 5; page++) {
@@ -84,6 +117,8 @@ export class HttpBooksClient implements ZohoBooksClient {
     return out;
   }
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function sameName(a: unknown, b: string): boolean {
   return typeof a === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();

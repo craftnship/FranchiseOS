@@ -22,9 +22,12 @@ export interface HealthInputs {
   /** What the store owes: oldest overdue age (0 when nothing is overdue yet) and a month's royalty when known. */
   payments: { owed: number; overdue: number; oldest_days: number; monthly_royalty: number | null } | null;
   compliance: { audit_score: number | null; critical_open: number; overdue_actions: number; expired_licences: number; audit_overdue: boolean } | null;
-  reporting: { due: number; on_time: number; late: number } | null;
+  /** Months due and how they were reported; `feed` when the store's till sales arrive daily (docs/pos-sales.md). */
+  reporting: { due: number; on_time: number; late: number; feed?: FeedInput } | null;
   customer: { complaints: number; open: number } | null;
 }
+
+export interface FeedInput { status: "CONNECTED" | "STALE"; last_day: string | null; variance: { period: string; pct: number }[] }
 
 export interface HealthReason { part: HealthPart; score: number; text: string; money: string | null }
 export interface PartResult { part: HealthPart; score: number | null; weight: number; detail: string }
@@ -63,6 +66,8 @@ export function complianceScore(c: NonNullable<HealthInputs["compliance"]>): num
 }
 
 export function reportingScore(r: NonNullable<HealthInputs["reporting"]>): number | null {
+  // A till feed replaces the report: current is full marks, stale loses some, a month where the franchisee's figure strayed loses more.
+  if (r.feed) return clamp((r.feed.status === "CONNECTED" ? 100 : 60) - (r.feed.variance.length ? 20 : 0));
   if (r.due <= 0) return null;
   return clamp(((r.on_time * 100) + (r.late * 50)) / r.due);
 }
@@ -72,6 +77,8 @@ export function customerScore(c: NonNullable<HealthInputs["customer"]>): number 
 }
 
 const pct = (n: number) => `${Math.abs(round(n, 0))}%`;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthLabel = (p: string) => `${MONTHS[Number(p.slice(5, 7)) - 1] ?? p} ${p.slice(0, 4)}`;
 
 /** What each part says about the store, in plain words; `money` is the version with amounts (finance.view only). */
 function describe(part: HealthPart, inputs: HealthInputs, score: number | null): { text: string; money: string | null } {
@@ -103,6 +110,11 @@ function describe(part: HealthPart, inputs: HealthInputs, score: number | null):
     }
     case "reporting": {
       const r = inputs.reporting;
+      if (r?.feed) {
+        const v = r.feed.variance[0];
+        if (v) return { text: `Till and report differ by ${pct(v.pct)} in ${monthLabel(v.period)}`, money: null };
+        return { text: r.feed.status === "CONNECTED" ? "Till connected, sales come in daily" : `Till feed stale${r.feed.last_day ? ` since ${r.feed.last_day}` : ""}`, money: null };
+      }
       if (!r || !r.due) return { text: "No sales reports due yet", money: null };
       const missing = r.due - r.on_time - r.late;
       return { text: r.on_time === r.due ? "All sales reports on time" : `${r.on_time} of ${r.due} sales reports on time${missing ? `, ${missing} missing` : ""}`, money: null };

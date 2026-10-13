@@ -4,6 +4,7 @@ import { AppError } from "../../common/errors";
 import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { toNum } from "../../common/values";
+import { attachVariance, posSettings } from "../../workflows/posSales";
 import { approveReport, periodLabel, refreshReport, returnReport, royaltyLedger, submitReport } from "../../workflows/royalties";
 import { Call, parse, Router } from "../router";
 import { assertOwner, fetchAll, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
@@ -44,7 +45,9 @@ export function royaltyRoutes(r: Router): void {
     if (!portal) await authorize(call.ctx, "royalty.manage", call.permissions);
     const { report, ...body } = parse(salesSchema, call.body);
     const file_ref = report ? await storeUpload(call, `projects/${call.params.id}/sales`, report) : undefined;
-    return submitReport(call.store, call.ctx, project, { ...body, file_ref }, today(call), portal ? "PORTAL" : "STAFF");
+    const row = await submitReport(call.store, call.ctx, project, { ...body, file_ref }, today(call), portal ? "PORTAL" : "STAFF");
+    // The till's figure beside it, when the store has a feed.
+    return attachVariance(call.store, call.ctx, project, row, today(call));
   }, 201);
 
   r.on("GET", "/projects/:id/sales/:reportId/file", null, async (call) => {
@@ -87,9 +90,10 @@ export function royaltyRoutes(r: Router): void {
     const where: Record<string, string> = {};
     if (q.status) where.status = q.status;
     if (q.period) where.period = q.period;
-    const [scope, allReports, allProjects, franchisees] = await Promise.all([
-      regionScope(call), fetchAll(call.repo, "sales_reports", where), fetchAll(call.repo, "franchise_projects", { status: "OPENED" }), call.repo.findMany("franchisees", {}, { limit: 300 }),
+    const [scope, allReports, allProjects, franchisees, tenant] = await Promise.all([
+      regionScope(call), fetchAll(call.repo, "sales_reports", where), fetchAll(call.repo, "franchise_projects", { status: "OPENED" }), call.repo.findMany("franchisees", {}, { limit: 300 }), call.store.findOne("tenants", { ROWID: call.ctx.tenantId }),
     ]);
+    const pos = posSettings(tenant);
     const projects = allProjects.filter(scope.project), reports = allReports.filter((x) => scope.projectId(x.project_id));
     const pmap = new Map(projects.map((p) => [String(p.ROWID), p]));
     const fmap = new Map(franchisees.map((f) => [String(f.ROWID), f]));
@@ -100,9 +104,9 @@ export function royaltyRoutes(r: Router): void {
     }).sort((a, b) => String(b.period).localeCompare(String(a.period)) || String(a.project_code).localeCompare(String(b.project_code)));
     const sum = (k: string, f: (r: Row) => boolean) => Math.round(items.filter(f).reduce((a, r) => a + toNum(r[k]), 0) * 100) / 100;
     return {
-      items,
+      items, basis: pos.royalty_basis, tolerance_pct: pos.pos_variance_tolerance_pct,
       totals: {
-        stores: projects.length, waiting: items.filter((i) => i.status === "SUBMITTED").length,
+        stores: projects.length, waiting: items.filter((i) => i.status === "SUBMITTED").length, strayed: items.filter((i) => i.status === "SUBMITTED" && i.variance_pct != null && Math.abs(toNum(i.variance_pct)) > pos.pos_variance_tolerance_pct).length,
         invoiced: sum("royalty_amount", (i) => i.status === "INVOICED" || i.status === "PAID") + sum("marketing_amount", (i) => i.status === "INVOICED" || i.status === "PAID"),
         outstanding: sum("invoice_balance", (i) => i.status === "INVOICED"),
       },

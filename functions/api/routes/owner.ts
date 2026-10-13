@@ -5,6 +5,7 @@ import { duePeriods, ratesFrom, tradedFullMonth, periodLabel, periodOf, prevPeri
 import { addDays } from "../../workflows/launch";
 import { AGE_BUCKETS, bucketOf, daysBetween, owedRows, projectOfOwed as ownerOfOwed } from "../../workflows/receivables";
 import { auditSettings, nextDue } from "../../workflows/audits";
+import { feedStatus, posSettings } from "../../workflows/posSales";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
 import { allowed } from "../../common/rbac";
@@ -82,6 +83,10 @@ export function ownerRoutes(r: Router): void {
     const projOf = new Map(projects.map((p) => [String(p.ROWID), p]));
     const opened = projects.filter((p) => p.status === "OPENED" && p.actual_opening_date);
     const live = (pid: unknown) => { const p = projOf.get(String(pid)); return !!p && p.status !== "CLOSED"; };
+    // Till coverage: stores whose daily sales arrive from their POS (docs/pos-sales.md).
+    const pos = posSettings(tenant);
+    const feedOf = (p: Row) => feedStatus(p, today, pos);
+    const till = { connected: opened.filter((p) => feedOf(p) === "CONNECTED").length, stale: opened.filter((p) => feedOf(p) === "STALE").length, total: opened.length, basis: pos.royalty_basis };
 
     // Revenue: the chosen window of finished months against the same length just before it.
     const last = prevPeriod(periodOf(today));
@@ -170,6 +175,14 @@ export function ownerRoutes(r: Router): void {
     for (const x of reports.filter((x) => x.status === "SUBMITTED")) {
       add({ kind: "Sales report", tone: "info", title: `${place(x.project_id).name} ${periodLabel(String(x.period))} sales to review`, detail: "Approve to raise the royalty invoice", href: "/royalties", date: day(x.submitted_at) });
     }
+    // The till and the franchisee's report disagree by more than the tolerance: finance decides which to bill on.
+    for (const x of reports.filter((x) => x.status === "SUBMITTED" && x.variance_pct != null && Math.abs(toNum(x.variance_pct)) > pos.pos_variance_tolerance_pct)) {
+      const v = toNum(x.variance_pct), fmt = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+      add({ kind: "Till", tone: "warn", title: `${place(x.project_id).name} ${periodLabel(String(x.period))}: till and report differ by ${Math.abs(v)}%`, detail: `Reported ${fmt(toNum(x.reported_net_sales ?? x.net_sales))}, the till says ${fmt(toNum(x.pos_net_sales))}${x.basis === "POS" ? "; billed on the till" : ""}`, href: `/projects/${x.project_id}`, date: day(x.submitted_at) });
+    }
+    for (const p of opened.filter((p) => feedOf(p) === "STALE")) {
+      add({ kind: "Till", tone: "warn", title: `${place(p.ROWID).name} till feed stale`, detail: `Last day of sales ${day(p.pos_last_day)}; the franchisee may need to reconnect Zoho Books`, href: `/projects/${p.ROWID}`, date: day(p.pos_last_day) });
+    }
     for (const x of reports.filter((x) => x.status === "RETURNED")) {
       add({ kind: "Sales report", tone: "warn", title: `${place(x.project_id).name} ${periodLabel(String(x.period))} report returned`, detail: x.review_note ? String(x.review_note).slice(0, 120) : "Waiting for the franchisee to resubmit", href: "/royalties", date: day(x.reviewed_at) });
     }
@@ -220,10 +233,10 @@ export function ownerRoutes(r: Router): void {
       revenue: finance ? {
         ...now, previous: before,
         net_sales_change_pct: change(now.net_sales, before.net_sales), royalty_change_pct: change(now.royalty, before.royalty),
-        collection_pct: pct(now.collected, now.royalty), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length, series,
+        collection_pct: pct(now.collected, now.royalty), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length, till, series,
       } : {
         net_sales: now.net_sales, reports: now.reports, due: now.due, previous: { net_sales: before.net_sales },
-        net_sales_change_pct: change(now.net_sales, before.net_sales), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length,
+        net_sales_change_pct: change(now.net_sales, before.net_sales), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length, till,
         series: series.map(({ period, label, net_sales }) => ({ period, label, net_sales })),
       },
       receivables: !finance ? null : { total: sum(owed, (o) => o.amount), overdue: sum(overdueOwed, (o) => o.amount), fees: sum(owed.filter((o) => o.kind === "fee"), (o) => o.amount), royalty: sum(owed.filter((o) => o.kind === "royalty"), (o) => o.amount), ageing },

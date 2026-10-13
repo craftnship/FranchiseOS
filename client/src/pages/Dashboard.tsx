@@ -40,7 +40,7 @@ function Headline({ title, value, to, children, spark }: { title: string; value:
   );
 }
 
-const KIND_ICON: Record<string, string> = { Approval: "check", "Sales report": "history", Royalty: "money", Fee: "money", "Audit action": "audit", Audit: "audit", Licence: "agreements", "Purchase order": "box", Renewal: "sync", Launch: "flag" };
+const KIND_ICON: Record<string, string> = { Till: "store", Approval: "check", "Sales report": "history", Royalty: "money", Fee: "money", "Audit action": "audit", Audit: "audit", Licence: "agreements", "Purchase order": "box", Renewal: "sync", Launch: "flag" };
 
 export function Dashboard() {
   const [params, setParams] = useSearchParams();
@@ -114,6 +114,7 @@ export function Dashboard() {
             </Headline>}
             <Headline title="Stores trading" value={String(r.stores_trading)} to="/projects?status=OPENED">
               <span className="kpi-hint">{r.reporting_pct === null ? "No reports due" : `${r.reports} of ${r.due} sales reports in (${r.reporting_pct}%)`}</span>
+              {r.till && r.stores_trading > 0 && <span className={`kpi-hint ${r.till.stale ? "bad-text" : ""}`}>Till coverage {r.till.connected + r.till.stale} of {r.till.total}{r.till.stale ? ` (${r.till.stale} stale)` : ""}{r.till.basis === "POS" ? " · royalty on till sales" : ""}</span>}
             </Headline>
           </div>
         );
