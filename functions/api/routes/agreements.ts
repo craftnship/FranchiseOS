@@ -30,7 +30,7 @@ export function agreementRoutes(r: Router): void {
   });
 
   // Checks Books now for every unsettled fee instead of waiting for the daily job.
-  r.on("POST", "/fees/sync", "dashboard.view", async (call) => {
+  r.on("POST", "/fees/sync", "finance.view", async (call) => {
     const zoho = await zohoOrFail(call);
     if (!zoho.books) throw new AppError("ZOHO_SYNC_FAILED", "Zoho Books is not connected for this tenant.");
     return syncTenantFees(call.store, call.ctx, zoho.books, zoho.crm, call.now);

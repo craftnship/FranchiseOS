@@ -3,13 +3,16 @@ import { Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
 import { duePeriods, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
+import { separateInstalments } from "../../workflows/funding";
 import { auditSettings, nextDue } from "../../workflows/audits";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
+import { allowed } from "../../common/rbac";
 
 // The brand owner's view on the dashboard: what the trading network earns, what is owed, how
 // stores rank, how compliant they are, and the items waiting on the brand team today.
-// Computed live from Data Store at pilot scale, like the other dashboards.
+// Computed live from Data Store at pilot scale, like the other dashboards. Royalty billing, receivables
+// and unpaid amounts are only for callers with finance.view; everyone else sees sales and operations.
 
 const OPEN_ACTION = ["OPEN", "SUBMITTED"];
 const querySchema = z.object({ months: z.coerce.number().int().refine((n) => [1, 3, 6, 12].includes(n), "use 1, 3, 6 or 12").default(1) });
@@ -56,6 +59,7 @@ export function storeNamer(projects: Row[], sites: Row[], territories: Row[], ap
 export function ownerRoutes(r: Router): void {
   r.on("GET", "/dashboard/owner", "dashboard.view", async (call) => {
     const q = parse(querySchema, call.query);
+    const finance = await allowed(call.ctx, "finance.view", call.permissions);
     const today = call.now.toISOString().slice(0, 10);
     const [projects, sites, territories, apps, franchisees, models, reports, agreements, instalments, audits, actions, licences, orders, approvals, tenant] = await Promise.all([
       fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchise_applications"),
@@ -88,10 +92,9 @@ export function ownerRoutes(r: Router): void {
     const series = trend.map((p) => { const t = totals([p]); return { period: p, label: periodLabel(p), net_sales: t.net_sales, royalty: t.royalty }; });
 
     // Receivables: unpaid fee and royalty invoices, aged by days past their due date.
-    const signingInvoices = new Set(agreements.map((a) => String(a.zoho_books_invoice_id ?? "")).filter(Boolean));
     const owed: { kind: "fee" | "royalty"; amount: number; due: string | null; row: Row }[] = [
       ...agreements.filter((a) => a.fee_status && !["PAID", "VOID"].includes(String(a.fee_status)) && toNum(a.fee_balance) > 0).map((a) => ({ kind: "fee" as const, amount: toNum(a.fee_balance), due: day(a.fee_due_date), row: a })),
-      ...instalments.filter((i) => i.status === "INVOICED" && toNum(i.invoice_balance) > 0 && !signingInvoices.has(String(i.zoho_books_invoice_id ?? ""))).map((i) => ({ kind: "fee" as const, amount: toNum(i.invoice_balance), due: day(i.invoice_due_date), row: i })),
+      ...separateInstalments(instalments, agreements).filter((i) => i.status === "INVOICED" && toNum(i.invoice_balance) > 0).map((i) => ({ kind: "fee" as const, amount: toNum(i.invoice_balance), due: day(i.invoice_due_date), row: i })),
       ...reports.filter((x) => x.status === "INVOICED" && toNum(x.invoice_balance) > 0).map((x) => ({ kind: "royalty" as const, amount: toNum(x.invoice_balance), due: day(x.invoice_due_date), row: x })),
     ];
     // Signing fees sit on the agreement, so they belong to the store opened from the same application.
@@ -125,7 +128,7 @@ export function ownerRoutes(r: Router): void {
         last_period: reps.at(-1)?.period ?? null,
         audit_score: audit ? toNumOrNull(audit.score) : null, audit_rating: audit?.rating ?? null, audit_id: audit ? String(audit.ROWID) : null,
         open_actions: openActions.filter((a) => String(a.project_id) === pid).length,
-        unpaid: sum(owed.filter((o) => projectOfOwed(o.row) === pid), (o) => o.amount),
+        unpaid: finance ? sum(owed.filter((o) => projectOfOwed(o.row) === pid), (o) => o.amount) : null,
       };
     }).sort((a, b) => (b.avg_net_sales ?? -1) - (a.avg_net_sales ?? -1) || String(a.project_code).localeCompare(String(b.project_code)));
 
@@ -162,7 +165,7 @@ export function ownerRoutes(r: Router): void {
         add({ kind: "Sales report", tone: "warn", title: `${place(p.ROWID).name} ${periodLabel(last)} sales not reported`, detail: "No report from the franchisee yet", href: "/royalties", date: null });
       }
     }
-    for (const o of overdueOwed) {
+    for (const o of finance ? overdueOwed : []) {
       const pid = projectOfOwed(o.row);
       const who = pid ? place(pid).name : String(o.row.agreement_code ?? "Agreement");
       const label = String(o.row.label ?? "Signing fee");
@@ -200,12 +203,17 @@ export function ownerRoutes(r: Router): void {
     return {
       as_of: call.now.toISOString(), months: q.months,
       period: { from: cur[0], to: last, label: q.months === 1 ? periodLabel(last) : `${periodLabel(cur[0])} to ${periodLabel(last)}`, previous_label: q.months === 1 ? periodLabel(prev[0]) : `${periodLabel(prev[0])} to ${periodLabel(prev.at(-1)!)}` },
-      revenue: {
+      finance,
+      revenue: finance ? {
         ...now, previous: before,
         net_sales_change_pct: change(now.net_sales, before.net_sales), royalty_change_pct: change(now.royalty, before.royalty),
         collection_pct: pct(now.collected, now.royalty), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length, series,
+      } : {
+        net_sales: now.net_sales, reports: now.reports, due: now.due, previous: { net_sales: before.net_sales },
+        net_sales_change_pct: change(now.net_sales, before.net_sales), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length,
+        series: series.map(({ period, label, net_sales }) => ({ period, label, net_sales })),
       },
-      receivables: { total: sum(owed, (o) => o.amount), overdue: sum(overdueOwed, (o) => o.amount), fees: sum(owed.filter((o) => o.kind === "fee"), (o) => o.amount), royalty: sum(owed.filter((o) => o.kind === "royalty"), (o) => o.amount), ageing },
+      receivables: !finance ? null : { total: sum(owed, (o) => o.amount), overdue: sum(overdueOwed, (o) => o.amount), fees: sum(owed.filter((o) => o.kind === "fee"), (o) => o.amount), royalty: sum(owed.filter((o) => o.kind === "royalty"), (o) => o.amount), ageing },
       stores, compliance,
       attention: { items, counts: { bad: items.filter((i) => i.tone === "bad").length, warn: items.filter((i) => i.tone === "warn").length, info: items.filter((i) => i.tone === "info").length } },
     };

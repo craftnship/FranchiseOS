@@ -72,7 +72,7 @@ export function Dashboard() {
         subtitle={o ? <>Trading figures for <strong>{o.period.label}</strong> against {o.period.previous_label} · As of {asOf}</> : "Trading, compliance, expansion and openings"}
         actions={<>
           <select aria-label="Period" value={months} onChange={(e) => setMonths(e.target.value)}>{PERIODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-          {can("dashboard.view") && <button className="btn secondary" onClick={checkFees} disabled={!!fees.busy}><Icon name="money" size={16} />{fees.busy ? "Checking…" : "Check fees in Books"}</button>}
+          {can("finance.view") && <button className="btn secondary" onClick={checkFees} disabled={!!fees.busy}><Icon name="money" size={16} />{fees.busy ? "Checking…" : "Check fees in Books"}</button>}
           <button className="btn secondary" onClick={() => window.print()}><Icon name="folder" size={16} />Save as PDF</button>
           <button className="btn" onClick={reload}><Icon name="sync" size={16} />Refresh</button>
         </>} />
@@ -87,14 +87,14 @@ export function Dashboard() {
             <Headline title="Network sales" value={inrShort(r.net_sales)} to={`/analytics?months=${Math.max(3, Number(months))}`} spark={r.series.map((m: Row) => Number(m.net_sales))}>
               <Delta v={r.net_sales_change_pct} against={d.period.previous_label} />
             </Headline>
-            <Headline title="Royalty + fund billed" value={inrShort(r.royalty)} to="/royalties">
+            {d.finance && <Headline title="Royalty + fund billed" value={inrShort(r.royalty)} to="/royalties">
               {r.royalty || !r.reports ? <Delta v={r.royalty_change_pct} against={d.period.previous_label} /> : <span className="kpi-hint">Reports in, not yet invoiced</span>}
               {r.collection_pct !== null && <span className="kpi-hint">{r.collection_pct}% collected</span>}
-            </Headline>
-            <Headline title="Receivables" value={inrShort(rc.total)} to="/fees">
+            </Headline>}
+            {d.finance && <Headline title="Receivables" value={inrShort(rc.total)} to="/fees">
               <span className={`kpi-hint ${rc.overdue ? "bad-text" : ""}`}>{rc.overdue ? `${inrShort(rc.overdue)} overdue` : "Nothing overdue"}</span>
               <span className="kpi-hint">Fees {inrShort(rc.fees)} · Royalty {inrShort(rc.royalty)}</span>
-            </Headline>
+            </Headline>}
             <Headline title="Stores trading" value={String(r.stores_trading)} to="/projects?status=OPENED">
               <span className="kpi-hint">{r.reporting_pct === null ? "No reports due" : `${r.reports} of ${r.due} sales reports in (${r.reporting_pct}%)`}</span>
             </Headline>
@@ -102,7 +102,8 @@ export function Dashboard() {
         );
       }}</Loaded>
 
-      <div className="row c21">
+      {/* Receivables are for finance.view only; without it the attention list takes the full width. */}
+      <div className={o?.finance === false ? "row" : "row c21"}>
         <Panel title={<>Needs your attention{o && <span className="count-pill">{attention.length}</span>}</>}
           action={o && <span className="legend"><span><i className="sw bad" />{tally("bad")} urgent</span><span><i className="sw warn" />{tally("warn")} soon</span><span><i className="sw info" />{tally("info")} to review</span></span>} flush>
           <Loaded load={owner}>{() => {
@@ -125,7 +126,7 @@ export function Dashboard() {
           }}</Loaded>
         </Panel>
 
-        <Panel title="Receivables ageing" action={<Link to="/fees?overdue=true">Overdue fees</Link>}>
+        {o?.finance !== false && <Panel title="Receivables ageing" action={<Link to="/fees?overdue=true">Overdue fees</Link>}>
           <Loaded load={owner}>{(d) => {
             const rc = d.receivables, max = Math.max(1, ...rc.ageing.map((b: Row) => Number(b.amount)));
             return (
@@ -147,7 +148,7 @@ export function Dashboard() {
               </>
             );
           }}</Loaded>
-        </Panel>
+        </Panel>}
       </div>
 
       <div className="row c21">
@@ -164,7 +165,7 @@ export function Dashboard() {
               { key: "sales_per_sqft", label: "Per sq ft", align: "right" as const, render: (s: Row) => (s.sales_per_sqft === null ? "—" : `₹${Number(s.sales_per_sqft).toLocaleString("en-IN")}`) },
               { key: "audit_rating", label: "Audit", render: (s: Row) => (s.audit_rating ? <span title={`Score ${s.audit_score}%`}><Pill value={s.audit_rating} /></span> : <span className="muted">Not audited</span>) },
               { key: "unpaid", label: "Unpaid", align: "right" as const, render: (s: Row) => (Number(s.unpaid) ? <span className="bad-text">{inrShort(Number(s.unpaid))}</span> : <span className="muted">—</span>) },
-            ];
+            ].filter((c) => d.finance || c.key !== "unpaid");
             return (
               <>
                 {bottom.length > 0 && <div className="table-caption">Top five</div>}
@@ -212,7 +213,7 @@ export function Dashboard() {
         <div className="kpis">
           <KpiTile label="Active franchisees" kpi={n.active_franchisees} icon="franchisees" hint="Signed and trading partners" />
           <KpiTile label="Open applications" kpi={n.applications} icon="applications" tone="info" hint={n.pipeline_value?.value ? `${inrShort(n.pipeline_value.value)} investment capacity` : "Draft to agreement pending"} />
-          <KpiTile label="Openings in progress" kpi={n.openings} icon="projects" tone="info" hint={n.network_health?.value !== null && n.network_health?.value !== undefined ? `Average readiness ${n.network_health.value}%` : "Planning to ready for opening"} />
+          <KpiTile label="Openings in progress" kpi={n.openings} icon="projects" tone="info" hint={n.openings?.value ? `On pace: ${n.openings_on_pace?.value ?? 0} of ${n.openings.value}` : "Planning to ready for opening"} />
           <OpeningRisk n={n} />
         </div>
       )}</Loaded>

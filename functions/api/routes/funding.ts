@@ -101,7 +101,7 @@ export function fundingRoutes(r: Router): void {
   });
 
   // Network view for finance: every instalment with its store and franchisee.
-  r.on("GET", "/fees", "dashboard.view", async (call) => {
+  r.on("GET", "/fees", "finance.view", async (call) => {
     const q = parse(listSchema, call.query);
     const where: Record<string, string> = { ...(q.status ? { status: q.status } : {}), ...(q.kind ? { kind: q.kind } : {}) };
     const [projects, franchisees, agreements] = await Promise.all([fetchAll(call.repo, "franchise_projects", {}), call.repo.findMany("franchisees", {}, { limit: 300 }), fetchAll(call.repo, "agreements", { status: "SIGNED" })]);

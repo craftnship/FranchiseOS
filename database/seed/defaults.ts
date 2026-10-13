@@ -6,9 +6,9 @@ import { DEFAULT_SCENARIOS, DEFAULT_FEASIBILITY_THRESHOLDS } from "../../functio
 import { TemplateTask } from "../../functions/workflows/projectCreation";
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
-  FRANCHISE_DIRECTOR: ["application.review", "application.reject", "application.activate", "approval.start", "site.approve", "project.open", "dashboard.view"],
+  FRANCHISE_DIRECTOR: ["application.review", "application.reject", "application.activate", "approval.start", "site.approve", "project.open", "dashboard.view", "finance.view"],
   FRANCHISE_MANAGER: ["application.review", "application.reject", "application.withdraw", "approval.start", "site.write", "site.evaluate", "feasibility.write", "agreement.write", "territory.reserve", "territory.write", "dashboard.view"],
-  FINANCE_MANAGER: ["feasibility.write", "dashboard.view"],
+  FINANCE_MANAGER: ["feasibility.write", "dashboard.view", "finance.view"],
   LEGAL_MANAGER: ["agreement.write"],
   PROJECT_MANAGER: ["project.write", "project.open", "dashboard.view"],
   TRAINING_MANAGER: ["project.write"],

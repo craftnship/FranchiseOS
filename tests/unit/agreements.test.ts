@@ -91,6 +91,7 @@ async function setup(settings: Record<string, unknown> = { franchise_fee: 250000
   await store.insert("tenant_integrations", { tenant_id: tid, provider: "ZOHO", zoho_dc: "IN", status: "ACTIVE", webhook_secret: "s3cret", provider_key: `${tid}:ZOHO` });
   await store.insert("users", { tenant_id: tid, email: "mgr@x.test", status: "ACTIVE", role_id: t.roleIds.FRANCHISE_MANAGER, external_user_id: "mgr" });
   await store.insert("users", { tenant_id: tid, email: "pm@x.test", status: "ACTIVE", role_id: t.roleIds.PROJECT_MANAGER, external_user_id: "pm" });
+  await store.insert("users", { tenant_id: tid, email: "fin@x.test", status: "ACTIVE", role_id: t.roleIds.FINANCE_MANAGER, external_user_id: "fin" });
   const fr = await store.insert("franchisees", { tenant_id: tid, franchise_code: "FR-000001", tenant_code_key: `${tid}:FR-000001`, display_name: "Pepper Potts", legal_name: "Potts Foods LLP", email: "p@x.test", status: "PROSPECT", franchise_type: "QSR" });
   const app = await store.insert("franchise_applications", { tenant_id: tid, application_code: "APP-000001", tenant_code_key: `${tid}:APP-000001`, franchisee_id: fr.ROWID, status: "APPROVED", site_id: "77", zoho_lead_id: "L1" });
   const f = fakes(fakeOpts);
@@ -447,18 +448,18 @@ describe("Phase A: close the lifecycle loop", () => {
     // Nothing checked yet: the job picks the fee up as unsettled.
     const job = () => runTwoWaySyncJob(s.store, async () => s.clients, { now: new Date("2026-10-12T05:00:00Z"), requestId: "REQ-job" });
     expect(await job()).toMatchObject({ tenants: 1, fees_checked: 1, fees_paid: 0 });
-    let dash = (await s.call("mgr", "GET", "/dashboard/network")).data;
+    let dash = (await s.call("fin", "GET", "/dashboard/network")).data;
     expect(dash).toMatchObject({ fees_collected: { value: 0 }, fees_outstanding: { value: 250000 } });
 
     s.invoices[String(agreement.zoho_books_invoice_id)].status = "paid";
     const updatesBefore = s.accountUpdates.length;
-    const synced = await s.call("mgr", "POST", "/fees/sync");
+    const synced = await s.call("fin", "POST", "/fees/sync");
     expect(synced.data).toMatchObject({ checked: 1, changed: 1, paid: 1, failed: 0 });
     expect(await s.store.findOne("agreements", { ROWID: String(agreement.ROWID) })).toMatchObject({ fee_status: "PAID", fee_balance: 0, fee_paid_on: "2026-10-09" });
     expect(s.accountUpdates.slice(updatesBefore)).toEqual([{ FOS_Fee_Status: "PAID", FOS_Fee_Paid_On: "2026-10-09" }]);
     expect(await s.store.findMany("activity_logs", { entity_id: String(agreement.ROWID), action: "fee:paid" })).toHaveLength(1);
 
-    dash = (await s.call("mgr", "GET", "/dashboard/network")).data;
+    dash = (await s.call("fin", "GET", "/dashboard/network")).data;
     expect(dash).toMatchObject({ fees_collected: { value: 250000, drill: { path: "/fees" } }, fees_outstanding: { value: 0 } });
     expect((await s.call("mgr", "GET", "/agreements", undefined, { fee_status: "PAID" })).data).toHaveLength(1);
     // Settled fees are no longer checked.

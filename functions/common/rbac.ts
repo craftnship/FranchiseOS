@@ -27,6 +27,11 @@ export async function authorize(ctx: TenantContext, permission: string, lookup: 
   if (!perms.has(permission)) throw new AppError("ACCESS_DENIED", `Missing permission ${permission}.`);
 }
 
+/** The same check without throwing, for responses that show more to some callers. */
+export async function allowed(ctx: TenantContext, permission: string, lookup: PermissionLookup): Promise<boolean> {
+  try { await authorize(ctx, permission, lookup); return true; } catch { return false; }
+}
+
 /** Franchisee-facing roles may only touch their own records (§25, FOS-048). */
 export function isPortalUser(ctx: TenantContext): boolean {
   return ctx.roles.every((r) => r === "FRANCHISEE" || r === "FRANCHISEE_STAFF" || r === "VENDOR");

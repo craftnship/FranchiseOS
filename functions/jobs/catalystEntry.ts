@@ -41,7 +41,7 @@ export async function runCron(context: CronContext, sdk: CatalystSdk, now = new 
         failed++;
         const error = describeError(e);
         log("error", "job.crash", { request_id: requestId, step, error });
-        await recordJobRun(store, { step, ok: false, error: String((e as Error)?.message ?? e), requestId, now });
+        await recordJobRun(store, { step, ok: false, error, requestId, now });
       }
     }
     if (failed) context.closeWithFailure(); else context.closeWithSuccess();

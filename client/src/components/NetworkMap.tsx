@@ -82,6 +82,7 @@ export default function NetworkMap() {
               <span><i className="pt territory reserved" />Reserved</span>
               <span><i className="pt territory allocated" />Allocated</span>
             </div>
+            <p className="muted small map-credit">Map: <a href="https://github.com/VictorCazanave/svg-maps" target="_blank" rel="noreferrer">MapSVG / Victor Cazanave</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a></p>
             {d.unplaced.length > 0 && <p className="muted small map-note">{d.unplaced.length} without a location: {d.unplaced.slice(0, 4).map((u: Row) => u.name).join(", ")}{d.unplaced.length > 4 ? "…" : ""}</p>}
           </div>
         )}</Loaded>

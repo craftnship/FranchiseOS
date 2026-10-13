@@ -6,6 +6,8 @@ import { fetchAll } from "./shared";
 import { isDelayed } from "./projects";
 import { addDays, launchSettings, networkLaunches } from "../../workflows/launch";
 import { storeNamer } from "./owner";
+import { allowed } from "../../common/rbac";
+import { separateInstalments } from "../../workflows/funding";
 
 // Executive dashboards (spec §24, FOS-059..063). Every KPI carries `drill`: the list route and
 // query that returns the records behind the number. Computed live from Data Store at pilot scale.
@@ -31,6 +33,8 @@ function countBy(rows: Row[], key: string): Record<string, number> {
 export function dashboardRoutes(r: Router): void {
   r.on("GET", "/dashboard/network", "dashboard.view", async (call) => {
     const today = call.now.toISOString().slice(0, 10);
+    // Fee figures are for callers with finance.view only.
+    const finance = await allowed(call.ctx, "finance.view", call.permissions);
     const [franchisees, apps, projects, feasibility, agreements, instalments, audits] = await Promise.all([
       fetchAll(call.repo, "franchisees"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "feasibility_models"),
       fetchAll(call.repo, "agreements", { status: "SIGNED" }), fetchAll(call.repo, "fee_instalments"), fetchAll(call.repo, "audits", { status: "COMPLETED" }),
@@ -39,8 +43,7 @@ export function dashboardRoutes(r: Router): void {
     // each later instalment (funding.ts); an instalment that is the signing invoice counts once.
     const billed = agreements.filter((a) => a.fee_status && a.fee_status !== "VOID");
     const unpaid = billed.filter((a) => a.fee_status !== "PAID");
-    const signingInvoices = new Set(agreements.map((a) => String(a.zoho_books_invoice_id ?? "")));
-    const later = instalments.filter((i) => ["INVOICED", "PAID", "REFUNDED"].includes(String(i.status)) && !signingInvoices.has(String(i.zoho_books_invoice_id ?? "")));
+    const later = separateInstalments(instalments, agreements).filter((i) => ["INVOICED", "PAID", "REFUNDED"].includes(String(i.status)));
     const laterUnpaid = later.filter((i) => i.status === "INVOICED");
     const laterOverdue = laterUnpaid.filter((i) => i.invoice_due_date && String(i.invoice_due_date).slice(0, 10) < today && toNum(i.invoice_balance) > 0).length;
     const openApps = apps.filter((a) => OPEN_APPS.includes(String(a.status)));
@@ -58,10 +61,13 @@ export function dashboardRoutes(r: Router): void {
       delayed_openings: kpi(projects.filter((p) => isDelayed(p, today)).length, "/projects", { delayed: "true" }),
       slipping_openings: kpi(projects.filter(isSlipping).length, "/projects", { slipping: "true" }),
       // Network health: average stored readiness of projects in flight (Phase 2 adds audits).
+      openings_on_pace: kpi(active.filter((p) => p.readiness_rag === "GREEN").length, "/projects", { status: ACTIVE_PROJECTS.join(","), rag: "GREEN" }),
       network_health: kpi(avg(active.map((p) => toNumOrNull(p.readiness_score)).filter((n): n is number => n !== null)), "/projects", { status: ACTIVE_PROJECTS.join(",") }),
+      ...(finance ? {
       fees_collected: kpi(round(billed.reduce((s, a) => s + toNum(a.fee_total) - toNum(a.fee_balance), 0) + later.reduce((s, i) => s + toNum(i.invoice_total) - toNum(i.invoice_balance), 0)), "/fees", { status: "PAID" }),
       fees_outstanding: kpi(round(unpaid.reduce((s, a) => s + toNum(a.fee_balance), 0) + laterUnpaid.reduce((s, i) => s + toNum(i.invoice_balance), 0)), "/fees", { status: "INVOICED" }),
       fees_overdue: kpi(unpaid.filter((a) => a.fee_status === "OVERDUE").length + laterOverdue, "/fees", { overdue: "true" }),
+      } : { fees_collected: null, fees_outstanding: null, fees_overdue: null }),
       // Brand standards: average of each opened store's latest audit score.
       audit_score: kpi(avg(projects.filter((p) => p.status === "OPENED").map((p) => audits.filter((a) => String(a.project_id) === String(p.ROWID)).sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)))[0]).filter(Boolean).map((a) => toNumOrNull(a!.score)).filter((n): n is number => n !== null)), "/audits", {}),
       launches_behind: launches.watching ? kpi(launches.behind, "/launches", {}) : null,

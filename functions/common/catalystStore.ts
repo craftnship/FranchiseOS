@@ -80,11 +80,16 @@ export function describeError(err: unknown): string {
   return String(err);
 }
 
-/** Data Store answers bursts of queries with a throttle error; those are safe to retry. */
-export function isThrottled(err: unknown): boolean {
+/** Data Store turned the call away (a throttle reply), so it did nothing and is safe to send again. */
+export function isRefused(err: unknown): boolean {
   const o = (err && typeof err === "object" ? err : {}) as Record<string, unknown>;
   if ([o.status, o.statusCode].some((s) => Number(s) === 429)) return true;
-  return /too many|rate.?limit|throttl|limit exceeded|request limit|try again|ECONNRESET|socket hang up|ETIMEDOUT/i.test(describeError(err));
+  return /too many|rate.?limit|throttl|limit exceeded|request limit|try again/i.test(describeError(err));
+}
+
+/** A refusal, or a dropped connection. Retrying a dropped call is safe only when repeating it changes nothing (reads, updates). */
+export function isThrottled(err: unknown): boolean {
+  return isRefused(err) || /ECONNRESET|socket hang up|ETIMEDOUT/i.test(describeError(err));
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -99,7 +104,7 @@ export class CatalystStore implements Store {
   constructor(private readonly app: CatalystApp, private readonly wait: (ms: number) => Promise<void> = sleep) {}
 
   /** Runs a Data Store call under the in-flight cap, retrying throttled calls with backoff. */
-  private async run<T>(fn: () => Promise<T>): Promise<T> {
+  private async run<T>(fn: () => Promise<T>, retryable: (e: unknown) => boolean = isThrottled): Promise<T> {
     if (this.active >= MAX_IN_FLIGHT) await new Promise<void>((r) => this.waiting.push(r));
     this.active++;
     try {
@@ -107,7 +112,7 @@ export class CatalystStore implements Store {
         try {
           return await fn();
         } catch (e) {
-          if (attempt >= RETRY_DELAYS.length || !isThrottled(e)) throw e;
+          if (attempt >= RETRY_DELAYS.length || !retryable(e)) throw e;
           await this.wait(RETRY_DELAYS[attempt] + Math.floor(Math.random() * 150));
         }
       }
@@ -119,7 +124,8 @@ export class CatalystStore implements Store {
 
   async insert(table: string, row: Row): Promise<Row> {
     try {
-      return await this.run(() => this.app.datastore().table(ident(table)).insertRow(toStoreRow(row)));
+      // An insert cut off mid-flight may already have landed, so only a clear refusal is sent again.
+      return await this.run(() => this.app.datastore().table(ident(table)).insertRow(toStoreRow(row)), isRefused);
     } catch (e) {
       if (isDuplicate(e)) throw new DuplicateKeyError(table);
       throw e;

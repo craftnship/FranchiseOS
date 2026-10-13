@@ -25,6 +25,20 @@ describe("Catalyst store under load", () => {
     expect(peak).toBe(MAX_IN_FLIGHT);
   });
 
+  it("sends an insert again only when it was refused, never after a dropped connection", async () => {
+    const appWith = (fail: () => unknown) => {
+      let n = 0;
+      const app = { datastore: () => ({ table: () => ({ insertRow: async (r: any) => { if (++n === 1) throw fail(); return r; }, updateRow: async (r: any) => r }) }), zcql: () => ({ executeZCQLQuery: async () => [] }) };
+      return { app, calls: () => n };
+    };
+    const refused = appWith(() => ({ status: 429, message: "Too many requests" }));
+    await new CatalystStore(refused.app as any, async () => {}).insert("t", { a: 1 });
+    expect(refused.calls()).toBe(2);
+    const dropped = appWith(() => new Error("socket hang up"));
+    await expect(new CatalystStore(dropped.app as any, async () => {}).insert("t", { a: 1 })).rejects.toThrow("socket hang up");
+    expect(dropped.calls()).toBe(1);
+  });
+
   it("describes plain-object errors instead of [object Object]", () => {
     expect(describeError({ status: 500, code: "ZCQL_ERROR", message: "Limit exceeded" })).toBe("status=500 code=ZCQL_ERROR message=Limit exceeded");
     expect(isThrottled({ code: "X", message: "API request limit exceeded" })).toBe(true);

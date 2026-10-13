@@ -11,13 +11,16 @@ async function setup() {
   const tid = t.tenantId;
   const ins = (table: string, row: Record<string, unknown>) => store.insert(table, { tenant_id: tid, ...row });
   await ins("users", { email: "fin@x.test", status: "ACTIVE", role_id: t.roleIds.FINANCE_MANAGER, external_user_id: "fin" });
+  await ins("users", { email: "ops@x.test", status: "ACTIVE", role_id: t.roleIds.OPERATIONS_MANAGER, external_user_id: "ops" });
   const ter = await ins("territories", { territory_code: "TER-1", tenant_code_key: `${tid}:TER-1`, name: "Chennai T Nagar", city: "Chennai", region: "South", status: "ALLOCATED" });
   const mk = async (n: number, status: string, extra: Record<string, unknown> = {}, plan = 1_000_000) => {
     const fr = await ins("franchisees", { franchise_code: `FR-${n}`, tenant_code_key: `${tid}:FR-${n}`, display_name: `Owner ${n}`, status: "ACTIVE" });
     const app = await ins("franchise_applications", { application_code: `APP-${n}`, tenant_code_key: `${tid}:APP-${n}`, franchisee_id: fr.ROWID, status: "ACTIVE", territory_id: n === 1 ? ter.ROWID : null, preferred_city: `City ${n}` });
     const site = await ins("sites", { site_code: `SITE-${n}`, tenant_code_key: `${tid}:SITE-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, territory_id: n === 1 ? ter.ROWID : null, city: `City ${n}`, area_sqft: 2000, status: "READY_FOR_PROJECT" });
     await ins("feasibility_models", { application_id: app.ROWID, site_id: site.ROWID, monthly_revenue: plan, status: "CALCULATED" });
-    await ins("agreements", { agreement_code: `AGR-${n}`, tenant_code_key: `${tid}:AGR-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "SIGNED", fee_status: n === 2 ? "OVERDUE" : "PAID", fee_total: 500_000, fee_balance: n === 2 ? 500_000 : 0, fee_due_date: "2026-08-01", zoho_books_invoice_id: `INV-${n}` });
+    // Store 2's signing invoice never got its Books id, so its instalment can only be matched to the agreement.
+    const agr = await ins("agreements", { agreement_code: `AGR-${n}`, tenant_code_key: `${tid}:AGR-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "SIGNED", fee_status: n === 2 ? "OVERDUE" : "PAID", fee_total: 500_000, fee_balance: n === 2 ? 500_000 : 0, fee_due_date: "2026-08-01", zoho_books_invoice_id: n === 2 ? null : `INV-${n}` });
+    if (n === 2) await ins("fee_instalments", { agreement_id: agr.ROWID, kind: "FEE", label: "Franchise fee", amount: 500_000, raise_on: "SIGNING", status: "INVOICED", invoice_total: 500_000, invoice_balance: 500_000, invoice_due_date: "2026-08-01" });
     return ins("franchise_projects", { project_code: `PROJ-${n}`, tenant_code_key: `${tid}:PROJ-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, site_id: site.ROWID, status, ...extra });
   };
   const p1 = await mk(1, "OPENED", { actual_opening_date: "2026-06-05" });
@@ -54,6 +57,20 @@ describe("owner dashboard", () => {
     expect(o.receivables).toMatchObject({ total: 525_000, overdue: 525_000, fees: 500_000, royalty: 25_000 });
     expect(o.receivables.ageing.find((b: any) => b.key === "d1_30").amount).toBe(25_000);
     expect(o.receivables.ageing.find((b: any) => b.key === "d61_90").amount).toBe(500_000);
+  });
+
+  it("shows money only to finance.view", async () => {
+    const s = await setup();
+    const o = (await s.call("/dashboard/owner", {}, "ops")).data;
+    expect(o.finance).toBe(false);
+    expect(o.receivables).toBeNull();
+    expect(o.revenue).toMatchObject({ net_sales: 1_000_000, stores_trading: 2 });
+    expect(o.revenue.royalty).toBeUndefined();
+    expect(o.stores.every((x: any) => x.unpaid === null)).toBe(true);
+    expect(o.attention.items.some((i: any) => i.kind === "Fee" || i.kind === "Royalty")).toBe(false);
+    expect((await s.call("/dashboard/network", {}, "ops")).data).toMatchObject({ fees_collected: null, fees_outstanding: null, fees_overdue: null });
+    expect((await s.call("/fees", {}, "ops")).error?.code).toBe("ACCESS_DENIED");
+    expect((await s.call("/dashboard/owner")).data.finance).toBe(true);
   });
 
   it("ranks stores and rolls up compliance", async () => {

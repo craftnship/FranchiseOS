@@ -513,3 +513,21 @@ The dashboard has a map of India in its "Network" section.
 - The state shapes are bundled in the app (`client/src/components/indiaMap.ts`, from @svg-maps/india, CC BY 4.0), so the map needs no outside map service.
 
 No schema, permission or setting changes.
+
+## Finance access and review fixes (2026-10-13)
+
+- **`finance.view`** is a new permission. It gates the money on the dashboard:
+  - royalty billed and collection
+  - receivables and their ageing
+  - each store's unpaid amount
+  - overdue fee and royalty items in "Needs your attention"
+  - the fee KPIs on `/dashboard/network`
+  - the Franchise fees page (`GET /fees`)
+  - "Check fees in Books" (`POST /fees/sync`)
+- Without `finance.view`, the dashboard still shows network sales, reporting, store performance, compliance and openings. A project's own fee schedule on its page is unchanged.
+- New tenants get `finance.view` for Franchise Director and Finance Manager. An existing tenant needs two `role_permissions` rows, one for each role: `permission_code = finance.view`, `perm_key = <tenant_id>:<ROLE>:finance.view`. Until those rows exist, only super admins see the money.
+- **Signing fees count once.** An instalment raised on signing is the agreement's own fee even when it has no Books invoice id.
+- **Inserts are retried only after a clear throttle reply.** A dropped connection is no longer retried, because the row may already have been saved.
+- **The openings tile** shows how many openings are on pace, instead of the average readiness.
+- **The map shows its CC BY 4.0 credit.**
+- **Failed job steps** record the full error.

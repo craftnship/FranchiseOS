@@ -631,6 +631,8 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .map-toggle.store i { background: #17b26a; } .map-toggle.opening i { background: #2e90fa; } .map-toggle.territory i { background: var(--surface); border: 1.5px solid #98a2b3; }
 .map-tip { position: absolute; transform: translate(-50%, calc(-100% - 12px)); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,.12)); padding: .45rem .65rem; font-size: .78rem; display: flex; flex-direction: column; gap: .1rem; pointer-events: none; white-space: nowrap; z-index: 2; }
 .map-note { margin: .5rem 0 0; }
+.map-credit { margin: .4rem 0 0; font-size: .72rem; }
+.map-credit a { color: inherit; }
 .state-table td.num, .state-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .state-table th { padding: .55rem .9rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 @media print { .map-actions { display: none; } }

@@ -33,6 +33,20 @@ export async function agreementFor(repo: TenantRepo, project: Row): Promise<Row 
 /** An instalment that is the agreement's own signing invoice; its state follows the agreement (fees.ts). */
 const adopted = (row: Row, agreement: Row | null) => !!agreement?.zoho_books_invoice_id && row.zoho_books_invoice_id === agreement.zoho_books_invoice_id;
 
+/**
+ * Instalments that are not already counted in the agreement's own fee (fees.ts). The signing invoice is matched by
+ * its Books id, or, when an id is missing (a failed Books sync, or demo data), as the signing fee instalment of an
+ * agreement that carries its fee.
+ */
+export function separateInstalments(instalments: Row[], agreements: Row[]): Row[] {
+  const signingInvoices = new Set(agreements.map((a) => String(a.zoho_books_invoice_id ?? "")).filter(Boolean));
+  const feeOnAgreement = new Set(agreements.filter((a) => a.fee_status).map((a) => String(a.ROWID)));
+  return instalments.filter((i) => {
+    if (i.zoho_books_invoice_id && signingInvoices.has(String(i.zoho_books_invoice_id))) return false;
+    return !(i.raise_on === "SIGNING" && i.kind === "FEE" && feeOnAgreement.has(String(i.agreement_id)));
+  });
+}
+
 function fromAgreement(agreement: Row): Row {
   const paid = agreement.fee_status === "PAID";
   return {
