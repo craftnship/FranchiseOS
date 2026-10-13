@@ -611,3 +611,26 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
   a { color: inherit !important; text-decoration: none !important; }
   @page { size: A4 landscape; margin: 12mm; }
 }
+
+/* Network map (2026-10-13). */
+.network-map { position: relative; }
+.network-map svg { display: block; width: 100%; max-height: 560px; }
+.network-map .state { fill: var(--surface-2); stroke: var(--border-strong); stroke-linejoin: round; }
+.network-map .state.has { fill: var(--accent-weak); }
+.network-map .pt { cursor: pointer; stroke: var(--surface); transition: r .1s; }
+.network-map .pt:focus { outline: none; }
+.network-map .pt.on, .network-map .pt:focus { stroke: var(--text); }
+.pt.store { fill: #17b26a; }
+.pt.opening { fill: #2e90fa; } .pt.opening.amber { fill: #f79009; } .pt.opening.red { fill: #f04438; }
+.pt.territory { fill: var(--surface); stroke: #98a2b3 !important; } .pt.territory.reserved { fill: #fde4b5; stroke: #f79009 !important; }
+.pt.territory.allocated { fill: #d1e0ff; stroke: #5b7ff5 !important; }
+.map-actions { display: flex; flex-wrap: wrap; gap: .4rem .9rem; align-items: center; font-size: .78rem; color: var(--muted); }
+.map-toggle { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+.map-toggle input { margin: 0; }
+.map-toggle i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.map-toggle.store i { background: #17b26a; } .map-toggle.opening i { background: #2e90fa; } .map-toggle.territory i { background: var(--surface); border: 1.5px solid #98a2b3; }
+.map-tip { position: absolute; transform: translate(-50%, calc(-100% - 12px)); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,.12)); padding: .45rem .65rem; font-size: .78rem; display: flex; flex-direction: column; gap: .1rem; pointer-events: none; white-space: nowrap; z-index: 2; }
+.map-note { margin: .5rem 0 0; }
+.state-table td.num, .state-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.state-table th { padding: .55rem .9rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+@media print { .map-actions { display: none; } }

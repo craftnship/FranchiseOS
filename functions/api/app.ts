@@ -2,6 +2,7 @@ import { Call, Router } from "./router";
 import { agreementRoutes } from "./routes/agreements";
 import { dashboardRoutes } from "./routes/dashboards";
 import { ownerRoutes } from "./routes/owner";
+import { networkMapRoutes } from "./routes/networkMap";
 import { applicationRoutes } from "./routes/applications";
 import { approvalRoutes } from "./routes/approvals";
 import { feasibilityRoutes } from "./routes/feasibility";
@@ -52,6 +53,7 @@ export function buildRouter(): Router {
   projectRoutes(r);
   dashboardRoutes(r);
   ownerRoutes(r);
+  networkMapRoutes(r);
   searchRoutes(r);
   portalRoutes(r);
   portalHubRoutes(r);

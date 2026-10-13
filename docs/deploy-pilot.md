@@ -499,3 +499,17 @@ Readiness RAG is judged against the progress the checklist's own due dates expec
 Once everything is due, this matches the old 85/70 scale. An opening past its target date is now HIGH risk.
 
 Stored colours change on each project's next readiness refresh: the daily risk job, or any checklist change.
+
+## Network map (2026-10-13)
+
+The dashboard has a map of India in its "Network" section.
+- It shows open stores (green), openings in progress (coloured by readiness) and territories without a store yet (outlined).
+- A "By state" table sits beside it.
+- `GET /dashboard/map` (`dashboard.view`) places each point using the first location it finds:
+  - the site's latitude/longitude;
+  - else the territory's;
+  - else the centre of a known city (`functions/common/indiaCities.ts`).
+- Anything it can't place is listed under the map.
+- The state shapes are bundled in the app (`client/src/components/indiaMap.ts`, from @svg-maps/india, CC BY 4.0), so the map needs no outside map service.
+
+No schema, permission or setting changes.

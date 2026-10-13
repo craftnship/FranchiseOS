@@ -1,8 +1,11 @@
-import { ReactNode } from "react";
+import { lazy, ReactNode, Suspense } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, can, drillHref, Kpi, Row } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { DataTable, date, Donut, Icon, inr, inrShort, KpiTile, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
+
+// The map's state shapes are a large chunk, so they load after the rest of the page.
+const NetworkMap = lazy(() => import("../components/NetworkMap"));
 
 // The brand owner's home: what the network earns and is owed, what needs a decision today, how
 // stores rank and comply, then expansion and openings. Every number links to the records behind it.
@@ -200,6 +203,9 @@ export function Dashboard() {
           }}</Loaded>
         </Panel>
       </div>
+
+      <h2 className="section-title">Network</h2>
+      <Suspense fallback={<div className="panel"><div className="panel-body state">Loading the map…</div></div>}><NetworkMap /></Suspense>
 
       <h2 className="section-title">Growth and openings</h2>
       <Loaded load={network}>{(n) => (
