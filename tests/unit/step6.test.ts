@@ -155,13 +155,14 @@ describe("dashboards (FOS-059..063)", () => {
     const openings = (await s.call("dir", "GET", "/dashboard/openings")).data;
     expect(openings.by_month.find((m: any) => m.month === "2027-02")).toMatchObject({ planned: 1 });
     expect(openings.delayed.value).toBe(1);
-    // RED but on pace is not at risk; a blocked mandatory item is.
+    // RED but on pace is not at risk; a blocked mandatory item is. An opening past its target always is.
     await refreshReadiness(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), { today: TODAY, now: NOW });
-    expect((await s.call("dir", "GET", "/dashboard/risk")).data.at_risk.items).toEqual([]);
+    const before = (await s.call("dir", "GET", "/dashboard/risk")).data.at_risk.items;
+    expect(before.map((p: any) => [p.project_code, p.reasons[0]])).toEqual([["PROJ-000002", "Past its target opening date"]]);
     await setChecklistBlocked(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), String(s.rows[2].ROWID), true);
     await refreshReadiness(s.store, ctx(["SYSTEM"], s.tid), String(s.project.ROWID), { today: TODAY, now: NOW });
     const risk = (await s.call("dir", "GET", "/dashboard/risk")).data;
-    expect(risk.at_risk.items.map((p: any) => p.project_code)).toEqual(["PROJ-000001"]);
+    expect(risk.at_risk.items.map((p: any) => p.project_code).sort()).toEqual(["PROJ-000001", "PROJ-000002"]);
     const territories = (await s.call("dir", "GET", "/dashboard/territories")).data;
     expect(territories.territories[0]).toMatchObject({ territory_code: "TER-000001", opportunity_score: 80, latitude: null });
   });

@@ -5,6 +5,7 @@ import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
 import { isDelayed } from "./projects";
 import { addDays, launchSettings, networkLaunches } from "../../workflows/launch";
+import { storeNamer } from "./owner";
 
 // Executive dashboards (spec §24, FOS-059..063). Every KPI carries `drill`: the list route and
 // query that returns the records behind the number. Computed live from Data Store at pilot scale.
@@ -17,6 +18,8 @@ const OPEN_APPS = FUNNEL.slice(0, FUNNEL.indexOf("AGREEMENT_SIGNED"));
 const ACTIVE_PROJECTS = ["PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING"];
 
 const avg = (xs: number[]) => (xs.length ? round(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
+/** An opening forecast to miss its target, from the dependency forecast kept on the project. */
+export const isSlipping = (p: Row) => ACTIVE_PROJECTS.includes(String(p.status)) && toNum(p.forecast_slip_days) > 0;
 const month = (d: unknown) => (d ? String(d).slice(0, 7) : null);
 
 function countBy(rows: Row[], key: string): Record<string, number> {
@@ -53,6 +56,7 @@ export function dashboardRoutes(r: Router): void {
       pipeline_value: kpi(round(openApps.reduce((s, a) => s + toNum(a.investment_capacity), 0)), "/applications", { status: OPEN_APPS.join(",") }),
       openings: kpi(active.length, "/projects", { status: ACTIVE_PROJECTS.join(",") }),
       delayed_openings: kpi(projects.filter((p) => isDelayed(p, today)).length, "/projects", { delayed: "true" }),
+      slipping_openings: kpi(projects.filter(isSlipping).length, "/projects", { slipping: "true" }),
       // Network health: average stored readiness of projects in flight (Phase 2 adds audits).
       network_health: kpi(avg(active.map((p) => toNumOrNull(p.readiness_score)).filter((n): n is number => n !== null)), "/projects", { status: ACTIVE_PROJECTS.join(",") }),
       fees_collected: kpi(round(billed.reduce((s, a) => s + toNum(a.fee_total) - toNum(a.fee_balance), 0) + later.reduce((s, i) => s + toNum(i.invoice_total) - toNum(i.invoice_balance), 0)), "/fees", { status: "PAID" }),
@@ -72,8 +76,14 @@ export function dashboardRoutes(r: Router): void {
     const counts = countBy(apps, "status");
     // Funnel stage n counts every application that reached it, so later stages include earlier ones.
     const reached = FUNNEL.map((s, i) => ({ stage: s, count: FUNNEL.slice(i).reduce((n, later) => n + (counts[later] ?? 0), 0) }));
+    // Each stage also carries what is there now, its investment capacity, and the share that went on.
     return {
-      funnel: reached.map((f) => ({ ...f, current: counts[f.stage] ?? 0, drill: { path: "/applications", query: { status: f.stage } } })),
+      funnel: reached.map((f, i) => ({
+        ...f, current: counts[f.stage] ?? 0,
+        value: round(apps.filter((a) => a.status === f.stage).reduce((s, a) => s + toNum(a.investment_capacity), 0)),
+        to_next_pct: i < reached.length - 1 && f.count ? round((reached[i + 1].count / f.count) * 100) : null,
+        drill: { path: "/applications", query: { status: f.stage } },
+      })),
       closed: ["REJECTED", "WITHDRAWN", "ON_HOLD"].map((s) => ({ status: s, ...kpi(counts[s] ?? 0, "/applications", { status: s }) })),
       pipeline_value: kpi(round(apps.filter((a) => OPEN_APPS.includes(String(a.status))).reduce((s, a) => s + toNum(a.investment_capacity), 0)), "/applications", { status: OPEN_APPS.join(",") }),
       conversion_pct: apps.length ? round(((counts.AGREEMENT_SIGNED ?? 0) + (counts.ONBOARDING ?? 0) + (counts.ACTIVE ?? 0)) / apps.length * 100) : null,
@@ -106,13 +116,44 @@ export function dashboardRoutes(r: Router): void {
   });
 
   r.on("GET", "/dashboard/risk", "dashboard.view", async (call) => {
-    const projects = (await fetchAll(call.repo, "franchise_projects")).filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
+    const today = call.now.toISOString().slice(0, 10);
+    const [all, sites, territories, apps, franchisees] = await Promise.all([
+      fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchisees"),
+    ]);
+    const projects = all.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
     const atRisk = projects
-      .filter((p) => p.status === "AT_RISK" || p.risk_level === "HIGH")
-      .sort((a, b) => toNum(a.readiness_score) - toNum(b.readiness_score));
+      .filter((p) => p.status === "AT_RISK" || p.risk_level === "HIGH" || isSlipping(p) || isDelayed(p, today))
+      .sort((a, b) => toNum(b.forecast_slip_days) - toNum(a.forecast_slip_days) || toNum(a.readiness_score) - toNum(b.readiness_score));
+    const place = storeNamer(all, sites, territories, apps, franchisees);
+    // Why each opening needs attention, from what is blocking it now.
+    const reasonsOf = async (p: Row) => {
+      const pid = String(p.ROWID);
+      const [checklist, licences, orders] = await Promise.all([
+        call.repo.findMany("opening_checklists", { project_id: pid }, { limit: 300 }), call.repo.findMany("licences", { project_id: pid }, { limit: 100 }), call.repo.findMany("purchase_orders", { project_id: pid }, { limit: 100 }),
+      ]);
+      const out: string[] = [];
+      for (const o of orders) {
+        if (!["PLACED", "CONFIRMED"].includes(String(o.status)) || !o.expected_delivery) continue;
+        const exp = String(o.expected_delivery).slice(0, 10), need = o.needed_by ? String(o.needed_by).slice(0, 10) : null;
+        if (exp < today || (need && exp > need)) out.push(`${o.po_number} delivery late`);
+      }
+      for (const l of licences) if (toBool(l.mandatory) && ["NOT_STARTED", "APPLIED", "REJECTED", "EXPIRED"].includes(String(l.status)) && (l.status !== "NOT_STARTED" || l.notes)) out.push(`${l.name} ${l.status === "APPLIED" ? "pending" : String(l.status).toLowerCase().replace("_", " ")}${l.notes ? ` (${String(l.notes).slice(0, 60)})` : ""}`);
+      for (const c of checklist) if (c.status === "BLOCKED") out.push(`${c.item} blocked`);
+      for (const c of checklist) if (c.status !== "COMPLETED" && c.status !== "BLOCKED" && toBool(c.mandatory) && c.due_date && String(c.due_date).slice(0, 10) < today) out.push(`${c.item} overdue`);
+      if (isDelayed(p, today)) out.unshift("Past its target opening date");
+      return out.slice(0, 3);
+    };
+    const items = await Promise.all(atRisk.slice(0, 20).map(async (p) => {
+      const where = place(p.ROWID);
+      return {
+        id: p.ROWID, project_code: p.project_code, name: where.name, city: where.city, franchisee: where.franchisee, status: p.status,
+        readiness_score: p.readiness_score, readiness_rag: p.readiness_rag, risk_level: p.risk_level, target_opening_date: p.target_opening_date,
+        forecast_opening_date: p.forecast_opening_date ?? null, slip_days: toNum(p.forecast_slip_days) || null, reasons: await reasonsOf(p),
+      };
+    }));
     return {
       rag: ["GREEN", "AMBER", "RED"].map((rag) => ({ rag, ...kpi(projects.filter((p) => p.readiness_rag === rag).length, "/projects", { rag }) })),
-      at_risk: { ...kpi(atRisk.length, "/projects", { risk_level: "HIGH" }), items: atRisk.map((p) => ({ id: p.ROWID, project_code: p.project_code, status: p.status, readiness_score: p.readiness_score, readiness_rag: p.readiness_rag, target_opening_date: p.target_opening_date })) },
+      at_risk: { ...kpi(atRisk.length, "/projects", { risk_level: "HIGH" }), items },
     };
   });
 

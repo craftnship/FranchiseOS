@@ -469,3 +469,21 @@ Admin → Settings → Store setup (`settings.manage`) makes three things that w
 
 Without these settings the restaurant defaults stay (store manager, shift lead, crew; food safety
 and so on). API: `GET` and `PUT /api/v1/settings/store-setup`.
+
+## Owner dashboard (2026-10-13)
+
+The dashboard now opens with the brand owner's view. New endpoint `GET /dashboard/owner?months=1|3|6|12` (`dashboard.view`) returns:
+- revenue for the chosen finished months against the same length before;
+- receivables aged by days past due;
+- the store league table;
+- compliance (latest audit RAG, corrective actions, licence expiries, audits overdue);
+- the "Needs your attention" items.
+
+Other changes:
+- `/dashboard/risk` items now carry the store name, partner, reasons and forecast slip.
+- `/dashboard/network` adds `slipping_openings`.
+- `/dashboard/pipeline` stages add `value` and `to_next_pct`.
+- `/projects?slipping=true` lists openings forecast to miss their target.
+- "Save as PDF" uses the browser's print dialog with an A4 landscape print layout.
+
+No schema, permission or setting changes.

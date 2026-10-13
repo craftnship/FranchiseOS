@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { authorize } from "../../common/rbac";
 import { Row } from "../../common/store";
+import { toNum } from "../../common/values";
 import { syncProjectTasks } from "../../workflows/projectSync";
 import { computeReadiness, refreshReadiness, setChecklistBlocked, updateChecklistItem } from "../../workflows/readiness";
 import { transitionsFrom } from "../../workflows/stateMachines";
@@ -34,6 +35,7 @@ const listQuery = page.extend({
   rag: z.enum(["GREEN", "AMBER", "RED"]).optional(),
   risk_level: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
   delayed: z.enum(["true", "false"]).optional(),
+  slipping: z.enum(["true", "false"]).optional(),
 });
 
 const blockSchema = z.object({ blocked: z.boolean(), reason: z.string().trim().max(1000).optional() }).strict();
@@ -118,10 +120,11 @@ export function projectRoutes(r: Router): void {
   r.on("GET", "/projects", null, async (call) => {
     const q = parse(listQuery, call.query);
     const where = { ...(q.rag ? { readiness_rag: q.rag } : {}), ...(q.risk_level ? { risk_level: q.risk_level } : {}), ...ownerFilter(call) };
-    if (q.delayed !== "true") return listByStatus(call.repo, "franchise_projects", q.status, where, q);
-    // Delayed is derived from dates, so it filters the open projects in code.
+    if (q.delayed !== "true" && q.slipping !== "true") return listByStatus(call.repo, "franchise_projects", q.status, where, q);
+    // Delayed and forecast-to-slip are derived from dates, so they filter the open projects in code.
     const rows = (await Promise.all(OPEN_PROJECT.map((s) => fetchAll(call.repo, "franchise_projects", { ...where, status: s })))).flat();
-    return rows.filter((p) => isDelayed(p, today(call))).slice(q.offset, q.offset + q.limit);
+    const keep = (p: Row) => (q.delayed !== "true" || isDelayed(p, today(call))) && (q.slipping !== "true" || toNum(p.forecast_slip_days) > 0);
+    return rows.filter(keep).slice(q.offset, q.offset + q.limit);
   });
 
   r.on("GET", "/projects/:id", null, async (call) => {
