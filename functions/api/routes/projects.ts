@@ -21,7 +21,7 @@ import { randomUUID } from "crypto";
 import { Call, page, parse, Router } from "../router";
 import { isPortalUser } from "../../common/rbac";
 import { listInRegion, regionScope } from "./regions";
-import { assertOwner, fetchAll, mustGet, ownerFilter, PORTAL_ROLES, signedUrl, staffDirectory, storeUpload, uploadSchema } from "./shared";
+import { PORTAL_ROLES, assertOwner, fetchAll, mustGet, ownerFilter, signedUrl, staffCan, staffDirectory, storeUpload, uploadSchema } from "./shared";
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
 const OPEN_PROJECT = ["NOT_STARTED", "PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING"];
@@ -179,6 +179,7 @@ export function projectRoutes(r: Router): void {
   // Capex budget vs actual. Everyone on the project sees it; staff set budgets and recategorise; the
   // franchisee records spend with an invoice; Books bills arrive by sync.
   r.on("GET", "/projects/:id/capex", null, async (call) => {
+    await staffCan(call, "finance.view", "project.write");
     const project = await getProject(call);
     const { summary, lines, spend } = await capexFor(call.store, call.ctx, project);
     const books = await call.zoho().then((z) => !!z?.books?.listBills).catch(() => false);
@@ -209,6 +210,7 @@ export function projectRoutes(r: Router): void {
   });
 
   r.on("GET", "/projects/:id/capex/spend/:spendId/invoice", null, async (call) => {
+    await staffCan(call, "finance.view", "project.write");
     await getProject(call);
     return signedUrl(call, String((await getSpend(call)).file_ref ?? ""), "No invoice attached.");
   });

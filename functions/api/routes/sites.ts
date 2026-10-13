@@ -88,7 +88,7 @@ export function siteRoutes(r: Router): void {
   r.on("POST", "/sites", null, async (call) => {
     const body = parse(createSchema, call.body);
     await authorize(call.ctx, isPortalUser(call.ctx) ? "application.submit" : "site.write", call.permissions);
-    const app = assertOwner(call, await mustGet(call.repo, "franchise_applications", body.application_id, "APPLICATION_NOT_FOUND"), "APPLICATION_NOT_FOUND");
+    const app = await assertOwner(call, await mustGet(call.repo, "franchise_applications", body.application_id, "APPLICATION_NOT_FOUND"), "APPLICATION_NOT_FOUND");
     if (!app.territory_id) throw new AppError("VALIDATION_FAILED", "The application has no reserved territory yet.", { territory_id: "required" });
     const site_code = await nextBusinessId(call.store, call.ctx.tenantId, "site");
     const site = await call.repo.insert("sites", {

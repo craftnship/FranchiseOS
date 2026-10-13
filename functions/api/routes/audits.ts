@@ -29,11 +29,11 @@ const actionChangeSchema = z.discriminatedUnion("action", [
 ]);
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 
 /** An audit the caller may see: staff with audit.conduct or dashboard.view; the franchisee only a finished one of their own. */
 async function getAudit(call: Call): Promise<Row> {
-  const audit = assertOwner(call, await mustGet(call.repo, "audits", call.params.auditId, "NOT_FOUND"), "NOT_FOUND");
+  const audit = await assertOwner(call, await mustGet(call.repo, "audits", call.params.auditId, "NOT_FOUND"), "NOT_FOUND");
   if (isPortalUser(call.ctx)) { if (audit.status !== "COMPLETED") throw new AppError("NOT_FOUND"); return audit; }
   try { await authorize(call.ctx, "audit.conduct", call.permissions); } catch { await authorize(call.ctx, "dashboard.view", call.permissions); }
   return audit;
@@ -97,7 +97,7 @@ export function auditRoutes(r: Router): void {
 
   // respond: the franchisee (or audit.conduct for them); close and reopen: audit.conduct.
   r.on("PATCH", "/corrective-actions/:actionId", null, async (call) => {
-    const action = assertOwner(call, await mustGet(call.repo, "corrective_actions", call.params.actionId, "NOT_FOUND"), "NOT_FOUND");
+    const action = await assertOwner(call, await mustGet(call.repo, "corrective_actions", call.params.actionId, "NOT_FOUND"), "NOT_FOUND");
     const b = parse(actionChangeSchema, call.body);
     const portal = isPortalUser(call.ctx);
     if (portal && b.action !== "respond") throw new AppError("ACCESS_DENIED", "The auditor closes corrective actions.");
@@ -111,7 +111,7 @@ export function auditRoutes(r: Router): void {
   });
 
   r.on("GET", "/corrective-actions/:actionId/evidence", null, async (call) => {
-    const action = assertOwner(call, await mustGet(call.repo, "corrective_actions", call.params.actionId, "NOT_FOUND"), "NOT_FOUND");
+    const action = await assertOwner(call, await mustGet(call.repo, "corrective_actions", call.params.actionId, "NOT_FOUND"), "NOT_FOUND");
     return signedUrl(call, String(action.evidence_ref ?? ""), "No evidence attached.");
   });
 }

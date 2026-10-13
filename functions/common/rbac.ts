@@ -34,5 +34,5 @@ export async function allowed(ctx: TenantContext, permission: string, lookup: Pe
 
 /** Franchisee-facing roles may only touch their own records (§25, FOS-048). */
 export function isPortalUser(ctx: TenantContext): boolean {
-  return ctx.roles.every((r) => r === "FRANCHISEE" || r === "FRANCHISEE_STAFF" || r === "VENDOR");
+  return ctx.roles.length > 0 && ctx.roles.every((r) => r === "FRANCHISEE" || r === "FRANCHISEE_STAFF" || r === "VENDOR");
 }

@@ -5,7 +5,7 @@ import { onboardSignedAgreement, sendAgreement } from "../../workflows/agreement
 import { transitionEntity } from "../../workflows/transition";
 import { Call, page, parse, Router } from "../router";
 import { syncTenantFees } from "../../workflows/fees";
-import { assertOwner, fetchAll, mustGet, ownerFilter } from "./shared";
+import { assertOwner, fetchAll, mustGet, ownerFilter, withoutFeeAmounts } from "./shared";
 
 async function zohoOrFail(call: Call) {
   const zoho = await call.zoho();
@@ -22,11 +22,11 @@ export function agreementRoutes(r: Router): void {
   r.on("GET", "/agreements", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), application_id: z.string().optional(), fee_status: z.string().optional() }), call.query);
     const where = { ...(q.status ? { status: q.status } : {}), ...(q.application_id ? { application_id: q.application_id } : {}), ...ownerFilter(call) };
-    if (!q.fee_status) return call.repo.findMany("agreements", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset });
+    if (!q.fee_status) return withoutFeeAmounts(call, await call.repo.findMany("agreements", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset }));
     // Fee states are few and agreements are pilot-scale, so the comma list filters in code.
     const states = q.fee_status.split(",");
     const rows = await fetchAll(call.repo, "agreements", where);
-    return rows.filter((a) => states.includes(String(a.fee_status ?? ""))).sort((a, b) => String(b.CREATEDTIME).localeCompare(String(a.CREATEDTIME))).slice(q.offset, q.offset + q.limit);
+    return withoutFeeAmounts(call, rows.filter((a) => states.includes(String(a.fee_status ?? ""))).sort((a, b) => String(b.CREATEDTIME).localeCompare(String(a.CREATEDTIME))).slice(q.offset, q.offset + q.limit));
   });
 
   // Checks Books now for every unsettled fee instead of waiting for the daily job.
@@ -37,19 +37,20 @@ export function agreementRoutes(r: Router): void {
   });
 
   r.on("GET", "/agreements/:id", null, async (call) => {
-    const g = assertOwner(call, await mustGet(call.repo, "agreements", call.params.id, "AGREEMENT_NOT_FOUND"), "AGREEMENT_NOT_FOUND");
+    const g = await assertOwner(call, await mustGet(call.repo, "agreements", call.params.id, "AGREEMENT_NOT_FOUND"), "AGREEMENT_NOT_FOUND");
     // The signing invoice's number lives on its fee instalment; the CRM account is the one the signed copy is filed on.
     const instalment = g.zoho_books_invoice_id
       ? (await call.repo.findMany("fee_instalments", { agreement_id: String(g.ROWID) }, { limit: 50 })).find((x) => String(x.zoho_books_invoice_id) === String(g.zoho_books_invoice_id))
       : null;
     const franchisee = await call.repo.findOne("franchisees", { ROWID: String(g.franchisee_id) });
     const crm_account_id = String(g.document_ref ?? "").match(/^crm:Accounts\/([^/]+)\//)?.[1] ?? (franchisee?.zoho_account_id ? String(franchisee.zoho_account_id) : null);
-    return { ...g, invoice_number: instalment?.invoice_number ?? null, crm_account_id: isPortalUser(call.ctx) ? null : crm_account_id };
+    const [shown] = await withoutFeeAmounts(call, [g]);
+    return { ...shown, invoice_number: instalment?.invoice_number ?? null, crm_account_id: isPortalUser(call.ctx) ? null : crm_account_id };
   });
 
   // The signed agreement, fetched from Zoho Sign and kept in file storage, as a short-lived download link.
   r.on("GET", "/agreements/:id/signed-copy", null, async (call) => {
-    const g = assertOwner(call, await mustGet(call.repo, "agreements", call.params.id, "AGREEMENT_NOT_FOUND"), "AGREEMENT_NOT_FOUND");
+    const g = await assertOwner(call, await mustGet(call.repo, "agreements", call.params.id, "AGREEMENT_NOT_FOUND"), "AGREEMENT_NOT_FOUND");
     if (g.status !== "SIGNED" || !g.zoho_sign_request_id) throw new AppError("NOT_FOUND", "There's no signed copy yet.");
     if (!call.files) throw new AppError("FILE_STORAGE_UNAVAILABLE", "File storage isn't set up.");
     const sign = (await call.zoho().catch(() => null))?.sign;

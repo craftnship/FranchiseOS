@@ -27,7 +27,7 @@ const returnSchema = z.object({ note: z.string().trim().min(3).max(1000) }).stri
 const listSchema = z.object({ status: z.enum(["SUBMITTED", "RETURNED", "INVOICED", "PAID"]).optional(), period: z.string().regex(/^\d{4}-\d{2}$/).optional() });
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 async function getReport(call: Call): Promise<Row> {
   const r = await mustGet(call.repo, "sales_reports", call.params.reportId, "NOT_FOUND");
   if (String(r.project_id) !== call.params.id) throw new AppError("NOT_FOUND");

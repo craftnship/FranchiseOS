@@ -76,6 +76,23 @@ describe("regional view", () => {
     expect(codes((await s.call("boss", "GET", "/territories", { region: "West" })).data, "territory_code")).toEqual(["TER-W", "TER-W2"]);
   });
 
+  it("holds a regional manager to their region on reads and writes by id, not only on lists", async () => {
+    const s = await setup();
+    const row = async (table: string, code: string, col: string) => (await s.store.findMany(table, { [col]: code }))[0];
+    const south = await row("franchise_projects", "PROJ-1", "project_code"), west = await row("franchise_projects", "PROJ-3", "project_code");
+    expect((await s.call("rm", "GET", `/projects/${south.ROWID}`)).data.project_code).toBe("PROJ-1");
+    expect((await s.call("rm", "GET", `/projects/${west.ROWID}`)).error?.code).toBe("NOT_FOUND");
+    expect((await s.call("rm", "GET", `/projects/${west.ROWID}/readiness`)).error?.code).toBe("NOT_FOUND");
+    const westSite = await row("sites", "SITE-3", "site_code");
+    expect((await s.call("rm", "GET", `/sites/${westSite.ROWID}`)).error?.code).toBe("SITE_NOT_FOUND");
+    expect((await s.call("rm", "POST", `/sites/${westSite.ROWID}/transition`, {}, { transition: "approve" })).error?.code).toBe("SITE_NOT_FOUND");
+    const westTer = await row("territories", "TER-W2", "territory_code"), westApp = await row("franchise_applications", "APP-4", "application_code");
+    expect((await s.call("rm", "POST", `/territories/${westTer.ROWID}/reserve`, {}, { application_id: String(westApp.ROWID) })).error?.code).toBe("TERRITORY_NOT_FOUND");
+    expect((await s.call("rm", "GET", `/applications/${westApp.ROWID}`)).error?.code).toBe("APPLICATION_NOT_FOUND");
+    // The director has no region and reaches everything.
+    expect((await s.call("dir", "GET", `/projects/${west.ROWID}`)).data.project_code).toBe("PROJ-3");
+  });
+
   it("needs a known region for a regional manager, and none for a franchisee", async () => {
     const s = await setup();
     const add = (body: unknown) => s.call("boss", "POST", "/admin/users", {}, body);

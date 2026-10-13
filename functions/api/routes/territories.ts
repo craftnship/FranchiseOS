@@ -8,7 +8,7 @@ import { releaseTerritory, reserveTerritory } from "../../workflows/territoryRes
 import { DEFAULTS } from "../../../database/seed/defaults";
 import { page, parse, Router } from "../router";
 import { regionScope } from "./regions";
-import { fetchAll, mustGet } from "./shared";
+import { assertOwner, fetchAll, mustGet } from "./shared";
 
 const index = z.number().min(0).max(100).optional();
 const createSchema = z.object({
@@ -67,7 +67,7 @@ export function territoryRoutes(r: Router): void {
 
   r.on("PATCH", "/territories/:id", "territory.write", async (call) => {
     const { population_index, market_index, status, ...body } = parse(updateSchema, call.body);
-    const territory = await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND");
+    const territory = await assertOwner(call, await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND"), "TERRITORY_NOT_FOUND");
     const change: Record<string, unknown> = { ...body };
     if (status && status !== territory.status) {
       if (!["AVAILABLE", "BLOCKED"].includes(String(territory.status))) {
@@ -95,7 +95,7 @@ export function territoryRoutes(r: Router): void {
 
   r.on("POST", "/territories/:id/reserve", "territory.reserve", async (call) => {
     const { application_id } = parse(reserveSchema, call.body);
-    const territory = await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND");
+    const territory = await assertOwner(call, await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND"), "TERRITORY_NOT_FOUND");
     const app = await mustGet(call.repo, "franchise_applications", application_id, "APPLICATION_NOT_FOUND");
     if (!RESERVABLE_APP_STATES.includes(String(app.status))) {
       throw new AppError("APPLICATION_INVALID_STATE", `A territory cannot be reserved for an application in ${app.status}.`);

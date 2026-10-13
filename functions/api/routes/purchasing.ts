@@ -33,7 +33,7 @@ const changeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("cancel"), reason: text(500).min(3) }).strict(),
 ]);
 
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 async function getOrder(call: Call): Promise<Row> {
   const po = await mustGet(call.repo, "purchase_orders", call.params.poId, "NOT_FOUND");
   if (String(po.project_id) !== call.params.id) throw new AppError("NOT_FOUND");

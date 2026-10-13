@@ -37,7 +37,7 @@ export function franchiseeRoutes(r: Router): void {
   }, 201);
 
   r.on("GET", "/franchisees/:id", null, async (call) =>
-    assertOwner(call, await mustGet(call.repo, "franchisees", call.params.id, "FRANCHISEE_NOT_FOUND"), "FRANCHISEE_NOT_FOUND", "ROWID"));
+    await assertOwner(call, await mustGet(call.repo, "franchisees", call.params.id, "FRANCHISEE_NOT_FOUND"), "FRANCHISEE_NOT_FOUND", "ROWID"));
 
   // Copies contact details edited in CRM (lead, or Contact and Account after signing) now.
   r.on("POST", "/franchisees/:id/sync-crm", "application.review", async (call) => {

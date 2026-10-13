@@ -24,6 +24,7 @@ export async function resolveTenant(
   if (!identity) throw new AppError("AUTH_REQUIRED");
   const user = await dir.findActiveByExternalId(identity.externalUserId, identity.email);
   if (!user) throw new AppError("ACCESS_DENIED", "User is not provisioned for any tenant.");
+  if (!user.roleCodes.length) throw new AppError("ACCESS_DENIED", "User has no role in this tenant.");
   const tenant = await dir.findTenant(user.tenantId);
   if (!tenant || tenant.status !== "ACTIVE") throw new AppError("TENANT_NOT_FOUND");
   return {
@@ -33,7 +34,8 @@ export async function resolveTenant(
     zohoDc: tenant.zohoDc,
     requestId: ids.requestId,
     correlationId: ids.correlationId ?? ids.requestId,
-    ...(user.franchiseeId ? { franchiseeId: user.franchiseeId } : {}),
+    // A vendor is not a franchisee: it never carries one, whatever its row says.
+    ...(user.franchiseeId && !user.roleCodes.every((r) => r === "VENDOR") ? { franchiseeId: user.franchiseeId } : {}),
     ...(user.region ? { region: user.region } : {}),
   };
 }

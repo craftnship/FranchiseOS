@@ -64,7 +64,7 @@ export function healthRoutes(r: Router): void {
 
   // One store's score, parts, reasons and trend: staff with dashboard.view, or the store's own franchisee.
   r.on("GET", "/projects/:id/health", null, async (call) => {
-    const project = assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+    const project = await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
     if (!isPortalUser(call.ctx) && !(await allowed(call.ctx, "dashboard.view", call.permissions))) throw new AppError("ACCESS_DENIED");
     const [tenant, finance] = await Promise.all([call.store.findOne("tenants", { ROWID: call.ctx.tenantId }), financeFor(call)]);
     const s = stored(project);

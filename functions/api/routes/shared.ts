@@ -1,8 +1,9 @@
 import { AppError, ErrorCode } from "../../common/errors";
-import { isPortalUser } from "../../common/rbac";
+import { allowed, isPortalUser } from "../../common/rbac";
 import { ROW_CAP } from "../../common/catalystStore";
 import { Row, TenantRepo } from "../../common/store";
 import { Call } from "../router";
+import { ALL_REGIONS, inScope, regionFor, RegionScope, scopeOf } from "./regionScope";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { refreshReadiness, updateChecklistItem } from "../../workflows/readiness";
@@ -37,13 +38,47 @@ export async function mustGet(repo: TenantRepo, table: string, id: string, code:
 }
 
 /**
- * Portal users (franchisee, staff, vendor) only see rows of their own franchisee (§25, FOS-048).
- * A row they do not own reads as not found so ids cannot be probed.
+ * Portal users (franchisee, staff, vendor) only see rows of their own franchisee (§25, FOS-048), and
+ * staff held to a region (regional managers) only rows of that region. A row outside either reads as
+ * not found so ids cannot be probed.
  */
-export function assertOwner(call: Call, row: Row, code: ErrorCode, field = "franchisee_id"): Row {
-  if (!isPortalUser(call.ctx)) return row;
-  if (!call.ctx.franchiseeId || String(row[field]) !== call.ctx.franchiseeId) throw new AppError(code);
+export async function assertOwner(call: Call, row: Row, code: ErrorCode, field = "franchisee_id"): Promise<Row> {
+  if (isPortalUser(call.ctx)) {
+    if (!call.ctx.franchiseeId || String(row[field]) !== call.ctx.franchiseeId) throw new AppError(code);
+    return row;
+  }
+  if (call.ctx.region && !inScope(await callScope(call), row)) throw new AppError(code);
   return row;
+}
+
+/** The caller's region scope, read once per request (only when the caller is held to a region). */
+const scopes = new WeakMap<Call, Promise<RegionScope>>();
+export function callScope(call: Call): Promise<RegionScope> {
+  const { region, locked } = regionFor(call);
+  if (!region) return Promise.resolve(ALL_REGIONS);
+  let p = scopes.get(call);
+  if (!p) {
+    p = Promise.all([fetchAll(call.repo, "territories"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects")])
+      .then(([territories, sites, apps, projects]) => scopeOf(region, locked, { territories, sites, apps, projects }));
+    scopes.set(call, p);
+  }
+  return p;
+}
+
+/**
+ * On a route open to portal users and staff alike: staff must hold one of the permissions. Portal
+ * users are checked by ownership instead. Super admins pass.
+ */
+export async function staffCan(call: Call, ...perms: string[]): Promise<void> {
+  if (isPortalUser(call.ctx)) return;
+  for (const p of perms) if (await allowed(call.ctx, p, call.permissions)) return;
+  throw new AppError("ACCESS_DENIED");
+}
+
+/** Fee amounts are for finance.view (and the franchisee's own rows); other staff see the status only. */
+export async function withoutFeeAmounts(call: Call, rows: Row[]): Promise<Row[]> {
+  if (isPortalUser(call.ctx) || await allowed(call.ctx, "finance.view", call.permissions)) return rows;
+  return rows.map(({ fee_total, fee_balance, fee_due_date, ...rest }) => ({ ...rest, fee_total: null, fee_balance: null, fee_due_date: null }));
 }
 
 /** Extra filter applied to list queries for portal users. */

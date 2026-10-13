@@ -17,7 +17,7 @@ const weekSchema = z.object({ net_sales: z.number().min(0).max(1e11), transactio
 const renewalSchema = z.object({ status: z.enum(RENEWAL_STATUSES), note: text(2000).nullish(), renewed_until: day.nullish() }).strict();
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 /** The franchisee acts on their own store; staff need project.write. */
 const portalOrWrite = async (call: Call) => { if (!isPortalUser(call.ctx)) await authorize(call.ctx, "project.write", call.permissions); };
 
@@ -32,7 +32,7 @@ export function launchRoutes(r: Router): void {
   r.on("POST", "/projects/:id/launch/tasks", "project.write", async (call) => addLaunchTask(call.store, call.ctx, await getProject(call), parse(taskSchema, call.body)), 201);
 
   r.on("PATCH", "/launch-tasks/:taskId", null, async (call) => {
-    const task = assertOwner(call, await mustGet(call.repo, "launch_tasks", call.params.taskId, "NOT_FOUND"), "NOT_FOUND");
+    const task = await assertOwner(call, await mustGet(call.repo, "launch_tasks", call.params.taskId, "NOT_FOUND"), "NOT_FOUND");
     await portalOrWrite(call);
     const b = parse(taskChangeSchema, call.body);
     if (b.due_date && b.due_date < today(call)) throw new AppError("VALIDATION_FAILED", "The date can't be in the past.", { due_date: "in the past" });

@@ -6,7 +6,7 @@ import { toNum } from "../../common/values";
 import { agreementFor, changeFunding, ensureSchedule, fundingFor, raiseInstalment, refreshInstalment, refundDeposit, saveInstalment, waiveInstalment } from "../../workflows/funding";
 import { FEE_TRIGGERS } from "../../workflows/agreements";
 import { Call, parse, Router } from "../router";
-import { assertOwner, fetchAll, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
+import { assertOwner, fetchAll, mustGet, signedUrl, staffCan, storeUpload, uploadSchema } from "./shared";
 
 // Funding and fees of a store. fee.manage keeps the franchise fee schedule (adds, changes, raises
 // and waives instalments, records deposit refunds); the franchisee or staff with project.write
@@ -37,7 +37,7 @@ const listSchema = z.object({ status: z.enum(["SCHEDULED", "INVOICED", "PAID", "
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
 const books = async (call: Call) => (await call.zoho().catch(() => null))?.books ?? null;
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 async function getAgreement(call: Call, project: Row): Promise<Row> {
   const a = await agreementFor(call.repo, project);
   if (!a) throw new AppError("INVALID_TRANSITION", "This store has no signed agreement, so it has no fee schedule.");
@@ -53,7 +53,8 @@ const noFuture = (call: Call, value: string, field: string) => {
 };
 
 export function fundingRoutes(r: Router): void {
-  r.on("GET", "/projects/:id/funding", null, async (call) => fundingFor(call.store, call.ctx, await getProject(call), await books(call), today(call)));
+  // Loans and sanction letters: the franchisee, and staff who manage the project or the money.
+  r.on("GET", "/projects/:id/funding", null, async (call) => { await staffCan(call, "finance.view", "project.write"); return fundingFor(call.store, call.ctx, await getProject(call), await books(call), today(call)); });
 
   r.on("POST", "/projects/:id/fees", "fee.manage", async (call) => {
     const project = await getProject(call);
@@ -95,6 +96,7 @@ export function fundingRoutes(r: Router): void {
   });
 
   r.on("GET", "/projects/:id/funding/sanction-letter", null, async (call) => {
+    await staffCan(call, "finance.view", "project.write");
     const project = await getProject(call);
     const plan = await call.repo.findOne("funding_plans", { project_id: String(project.ROWID) });
     return signedUrl(call, String(plan?.sanction_ref ?? ""), "No sanction letter attached.");

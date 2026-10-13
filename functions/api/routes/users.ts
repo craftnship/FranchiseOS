@@ -33,11 +33,16 @@ async function rolesByCode(call: Call): Promise<Map<string, Row>> {
 }
 
 /** A franchisee link is required for portal roles and refused for staff roles. */
+/** Only a super admin can make, demote or deactivate another super admin, whoever else holds user.admin. */
+function onlyAdminsMakeAdmins(call: Call, role: string): void {
+  if (role === "SUPER_ADMIN" && !call.ctx.roles.includes("SUPER_ADMIN")) throw new AppError("ACCESS_DENIED", "Only a super admin can change super admins.");
+}
+
 async function checkFranchisee(call: Call, roleCode: string, franchiseeId: string | null | undefined): Promise<void> {
   if (PORTAL_ROLES.has(roleCode)) {
     if (!franchiseeId) throw new AppError("VALIDATION_FAILED", "Franchisee users need a franchisee.", { franchisee_id: "required for this role" });
     if (!await call.repo.findOne("franchisees", { ROWID: franchiseeId })) throw new AppError("VALIDATION_FAILED", "Franchisee not found.", { franchisee_id: "not found" });
-  } else if (franchiseeId && roleCode !== "VENDOR") {
+  } else if (franchiseeId) {
     throw new AppError("VALIDATION_FAILED", "Only franchisee users are linked to a franchisee.", { franchisee_id: "only for franchisee roles" });
   }
 }
@@ -91,9 +96,10 @@ export function userRoutes(r: Router): void {
     const roles = await rolesByCode(call);
     const roleRow = roles.get(b.role);
     if (!roleRow) throw new AppError("VALIDATION_FAILED", "Unknown role.", { role: "not set up for this tenant" });
+    onlyAdminsMakeAdmins(call, b.role);
     await checkFranchisee(call, b.role, b.franchisee_id);
     const region = await checkUserRegion(call, b.role, b.region);
-    const existing = (await call.store.findMany("users", { email: b.email }, { limit: 5 })).concat(await call.store.findMany("users", { external_user_id: pendingKey(b.email) }, { limit: 1 }));
+    const existing = (await call.repo.findMany("users", { email: b.email }, { limit: 5 })).concat(await call.store.findMany("users", { external_user_id: pendingKey(b.email) }, { limit: 1 }));
     if (existing.length) throw new AppError("VALIDATION_FAILED", "Someone with this email already has a FranchiseOS account.", { email: "already added" });
     // Catalyst sends the invitation email when invites are on; otherwise the person signs up or is
     // added in the Catalyst console, and is linked by their verified email on first sign-in.
@@ -125,9 +131,11 @@ export function userRoutes(r: Router): void {
     const nextRole = b.role ?? String(current?.code ?? "");
     const nextFranchisee = b.franchisee_id !== undefined ? b.franchisee_id : (PORTAL_ROLES.has(nextRole) || nextRole === "VENDOR" ? (user.franchisee_id as string | null) : null);
     if (b.role && !roles.has(b.role)) throw new AppError("VALIDATION_FAILED", "Unknown role.", { role: "not set up for this tenant" });
+    if (b.role && b.role !== current?.code) onlyAdminsMakeAdmins(call, b.role);
     await checkFranchisee(call, nextRole, nextFranchisee);
     const nextRegion = await checkUserRegion(call, nextRole, b.region !== undefined ? b.region : (user.region as string | null));
     const self = String(user.ROWID) === call.ctx.userId;
+    if (current?.code === "SUPER_ADMIN" && !self && (b.role || b.status)) onlyAdminsMakeAdmins(call, "SUPER_ADMIN");
     if (self && (b.status === "INACTIVE" || (b.role && b.role !== current?.code))) {
       throw new AppError("VALIDATION_FAILED", "You can't deactivate yourself or change your own role.", { [b.status ? "status" : "role"]: "not on your own account" });
     }

@@ -25,7 +25,7 @@ const snagChangeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("waive"), note: text(1000).min(3) }).strict(),
 ]);
 
-const getProject = async (call: Call) => assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
+const getProject = async (call: Call) => await assertOwner(call, await mustGet(call.repo, "franchise_projects", call.params.id, "NOT_FOUND"), "NOT_FOUND");
 async function child(call: Call, table: string, id: string): Promise<Row> {
   const r = await mustGet(call.repo, table, id, "NOT_FOUND");
   if (String(r.project_id) !== call.params.id) throw new AppError("NOT_FOUND");
