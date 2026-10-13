@@ -1,4 +1,4 @@
-import { CatalystStore } from "../common/catalystStore";
+import { CatalystStore, describeError } from "../common/catalystStore";
 import { log } from "../common/logger";
 import { mailerFromEnv } from "../common/mailer";
 import { newRequestId } from "../common/response";
@@ -39,14 +39,14 @@ export async function runCron(context: CronContext, sdk: CatalystSdk, now = new 
         await recordJobRun(store, { step, ok: true, requestId, now });
       } catch (e) {
         failed++;
-        const error = String((e as Error)?.stack ?? e);
+        const error = describeError(e);
         log("error", "job.crash", { request_id: requestId, step, error });
         await recordJobRun(store, { step, ok: false, error: String((e as Error)?.message ?? e), requestId, now });
       }
     }
     if (failed) context.closeWithFailure(); else context.closeWithSuccess();
   } catch (e) {
-    log("error", "job.crash", { request_id: requestId, error: String((e as Error)?.stack ?? e) });
+    log("error", "job.crash", { request_id: requestId, error: describeError(e) });
     context.closeWithFailure();
   }
 }

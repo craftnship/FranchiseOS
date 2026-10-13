@@ -6,7 +6,29 @@ export class ApiError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number, public readonly fields?: Record<string, string>) { super(message); }
 }
 
+// A page firing many reads at once can trip Data Store's burst limit, so at most four requests
+// run together and a read that fails on the server is tried once more.
+const MAX_PARALLEL = 4;
+let running = 0;
+const queue: Array<() => void> = [];
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+  if (running >= MAX_PARALLEL) await new Promise<void>((r) => queue.push(r));
+  running++;
+  try { return await fn(); } finally { running--; queue.shift()?.(); }
+}
+
 export async function api<T>(method: string, path: string, opts: { query?: Record<string, string | undefined>; body?: unknown } = {}): Promise<T> {
+  try {
+    return await slot(() => request<T>(method, path, opts));
+  } catch (e) {
+    const retry = method === "GET" && (!(e instanceof ApiError) || e.status >= 500 || e.code === "NETWORK");
+    if (!retry) throw e;
+    await new Promise((r) => setTimeout(r, 400 + Math.random() * 400));
+    return slot(() => request<T>(method, path, opts));
+  }
+}
+
+async function request<T>(method: string, path: string, opts: { query?: Record<string, string | undefined>; body?: unknown }): Promise<T> {
   const qs = new URLSearchParams(Object.entries(opts.query ?? {}).filter(([, v]) => v !== undefined && v !== "") as [string, string][]).toString();
   const res = await fetch(`${API_BASE}${path}${qs ? `?${qs}` : ""}`, {
     method,

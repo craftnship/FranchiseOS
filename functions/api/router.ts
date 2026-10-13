@@ -5,6 +5,7 @@ import { AppError } from "../common/errors";
 import { Mailer, TenantContext } from "../common/context";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
 import { log } from "../common/logger";
+import { describeError } from "../common/catalystStore";
 import { authorize, PermissionLookup } from "../common/rbac";
 import { fail, newRequestId, ok } from "../common/response";
 import { Store, TenantRepo } from "../common/store";
@@ -146,7 +147,7 @@ export class Router {
     } catch (caught) {
       // A Zoho failure carries Zoho's own reason, which names what to fix and holds no secrets.
       const err = caught instanceof ProviderError ? new AppError("ZOHO_SYNC_FAILED", caught.message.slice(0, 300)) : caught;
-      if (!(err instanceof AppError)) log("error", "api.unhandled", { request_id: requestId, error: String((err as Error)?.stack ?? err) });
+      if (!(err instanceof AppError)) log("error", "api.unhandled", { request_id: requestId, error: describeError(err) });
       return fail(err, requestId);
     }
   }
