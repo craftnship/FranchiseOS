@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
-import { duePeriods, nextPeriod, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
+import { duePeriods, tradedFullMonth, nextPeriod, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { parse, Router } from "../router";
 import { FUNNEL } from "./dashboards";
 import { fetchAll } from "./shared";
@@ -80,7 +80,7 @@ export function analyticsRoutes(r: Router): void {
         s.net_sales += toNum(x.net_sales); s.stores_reporting++;
         if (invoiced(x)) { s.royalty += toNum(x.royalty_amount) + toNum(x.marketing_amount); s.collected += toNum(x.invoice_total) - toNum(x.invoice_balance); }
       }
-      const recent = reps.slice(-3);
+      const recent = reps.filter((x) => tradedFullMonth(p.actual_opening_date, x.period)).slice(-3);
       const avgNet = recent.length ? round(recent.reduce((a, x) => a + toNum(x.net_sales), 0) / recent.length) : null;
       const plan = toNumOrNull(modelOf.get(String(p.application_id))?.monthly_revenue);
       const lastRep = reps.at(-1), prevRep = reps.at(-2);

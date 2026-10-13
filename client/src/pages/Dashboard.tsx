@@ -157,7 +157,7 @@ export function Dashboard() {
               { key: "rank", label: "#", render: (s: Row) => <span className="muted">{all.indexOf(s) + 1}</span> },
               { key: "name", label: "Store", render: (s: Row) => <span><strong>{s.name}</strong><span className="cell-sub">{s.franchisee ?? s.project_code}</span></span> },
               { key: "avg_net_sales", label: "Avg month", align: "right" as const, sort: (s: Row) => Number(s.avg_net_sales ?? -1), render: (s: Row) => (s.avg_net_sales === null ? "—" : inrShort(Number(s.avg_net_sales))) },
-              { key: "vs_plan_pct", label: "Vs plan", align: "right" as const, sort: (s: Row) => Number(s.vs_plan_pct ?? -999), render: (s: Row) => <PlanDelta v={s.vs_plan_pct} /> },
+              { key: "vs_plan_pct", label: "Vs plan", align: "right" as const, sort: (s: Row) => Number(s.vs_plan_pct ?? -999), render: (s: Row) => (s.avg_net_sales === null ? <span className="muted" title="No full trading month reported yet">Too new</span> : <PlanDelta v={s.vs_plan_pct} />) },
               { key: "sales_per_sqft", label: "Per sq ft", align: "right" as const, render: (s: Row) => (s.sales_per_sqft === null ? "—" : `₹${Number(s.sales_per_sqft).toLocaleString("en-IN")}`) },
               { key: "audit_rating", label: "Audit", render: (s: Row) => (s.audit_rating ? <span title={`Score ${s.audit_score}%`}><Pill value={s.audit_rating} /></span> : <span className="muted">Not audited</span>) },
               { key: "unpaid", label: "Unpaid", align: "right" as const, render: (s: Row) => (Number(s.unpaid) ? <span className="bad-text">{inrShort(Number(s.unpaid))}</span> : <span className="muted">—</span>) },
@@ -167,7 +167,7 @@ export function Dashboard() {
                 {bottom.length > 0 && <div className="table-caption">Top five</div>}
                 <DataTable rows={top} columns={cols} href={(s) => `/projects/${s.project_id}`} />
                 {bottom.length > 0 && <><div className="table-caption">Bottom five</div><DataTable rows={bottom} columns={cols} href={(s) => `/projects/${s.project_id}`} /></>}
-                <p className="panel-foot muted">Average of each store's last three reported months; plan is the feasibility model's monthly revenue.</p>
+                <p className="panel-foot muted">Average of each store's last three full reported months (a part opening month is left out); plan is the feasibility model's monthly revenue.</p>
               </>
             );
           }}</Loaded>

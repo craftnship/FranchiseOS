@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
-import { duePeriods, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
+import { duePeriods, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
 import { auditSettings, nextDue } from "../../workflows/audits";
 import { parse, Router } from "../router";
@@ -114,7 +114,7 @@ export function ownerRoutes(r: Router): void {
     const stores = opened.map((p) => {
       const pid = String(p.ROWID), where = place(pid);
       const reps = reports.filter((x) => String(x.project_id) === pid && reported(x)).sort((a, b) => String(a.period).localeCompare(String(b.period)));
-      const recent = reps.slice(-3);
+      const recent = reps.filter((x) => tradedFullMonth(p.actual_opening_date, x.period)).slice(-3);
       const avg = recent.length ? round(recent.reduce((a, x) => a + toNum(x.net_sales), 0) / recent.length) : null;
       const plan = planOf.get(String(p.application_id)) ?? null;
       const audit = latestAudit(pid);

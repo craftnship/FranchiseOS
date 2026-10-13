@@ -49,7 +49,8 @@ describe("owner analytics", () => {
     ]);
     expect(a.sales.totals).toMatchObject({ net_sales: 2_910_000, royalty: 136_000, collected: 48_000, unpaid: 88_000, stores: 2, avg_store_month: 970_000, reporting_pct: 60 });
     const [top, other] = a.sales.stores;
-    expect(top).toMatchObject({ project_code: "PROJ-1", region: "South", city: "Chennai", months_due: 3, months_reported: 3, reporting_pct: 100, last_net_sales: 1_210_000, change_pct: 10, avg_net_sales: 970_000, plan_net_sales: 1_000_000, vs_plan_pct: -3 });
+    // Opened 10 July, so the part month of July stays out of the average against plan.
+    expect(top).toMatchObject({ project_code: "PROJ-1", region: "South", city: "Chennai", months_due: 3, months_reported: 3, reporting_pct: 100, last_net_sales: 1_210_000, change_pct: 10, avg_net_sales: 1_155_000, plan_net_sales: 1_000_000, vs_plan_pct: 15.5 });
     // A returned report doesn't count as reported.
     expect(other).toMatchObject({ project_code: "PROJ-2", months_due: 2, months_reported: 0, net_sales: 0, avg_net_sales: null });
   });

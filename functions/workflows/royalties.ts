@@ -20,6 +20,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const periodLabel = (p: string) => `${MONTHS[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
 export const periodOf = (date: string) => date.slice(0, 7);
+/** A store's opening month counts as trading only when it opened on the 1st; a part month would drag its average down. */
+export const tradedFullMonth = (openedOn: unknown, period: unknown) => !openedOn || String(period) !== periodOf(String(openedOn)) || String(openedOn).slice(8, 10) === "01";
 export function nextPeriod(p: string): string {
   const y = Number(p.slice(0, 4)), m = Number(p.slice(5, 7));
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
