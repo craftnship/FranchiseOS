@@ -20,7 +20,8 @@ import { capexFor, OTHER, recordSpend, setBudget, syncBills, updateSpend } from 
 import { randomUUID } from "crypto";
 import { Call, page, parse, Router } from "../router";
 import { isPortalUser } from "../../common/rbac";
-import { assertOwner, fetchAll, listByStatus, mustGet, ownerFilter, PORTAL_ROLES, signedUrl, staffDirectory, storeUpload, uploadSchema } from "./shared";
+import { listInRegion, regionScope } from "./regions";
+import { assertOwner, fetchAll, mustGet, ownerFilter, PORTAL_ROLES, signedUrl, staffDirectory, storeUpload, uploadSchema } from "./shared";
 
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
 const OPEN_PROJECT = ["NOT_STARTED", "PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING"];
@@ -120,10 +121,11 @@ export function projectRoutes(r: Router): void {
   r.on("GET", "/projects", null, async (call) => {
     const q = parse(listQuery, call.query);
     const where = { ...(q.rag ? { readiness_rag: q.rag } : {}), ...(q.risk_level ? { risk_level: q.risk_level } : {}), ...ownerFilter(call) };
-    if (q.delayed !== "true" && q.slipping !== "true") return listByStatus(call.repo, "franchise_projects", q.status, where, q);
+    if (q.delayed !== "true" && q.slipping !== "true") return listInRegion(call, "franchise_projects", q.status, where, q, (s) => s.project);
     // Delayed and forecast-to-slip are derived from dates, so they filter the open projects in code.
+    const scope = await regionScope(call);
     const rows = (await Promise.all(OPEN_PROJECT.map((s) => fetchAll(call.repo, "franchise_projects", { ...where, status: s })))).flat();
-    const keep = (p: Row) => (q.delayed !== "true" || isDelayed(p, today(call))) && (q.slipping !== "true" || toNum(p.forecast_slip_days) > 0);
+    const keep = (p: Row) => scope.project(p) && (q.delayed !== "true" || isDelayed(p, today(call))) && (q.slipping !== "true" || toNum(p.forecast_slip_days) > 0);
     return rows.filter(keep).slice(q.offset, q.offset + q.limit);
   });
 

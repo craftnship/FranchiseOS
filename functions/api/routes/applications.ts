@@ -13,7 +13,8 @@ import { transitionEntity } from "../../workflows/transition";
 import { DEFAULT_APPROVAL_WORKFLOW, DEFAULT_REQUIRED_DOCUMENTS } from "../../../database/seed/defaults";
 import { modelWarnings } from "../../scoring/feasibility";
 import { Call, page, parse, Router } from "../router";
-import { assertOwner, defined, listByStatus, mustGet, ownerFilter, settings } from "./shared";
+import { assertOwner, defined, mustGet, ownerFilter, settings } from "./shared";
+import { listInRegion } from "./regions";
 
 const editable = {
   application_type: z.enum(["UNIT", "MULTI_UNIT", "MASTER", "AREA_DEVELOPER"]).optional(),
@@ -67,7 +68,7 @@ export function applicationRoutes(r: Router): void {
   r.on("GET", "/applications", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), franchisee_id: z.string().optional() }), call.query);
     const where = { ...(q.franchisee_id ? { franchisee_id: q.franchisee_id } : {}), ...ownerFilter(call) };
-    return listByStatus(call.repo, "franchise_applications", q.status, where, q);
+    return listInRegion(call, "franchise_applications", q.status, where, q, (s) => s.application);
   });
 
   // Staff create for any franchisee; a portal user creates one for their own franchisee only.

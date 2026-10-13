@@ -7,6 +7,7 @@ import { toNum } from "../../common/values";
 import { approveReport, periodLabel, refreshReport, returnReport, royaltyLedger, submitReport } from "../../workflows/royalties";
 import { Call, parse, Router } from "../router";
 import { assertOwner, fetchAll, mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
+import { regionScope } from "./regions";
 
 // Monthly sales and royalties of opened stores. The franchisee (or finance on their behalf) reports
 // a month; royalty.manage approves it into a Books invoice or returns it with a note.
@@ -86,9 +87,10 @@ export function royaltyRoutes(r: Router): void {
     const where: Record<string, string> = {};
     if (q.status) where.status = q.status;
     if (q.period) where.period = q.period;
-    const [reports, projects, franchisees] = await Promise.all([
-      fetchAll(call.repo, "sales_reports", where), fetchAll(call.repo, "franchise_projects", { status: "OPENED" }), call.repo.findMany("franchisees", {}, { limit: 300 }),
+    const [scope, allReports, allProjects, franchisees] = await Promise.all([
+      regionScope(call), fetchAll(call.repo, "sales_reports", where), fetchAll(call.repo, "franchise_projects", { status: "OPENED" }), call.repo.findMany("franchisees", {}, { limit: 300 }),
     ]);
+    const projects = allProjects.filter(scope.project), reports = allReports.filter((x) => scope.projectId(x.project_id));
     const pmap = new Map(projects.map((p) => [String(p.ROWID), p]));
     const fmap = new Map(franchisees.map((f) => [String(f.ROWID), f]));
     const items: Row[] = reports.map((x) => {

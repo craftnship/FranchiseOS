@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { Row } from "../../common/store";
 import { Call, parse, Router } from "../router";
-import { fetchAll } from "./shared";
+import { fetchAll, listByStatus } from "./shared";
 
 // Region scope for the dashboards and the map. A region is a territory's `region`; a store, opening or
 // application belongs to the region of its site's territory, else its application's territory.
@@ -67,6 +67,19 @@ export async function regionScope(call: Call): Promise<RegionScope> {
     fetchAll(call.repo, "territories"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects"),
   ]);
   return scopeOf(region, locked, { territories, sites, apps, projects });
+}
+
+/**
+ * A list limited to the call's region. Without one it is the usual paged query; with one, the matching
+ * rows are read in full, kept by `keep` and paged in code, newest first.
+ */
+export async function listInRegion(call: Call, table: string, status: string | undefined, where: Record<string, string>, pg: { limit: number; offset: number }, keep: (scope: RegionScope) => (row: Row) => boolean): Promise<Row[]> {
+  const scope = await regionScope(call);
+  if (!scope.region) return listByStatus(call.repo, table, status, where, pg);
+  const statuses = (status ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const rows = statuses.length ? (await Promise.all(statuses.map((s) => fetchAll(call.repo, table, { ...where, status: s })))).flat() : await fetchAll(call.repo, table, where);
+  const test = keep(scope);
+  return rows.filter(test).sort((a, b) => String(b.CREATEDTIME ?? "").localeCompare(String(a.CREATEDTIME ?? ""))).slice(pg.offset, pg.offset + pg.limit);
 }
 
 export function regionRoutes(r: Router): void {

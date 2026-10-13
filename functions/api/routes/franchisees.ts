@@ -6,6 +6,7 @@ import { logActivity } from "../../common/audit";
 import { nextBusinessId } from "../../common/ids";
 import { page, parse, Router } from "../router";
 import { assertOwner, defined, mustGet, ownerFilter } from "./shared";
+import { listInRegion } from "./regions";
 
 const fields = {
   display_name: z.string().trim().min(1).max(200),
@@ -21,8 +22,7 @@ const patchSchema = z.object({ ...fields, display_name: fields.display_name.opti
 export function franchiseeRoutes(r: Router): void {
   r.on("GET", "/franchisees", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional() }), call.query);
-    const where = { ...ownerFilter(call, "ROWID"), ...(q.status ? { status: q.status } : {}) };
-    return call.repo.findMany("franchisees", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset });
+    return listInRegion(call, "franchisees", q.status, ownerFilter(call, "ROWID"), q, (s) => s.franchisee);
   });
 
   r.on("POST", "/franchisees", "application.review", async (call) => {

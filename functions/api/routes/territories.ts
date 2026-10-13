@@ -7,7 +7,8 @@ import { opportunityScore } from "../../scoring/territory";
 import { releaseTerritory, reserveTerritory } from "../../workflows/territoryReservation";
 import { DEFAULTS } from "../../../database/seed/defaults";
 import { page, parse, Router } from "../router";
-import { mustGet } from "./shared";
+import { regionScope } from "./regions";
+import { fetchAll, mustGet } from "./shared";
 
 const index = z.number().min(0).max(100).optional();
 const createSchema = z.object({
@@ -44,8 +45,10 @@ const RESERVABLE_APP_STATES = ["UNDER_REVIEW", "QUALIFIED"];
 export function territoryRoutes(r: Router): void {
   r.on("GET", "/territories", "territory.reserve", async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), city: z.string().optional() }), call.query);
+    const scope = await regionScope(call);
     const where = { ...(q.status ? { status: q.status } : {}), ...(q.city ? { city: q.city } : {}) };
-    return call.repo.findMany("territories", where, { orderBy: "territory_code", limit: q.limit, offset: q.offset });
+    if (!scope.region) return call.repo.findMany("territories", where, { orderBy: "territory_code", limit: q.limit, offset: q.offset });
+    return (await fetchAll(call.repo, "territories", where)).filter(scope.territory).sort((a, b) => String(a.territory_code).localeCompare(String(b.territory_code))).slice(q.offset, q.offset + q.limit);
   });
 
   r.on("POST", "/territories", "territory.write", async (call) => {

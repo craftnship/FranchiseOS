@@ -59,6 +59,23 @@ describe("regional view", () => {
     expect((await s.call("rm", "GET", "/analytics", { region: "West" })).data).toMatchObject({ region: "South", regions: ["South"] });
   });
 
+  it("limits the list pages behind the drill links to the region", async () => {
+    const s = await setup();
+    const codes = (rows: any[], k: string) => rows.map((x) => x[k]).sort();
+    expect(codes((await s.call("rm", "GET", "/projects")).data, "project_code")).toEqual(["PROJ-1", "PROJ-2"]);
+    expect(codes((await s.call("rm", "GET", "/projects", { status: "OPENED,IN_PROGRESS" })).data, "project_code")).toEqual(["PROJ-1", "PROJ-2"]);
+    expect(codes((await s.call("rm", "GET", "/applications")).data, "application_code")).toEqual(["APP-1", "APP-2"]);
+    expect(codes((await s.call("rm", "GET", "/sites")).data, "site_code")).toEqual(["SITE-1", "SITE-2"]);
+    expect(codes((await s.call("rm", "GET", "/territories")).data, "territory_code")).toEqual(["TER-S"]);
+    expect(codes((await s.call("rm", "GET", "/franchisees")).data, "franchise_code")).toEqual(["FR-1", "FR-2"]);
+    expect((await s.call("rm", "GET", "/royalties")).data.totals.stores).toBe(1);
+    expect((await s.call("rm", "GET", "/audits")).data.totals.stores).toBe(1);
+    // The director sees everything, and can ask for one region.
+    expect((await s.call("dir", "GET", "/projects")).data).toHaveLength(3);
+    expect(codes((await s.call("dir", "GET", "/projects", { region: "West" })).data, "project_code")).toEqual(["PROJ-3"]);
+    expect(codes((await s.call("boss", "GET", "/territories", { region: "West" })).data, "territory_code")).toEqual(["TER-W", "TER-W2"]);
+  });
+
   it("needs a known region for a regional manager, and none for a franchisee", async () => {
     const s = await setup();
     const add = (body: unknown) => s.call("boss", "POST", "/admin/users", {}, body);

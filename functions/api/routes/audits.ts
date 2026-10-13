@@ -5,6 +5,8 @@ import { Row } from "../../common/store";
 import { AUDIT_TYPES, auditDetail, auditsFor, cancelAudit, completeAudit, itemsOf, networkAudits, recordItems, reviewAction, rescheduleAudit, respondAction, scheduleAudit, startAudit } from "../../workflows/audits";
 import { Call, parse, Router } from "../router";
 import { assertOwner, mustGet, PORTAL_ROLES, signedUrl, staffDirectory, storeUpload, uploadSchema } from "./shared";
+import { regionScope } from "./regions";
+import { toNum } from "../../common/values";
 
 // Store audits. audit.conduct books, runs and completes audits and closes corrective actions; the
 // franchisee sees finished audits of their own store and answers its actions with evidence.
@@ -43,7 +45,24 @@ export function auditRoutes(r: Router): void {
   r.on("POST", "/projects/:id/audits", "audit.conduct", async (call) => scheduleAudit(call.store, call.ctx, await getProject(call), parse(scheduleSchema, call.body)), 201);
 
   // Network view, and the staff an audit can be given to.
-  r.on("GET", "/audits", "dashboard.view", async (call) => networkAudits(call.store, call.ctx, today(call)));
+  r.on("GET", "/audits", "dashboard.view", async (call) => {
+    const scope = await regionScope(call);
+    const all = await networkAudits(call.store, call.ctx, today(call));
+    if (!scope.region) return all;
+    // The store list and its totals follow the region; the most-failed standards stay network-wide.
+    const stores = (all.stores as Row[]).filter((x) => scope.projectId(x.project_id));
+    const scored = stores.filter((x) => x.last_score != null);
+    const totals = all.totals as Row;
+    return {
+      ...all, stores,
+      totals: {
+        ...totals, stores: stores.length, audited: scored.length,
+        average: scored.length ? Math.round(scored.reduce((a, x) => a + toNum(x.last_score), 0) / scored.length * 10) / 10 : null,
+        red: scored.filter((x) => x.last_rating === "RED").length, due: stores.filter((x) => x.due_overdue).length,
+        actions_open: stores.reduce((a, x) => a + toNum(x.actions_open), 0), actions_overdue: stores.reduce((a, x) => a + toNum(x.actions_overdue), 0),
+      },
+    };
+  });
   r.on("GET", "/audits/auditors", "audit.conduct", async (call) =>
     [...(await staffDirectory(call)).values()].filter((p) => p.active && !PORTAL_ROLES.includes(p.role)).map(({ ROWID, name, email }) => ({ ROWID, name: name ?? email })).sort((a, b) => a.name.localeCompare(b.name)));
 

@@ -12,6 +12,7 @@ import { Call, page, parse, Router } from "../router";
 import { assertOwner, defined, mustGet, ownerFilter, signedUrl, storeUpload, uploadSchema } from "./shared";
 import { assertLeaseSigned, describeLease, LEASE_STATES, leaseForSite, saveLease } from "../../workflows/leases";
 import { leaseNotices } from "../../workflows/notifications";
+import { listInRegion } from "./regions";
 
 const editable = {
   address_line_1: z.string().trim().max(300).optional(),
@@ -79,8 +80,8 @@ const DEAD_SITE = ["REJECTED", "DROPPED"];
 export function siteRoutes(r: Router): void {
   r.on("GET", "/sites", null, async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), application_id: z.string().optional() }), call.query);
-    const where = { ...(q.status ? { status: q.status } : {}), ...(q.application_id ? { application_id: q.application_id } : {}), ...ownerFilter(call) };
-    return call.repo.findMany("sites", where, { orderBy: "CREATEDTIME", desc: true, limit: q.limit, offset: q.offset });
+    const where = { ...(q.application_id ? { application_id: q.application_id } : {}), ...ownerFilter(call) };
+    return listInRegion(call, "sites", q.status, where, q, (s) => (row) => s.applicationId(row.application_id));
   });
 
   // Franchisees may propose sites for their own application; staff need site.write.
