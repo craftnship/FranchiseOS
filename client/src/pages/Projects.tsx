@@ -16,6 +16,7 @@ import { PurchasingPanel } from "../components/Purchasing";
 import { FundingPanel } from "../components/Funding";
 import { AuditPanel } from "../components/Audits";
 import { LaunchPanel } from "../components/Launch";
+import { HealthCard } from "../components/Health";
 
 const TRANSITION_LABEL: Record<string, string> = { start: "Start work", ready_for_opening: "Mark ready for opening", open: "Mark opened", close: "Close project" };
 const PATH = ["PLANNING", "IN_PROGRESS", "READY_FOR_OPENING", "OPENED"];
@@ -128,6 +129,7 @@ export function ProjectDetail() {
           {PATH.includes(p.status) && p.status !== "OPENED" && <Panel title="Lifecycle"><StatusPath steps={PATH} current={p.status} /></Panel>}
           {/* An open store leads with how it is trading; the opening work moves below. */}
           {p.status === "OPENED" && <>
+            <HealthCard projectId={String(id)} />
             <LaunchPanel projectId={String(id)} target={p.target_opening_date} />
             <RoyaltyPanel projectId={String(id)} />
             <AuditPanel projectId={String(id)} />

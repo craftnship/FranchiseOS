@@ -11,7 +11,7 @@ import { storeNamer } from "./owner";
 
 const ACTIVE = ["NOT_STARTED", "PLANNING", "IN_PROGRESS", "AT_RISK", "READY_FOR_OPENING"];
 export type PointKind = "store" | "opening" | "territory";
-export interface MapPoint { kind: PointKind; id: string; name: string; city: string | null; state: string | null; status: string; detail: string | null; href: string; lat: number; lng: number; located: "site" | "territory" | "city" }
+export interface MapPoint { kind: PointKind; id: string; name: string; city: string | null; state: string | null; status: string; detail: string | null; href: string; lat: number; lng: number; located: "site" | "territory" | "city"; health?: string | null }
 
 const coordsOf = (row: Row | undefined): [number, number] | null => {
   const lat = toNumOrNull(row?.latitude), lng = toNumOrNull(row?.longitude);
@@ -48,7 +48,7 @@ export function networkMapRoutes(r: Router): void {
       points.push({
         kind, id: String(p.ROWID), name: where.name, city: where.city, state: (site?.state ?? ter?.state ?? null) as string | null,
         status: kind === "store" ? "OPENED" : String(p.readiness_rag ?? p.status), detail: where.franchisee,
-        href: `/projects/${p.ROWID}`, lat: loc.at[0], lng: loc.at[1], located: loc.located,
+        href: `/projects/${p.ROWID}`, lat: loc.at[0], lng: loc.at[1], located: loc.located, health: kind === "store" ? ((p.health_band as string | null) ?? null) : undefined,
       });
     }
     // Territories with no store or opening on them yet: where the network can still grow.

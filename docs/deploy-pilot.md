@@ -541,4 +541,16 @@ No schema, permission or setting changes.
   - the `region` varchar column added to `users`
   - a `role_permissions` row for `REGIONAL_MANAGER` with `perm_key = <tenant_id>:REGIONAL_MANAGER:dashboard.view`
   - a region set on each existing regional manager
-- **Not yet limited by region:** the list pages behind the drill links (projects, applications and so on) show the whole network.
+- **List pages** (projects, applications, sites, territories, franchisees, royalties, audits) follow the same region and lock since 8f17312.
+
+## Franchisee health score (2026-10-13)
+
+One 0–100 score per trading store from sales against plan, payments, compliance and reporting, with the two weakest parts in plain words. Design and scoring in `docs/health-score.md`.
+
+- **Schema.** `franchise_projects` gains `health_score` (double), `health_band`, `health_json` (text), `health_updated_on` (date) and `health_alerted_band`. New table `store_health`: `tenant_id`, `project_id`, `as_of` (date), `score` (double), `band`, `parts_json` (text), `health_key` (varchar, unique). Add the columns and create the table before deploying the functions.
+- **Job.** The 03:30 job gains a `store_health` step after `two_way_sync`. It scores every open store, keeps the day's `store_health` row (a rerun updates it), logs `health:band_changed`, and notifies the franchise and operations managers and the store's regional manager when a store enters At risk or recovers to Healthy, once per change.
+- **First run.** After deploying, call `POST /admin/health/recalculate` as a super admin (or press “Score now” on the dashboard's Franchisee health panel, or “Rescore now” under Admin → Settings → Health score). The first run alerts for every store already At risk.
+- **API.** `GET /dashboard/health` (dashboard.view, follows `?region=` and the region lock), `GET /projects/:id/health` (staff with dashboard.view, or the store's franchisee), `POST /admin/health/recalculate` and `GET`/`PUT /settings/health` (settings.manage). Amounts in the reasons appear only with `finance.view`. No new permission.
+- **Screens.** Dashboard: a Franchisee health panel beside Compliance, and a Health column in the store league. Map: a “Colour by health” switch. Store page: a Franchisee health card at the top of an open store (the franchisee sees it too). Settings: the weights and band limits.
+- **Demo expectations (aadai).** Chennai Healthy; Coimbatore and Madurai on Watch or At risk from their overdue amounts and plan shortfall; Hyderabad scored without the sales part (too new); Mysuru not scored (still opening). The first run should alert FRANCHISE_MANAGER and OPERATIONS_MANAGER users and the South regional manager for every At risk store, so expect those emails.
+

@@ -16,7 +16,7 @@ export const project = (lat: number, lng: number): [number, number] => [((lng - 
 
 type Kind = "store" | "opening" | "territory";
 const KINDS: [Kind, string][] = [["store", "Open stores"], ["opening", "Openings in progress"], ["territory", "Open territories"]];
-const toneOf = (p: Row) => (p.kind === "store" ? "store" : p.kind === "opening" ? `opening ${String(p.status).toLowerCase()}` : `territory ${String(p.status).toLowerCase()}`);
+const toneOf = (p: Row, byHealth: boolean) => (p.kind === "store" ? `store${byHealth ? ` ${String(p.health ?? "unscored").toLowerCase()}` : ""}` : p.kind === "opening" ? `opening ${String(p.status).toLowerCase()}` : `territory ${String(p.status).toLowerCase()}`);
 
 export default function NetworkMap({ region = "" }: { region?: string }) {
   const load = useLoad(() => api<Row>("GET", "/dashboard/map", { query: region ? { region } : {} }), [region]);
@@ -24,6 +24,8 @@ export default function NetworkMap({ region = "" }: { region?: string }) {
   const [shown, setShown] = useState<Record<Kind, boolean>>({ store: true, opening: true, territory: true });
   const [hover, setHover] = useState<Row | null>(null);
   const [all, setAll] = useState(false);
+  // Open stores take their health band's colour when asked (docs/health-score.md).
+  const [byHealth, setByHealth] = useState(false);
   const pts: Row[] = useMemo(() => (load.data?.points ?? []).map((p: Row) => ({ ...p, xy: project(p.lat, p.lng) })), [load.data]);
   const visible = pts.filter((p) => shown[p.kind as Kind]);
 
@@ -50,6 +52,7 @@ export default function NetworkMap({ region = "" }: { region?: string }) {
         {KINDS.map(([k, l]) => (
           <label key={k} className={`map-toggle ${k}`}><input type="checkbox" checked={shown[k]} onChange={(e) => setShown({ ...shown, [k]: e.target.checked })} /><i />{l}{totals ? ` ${totals[k === "store" ? "stores" : k === "opening" ? "openings" : "territories"]}` : ""}</label>
         ))}
+        <label className="map-toggle health"><input type="checkbox" checked={byHealth} onChange={(e) => setByHealth(e.target.checked)} />Colour by health</label>
         <button type="button" className="btn ghost sm" onClick={() => setAll(!all)}>{all ? "Zoom to network" : "All India"}</button>
       </span>}>
         <Loaded load={load} empty={(d) => !d.points.length} emptyText="No store, opening or territory has a location yet.">{(d) => (
@@ -57,7 +60,7 @@ export default function NetworkMap({ region = "" }: { region?: string }) {
             <svg viewBox={view} role="img" aria-label={`Map of India with ${d.totals.stores} open stores, ${d.totals.openings} openings and ${d.totals.territories} open territories`}>
               {INDIA_STATES.map((s) => <path key={s.id} d={s.d} className={withStores.has(s.name.toLowerCase()) ? "state has" : "state"} strokeWidth={0.8 * scale}><title>{s.name}</title></path>)}
               {visible.filter((p) => p.kind === "territory").concat(visible.filter((p) => p.kind === "opening"), visible.filter((p) => p.kind === "store")).map((p) => (
-                <circle key={`${p.kind}${p.id}`} cx={p.xy[0]} cy={p.xy[1]} r={p.kind === "territory" ? r * 0.8 : r} className={`pt ${toneOf(p)} ${hover === p ? "on" : ""}`} strokeWidth={1.4 * scale}
+                <circle key={`${p.kind}${p.id}`} cx={p.xy[0]} cy={p.xy[1]} r={p.kind === "territory" ? r * 0.8 : r} className={`pt ${toneOf(p, byHealth)} ${hover === p ? "on" : ""}`} strokeWidth={1.4 * scale}
                   tabIndex={0} onMouseEnter={() => setHover(p)} onFocus={() => setHover(p)} onClick={() => nav(p.href)} onKeyDown={(e) => e.key === "Enter" && nav(p.href)} />
               ))}
             </svg>
@@ -67,14 +70,19 @@ export default function NetworkMap({ region = "" }: { region?: string }) {
               return (
                 <div className="map-tip" style={{ left: `${left}%`, top: `${top}%` }}>
                   <strong>{hover.name}</strong>
-                  <span>{hover.kind === "store" ? "Open store" : hover.kind === "opening" ? `Opening · readiness ${label(hover.status)}` : `Territory · ${label(hover.status)}`}</span>
+                  <span>{hover.kind === "store" ? `Open store${hover.health ? ` · ${label(hover.health)}` : ""}` : hover.kind === "opening" ? `Opening · readiness ${label(hover.status)}` : `Territory · ${label(hover.status)}`}</span>
                   {hover.detail && <span className="muted">{hover.detail}</span>}
                   {hover.located === "city" && <span className="muted">Placed at the city centre</span>}
                 </div>
               );
             })()}
             <div className="map-key" aria-hidden="true">
-              <span><i className="pt store" />Open store</span>
+              {byHealth ? <>
+                <span><i className="pt store healthy" />Healthy</span>
+                <span><i className="pt store watch" />Watch</span>
+                <span><i className="pt store at_risk" />At risk</span>
+                <span><i className="pt store unscored" />Not scored</span>
+              </> : <span><i className="pt store" />Open store</span>}
               <span><i className="pt opening green" />Opening on pace</span>
               <span><i className="pt opening amber" />Opening behind</span>
               <span><i className="pt opening red" />Opening at risk</span>

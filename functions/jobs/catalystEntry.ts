@@ -6,12 +6,14 @@ import { zohoCredentialsFromEnv, zohoFactory } from "../integrations/tenantClien
 import { runProjectRiskJob } from "../workflows/readiness";
 import { runReminderJob } from "../workflows/notifications";
 import { runReservationJob } from "../workflows/territoryReservation";
+import { runStoreHealthJob } from "../workflows/storeHealth";
 import { runTwoWaySyncJob } from "../workflows/twoWaySync";
 import { recordJobRun } from "../workflows/systemAlerts";
 
 // Entry point of the fos_jobs Cron function (spec §22). The Catalyst cron calls it daily; it runs
 // job_project_risk (sync Zoho task progress, then refresh readiness and risk for active projects),
-// then job_two_way_sync (Books fee payments and CRM contact edits back into FOS), then
+// then job_two_way_sync (Books fee payments and CRM contact edits back into FOS), then job_store_health
+// (the franchisee health score for every trading store), then
 // job_reservation_expiry (territory reservations lapse, free or become allocations), then
 // job_reminders (overdue approvals, tasks and openings, unsigned agreements, expiring holds).
 
@@ -28,6 +30,7 @@ export async function runCron(context: CronContext, sdk: CatalystSdk, now = new 
     const steps: [string, () => Promise<unknown>][] = [
       ["project_risk", () => runProjectRiskJob(store, async (tenantId) => (await zoho(tenantId))?.projects ?? null, { today: now.toISOString().slice(0, 10), now, requestId, mailer })],
       ["two_way_sync", () => runTwoWaySyncJob(store, zoho, { now, requestId, mailer })],
+      ["store_health", () => runStoreHealthJob(store, { today: now.toISOString().slice(0, 10), now, requestId, mailer })],
       ["reservation_expiry", () => runReservationJob(store, { now, requestId, mailer })],
       ["reminders", () => runReminderJob(store, { now, requestId, mailer })],
     ];

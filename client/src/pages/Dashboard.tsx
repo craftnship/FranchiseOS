@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, can, drillHref, Kpi, Row } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { DataTable, date, Donut, Icon, inr, inrShort, KpiTile, label, Loaded, PageHeader, Panel, Pill, Progress, toneOf } from "../components/ui";
+import { HealthPanel } from "../components/Health";
 
 // The map's state shapes are a large chunk, so they load after the rest of the page.
 const NetworkMap = lazy(() => import("../components/NetworkMap"));
@@ -168,31 +169,7 @@ export function Dashboard() {
       </div>
 
       <div className="row c21">
-        <Panel title="Store performance" action={<Link to="/analytics">Full analytics</Link>} flush>
-          <Loaded load={owner} empty={(d) => !d.stores.length} emptyText="No store has opened yet.">{(d) => {
-            const all: Row[] = d.stores;
-            const top = all.length > 10 ? all.slice(0, 5) : all;
-            const bottom = all.length > 10 ? all.slice(-5) : [];
-            const cols = [
-              { key: "rank", label: "#", render: (s: Row) => <span className="muted">{all.indexOf(s) + 1}</span> },
-              { key: "name", label: "Store", render: (s: Row) => <span><strong>{s.name}</strong><span className="cell-sub">{s.franchisee ?? s.project_code}</span></span> },
-              { key: "avg_net_sales", label: "Avg month", align: "right" as const, sort: (s: Row) => Number(s.avg_net_sales ?? -1), render: (s: Row) => (s.avg_net_sales === null ? "—" : inrShort(Number(s.avg_net_sales))) },
-              { key: "vs_plan_pct", label: "Vs plan", align: "right" as const, sort: (s: Row) => Number(s.vs_plan_pct ?? -999), render: (s: Row) => (s.avg_net_sales === null ? <span className="muted" title="No full trading month reported yet">Too new</span> : <PlanDelta v={s.vs_plan_pct} />) },
-              { key: "sales_per_sqft", label: "Per sq ft", align: "right" as const, render: (s: Row) => (s.sales_per_sqft === null ? "—" : `₹${Number(s.sales_per_sqft).toLocaleString("en-IN")}`) },
-              { key: "audit_rating", label: "Audit", render: (s: Row) => (s.audit_rating ? <span title={`Score ${s.audit_score}%`}><Pill value={s.audit_rating} /></span> : <span className="muted">Not audited</span>) },
-              { key: "unpaid", label: "Unpaid", align: "right" as const, render: (s: Row) => (Number(s.unpaid) ? <span className="bad-text">{inrShort(Number(s.unpaid))}</span> : <span className="muted">—</span>) },
-            ].filter((c) => d.finance || c.key !== "unpaid");
-            return (
-              <>
-                {bottom.length > 0 && <div className="table-caption">Top five</div>}
-                <DataTable rows={top} columns={cols} href={(s) => `/projects/${s.project_id}`} />
-                {bottom.length > 0 && <><div className="table-caption">Bottom five</div><DataTable rows={bottom} columns={cols} href={(s) => `/projects/${s.project_id}`} /></>}
-                <p className="panel-foot muted">Average of each store's last three full reported months (a part opening month is left out); plan is the feasibility model's monthly revenue.</p>
-              </>
-            );
-          }}</Loaded>
-        </Panel>
-
+        <HealthPanel region={region} />
         <Panel title="Compliance" action={<Link to="/audits">Audits</Link>}>
           <Loaded load={owner}>{(d) => {
             const c = d.compliance, a = c.audits;
@@ -219,6 +196,35 @@ export function Dashboard() {
             );
           }}</Loaded>
         </Panel>
+      </div>
+
+      <div className="row">
+        <Panel title="Store performance" action={<Link to="/analytics">Full analytics</Link>} flush>
+          <Loaded load={owner} empty={(d) => !d.stores.length} emptyText="No store has opened yet.">{(d) => {
+            const all: Row[] = d.stores;
+            const top = all.length > 10 ? all.slice(0, 5) : all;
+            const bottom = all.length > 10 ? all.slice(-5) : [];
+            const cols = [
+              { key: "rank", label: "#", render: (s: Row) => <span className="muted">{all.indexOf(s) + 1}</span> },
+              { key: "name", label: "Store", render: (s: Row) => <span><strong>{s.name}</strong><span className="cell-sub">{s.franchisee ?? s.project_code}</span></span> },
+              { key: "avg_net_sales", label: "Avg month", align: "right" as const, sort: (s: Row) => Number(s.avg_net_sales ?? -1), render: (s: Row) => (s.avg_net_sales === null ? "—" : inrShort(Number(s.avg_net_sales))) },
+              { key: "vs_plan_pct", label: "Vs plan", align: "right" as const, sort: (s: Row) => Number(s.vs_plan_pct ?? -999), render: (s: Row) => (s.avg_net_sales === null ? <span className="muted" title="No full trading month reported yet">Too new</span> : <PlanDelta v={s.vs_plan_pct} />) },
+              { key: "sales_per_sqft", label: "Per sq ft", align: "right" as const, render: (s: Row) => (s.sales_per_sqft === null ? "—" : `₹${Number(s.sales_per_sqft).toLocaleString("en-IN")}`) },
+              { key: "health_score", label: "Health", align: "right" as const, sort: (s: Row) => Number(s.health_score ?? -1), render: (s: Row) => (s.health_score === null ? <span className="muted" title="Not scored yet">—</span> : <span className={`health-chip ${String(s.health_band).toLowerCase()}`} title={label(s.health_band)}>{s.health_score}</span>) },
+              { key: "audit_rating", label: "Audit", render: (s: Row) => (s.audit_rating ? <span title={`Score ${s.audit_score}%`}><Pill value={s.audit_rating} /></span> : <span className="muted">Not audited</span>) },
+              { key: "unpaid", label: "Unpaid", align: "right" as const, render: (s: Row) => (Number(s.unpaid) ? <span className="bad-text">{inrShort(Number(s.unpaid))}</span> : <span className="muted">—</span>) },
+            ].filter((c) => d.finance || c.key !== "unpaid");
+            return (
+              <>
+                {bottom.length > 0 && <div className="table-caption">Top five</div>}
+                <DataTable rows={top} columns={cols} href={(s) => `/projects/${s.project_id}`} />
+                {bottom.length > 0 && <><div className="table-caption">Bottom five</div><DataTable rows={bottom} columns={cols} href={(s) => `/projects/${s.project_id}`} /></>}
+                <p className="panel-foot muted">Average of each store's last three full reported months (a part opening month is left out); plan is the feasibility model's monthly revenue.</p>
+              </>
+            );
+          }}</Loaded>
+        </Panel>
+
       </div>
 
       <h2 className="section-title">Network</h2>

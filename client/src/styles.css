@@ -642,3 +642,29 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .map-key i.store { background: #17b26a; } .map-key i.opening { background: #2e90fa; } .map-key i.opening.amber { background: #f79009; } .map-key i.opening.red { background: #f04438; }
 .map-key i.territory { background: var(--surface); border-color: #98a2b3; } .map-key i.territory.reserved { background: #fde4b5; border-color: #f79009; } .map-key i.territory.allocated { background: #d1e0ff; border-color: #5b7ff5; }
 .region-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .75rem; border: 1px solid var(--border); border-radius: 8px; font-size: .85rem; font-weight: 600; background: var(--surface); }
+
+/* Franchisee health */
+.health-score { display: inline-flex; align-items: center; justify-content: center; min-width: 2.6rem; height: 2.6rem; padding: 0 .4rem; border-radius: 10px; font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--neutral-bg); color: var(--neutral); flex: none; }
+.health-score.healthy { background: var(--good-bg); color: var(--good); } .health-score.watch { background: var(--warn-bg); color: var(--warn); } .health-score.at_risk { background: var(--bad-bg); color: var(--bad); }
+.health-chip { display: inline-block; min-width: 2.1rem; text-align: center; padding: .1rem .4rem; border-radius: 6px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--neutral-bg); color: var(--neutral); }
+.health-chip.healthy { background: var(--good-bg); color: var(--good); } .health-chip.watch { background: var(--warn-bg); color: var(--warn); } .health-chip.at_risk { background: var(--bad-bg); color: var(--bad); }
+.health-list { list-style: none; margin: 0; padding: 0; }
+.health-list > li { padding: .5rem 0; border-bottom: 1px dashed var(--border); }
+.health-list > li:last-child { border-bottom: 0; }
+.health-row { display: flex; align-items: center; gap: .75rem; color: var(--text); margin-bottom: .25rem; }
+.health-row .health-who { flex: 1; min-width: 0; }
+.health-head { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+.health-head > div { flex: 1; min-width: 0; }
+.health-head .health-score { min-width: 3.4rem; height: 3.4rem; font-size: 1.5rem; }
+.health-trend { width: 160px; height: 44px; flex: none; }
+.health-trend polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.health-trend .limit { stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; } .health-trend .limit.good { stroke: #17b26a; } .health-trend .limit.bad { stroke: #f04438; }
+.health-parts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; margin: 0; }
+.health-parts > div { background: var(--surface-2); border-radius: 8px; padding: .55rem .7rem; font-size: .76rem; display: flex; flex-direction: column; gap: .3rem; }
+.health-parts dt { color: var(--muted); font-size: .72rem; font-weight: 500; }
+.health-parts dd { margin: 0; }
+.health-weights { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+.health-weights label { display: flex; flex-direction: column; gap: .25rem; font-size: .8rem; }
+.pt.store.healthy { fill: #17b26a; } .pt.store.watch { fill: #f79009; } .pt.store.at_risk { fill: #f04438; } .pt.store.unscored { fill: #98a2b3; }
+.map-toggle.health { margin-left: .25rem; }
+@media (max-width: 900px) { .health-parts, .health-weights { grid-template-columns: repeat(2, minmax(0, 1fr)); } .health-trend { display: none; } }

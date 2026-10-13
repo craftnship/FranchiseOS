@@ -8,7 +8,7 @@ const TONE: Record<string, string> = {
   COMPLETED: "good", OPENED: "good", SIGNED: "good", ACTIVE: "good", APPROVED: "good", ALLOCATED: "good", AGREEMENT_SIGNED: "good", CALCULATED: "good",
   VERIFIED: "good", RECOMMEND: "good", PENDING: "warn", RETURNED: "warn", CONDITIONAL: "warn", REJECT: "bad", HOT: "good", NURTURE: "warn",
   SCREENING: "info", SITE_VISIT: "info", EVALUATION: "info", FEASIBILITY: "info", PROPOSED: "neutral", LEASE_PENDING: "info", LEASE_SIGNED: "good", READY_FOR_PROJECT: "good", DROPPED: "neutral",
-  BLOCKED: "bad", AT_RISK: "bad", REJECTED: "bad", DECLINED: "bad", EXPIRED: "bad", VOIDED: "bad",
+  BLOCKED: "bad", AT_RISK: "bad", HEALTHY: "good", WATCH: "warn", REJECTED: "bad", DECLINED: "bad", EXPIRED: "bad", VOIDED: "bad",
   IN_PROGRESS: "info", SENT: "info", VIEWED: "info", ONBOARDING: "info", PLANNING: "info", READY_FOR_OPENING: "info", RESERVED: "info",
   SUBMITTED: "info", UNDER_REVIEW: "info", QUALIFIED: "info", SITE_SUBMITTED: "info", FEASIBILITY_REVIEW: "info", APPROVAL_PENDING: "warn", AGREEMENT_PENDING: "warn", SITE_REQUIRED: "warn",
   ON_HOLD: "warn", PROSPECT: "neutral", DRAFT: "neutral", WITHDRAWN: "neutral", OPEN: "neutral", AVAILABLE: "neutral", CLOSED: "neutral",

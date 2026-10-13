@@ -3,7 +3,7 @@ import { Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
 import { duePeriods, ratesFrom, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
-import { separateInstalments } from "../../workflows/funding";
+import { AGE_BUCKETS, bucketOf, daysBetween, owedRows, projectOfOwed as ownerOfOwed } from "../../workflows/receivables";
 import { auditSettings, nextDue } from "../../workflows/audits";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
@@ -19,7 +19,6 @@ const OPEN_ACTION = ["OPEN", "SUBMITTED"];
 const querySchema = z.object({ months: z.coerce.number().int().refine((n) => [1, 3, 6, 12].includes(n), "use 1, 3, 6 or 12").default(1) });
 
 const day = (v: unknown) => (v ? String(v).slice(0, 10) : null);
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 const pct = (n: number, d: number) => (d ? round((n / d) * 100, 1) : null);
 const change = (now: number, before: number) => (before ? round((now / before - 1) * 100, 1) : null);
 const sum = <T,>(rows: T[], f: (r: T) => number) => round(rows.reduce((a, r) => a + f(r), 0));
@@ -114,21 +113,11 @@ export function ownerRoutes(r: Router): void {
     const now = totals(cur), before = totals(prev);
     const series = trend.map((p) => { const t = totals([p]); return { period: p, label: periodLabel(p), net_sales: t.net_sales, royalty: t.royalty }; });
 
-    // Receivables: unpaid fee and royalty invoices, aged by days past their due date.
-    const owed: { kind: "fee" | "royalty"; amount: number; due: string | null; row: Row }[] = [
-      ...agreements.filter((a) => a.fee_status && !["PAID", "VOID"].includes(String(a.fee_status)) && toNum(a.fee_balance) > 0).map((a) => ({ kind: "fee" as const, amount: toNum(a.fee_balance), due: day(a.fee_due_date), row: a })),
-      ...separateInstalments(instalments, agreements).filter((i) => i.status === "INVOICED" && toNum(i.invoice_balance) > 0).map((i) => ({ kind: "fee" as const, amount: toNum(i.invoice_balance), due: day(i.invoice_due_date), row: i })),
-      ...reports.filter((x) => x.status === "INVOICED" && toNum(x.invoice_balance) > 0).map((x) => ({ kind: "royalty" as const, amount: toNum(x.invoice_balance), due: day(x.invoice_due_date), row: x })),
-    ];
-    // Signing fees sit on the agreement, so they belong to the store opened from the same application.
-    const projectOfOwed = (row: Row) => String(row.project_id ?? projects.find((p) => String(p.application_id) === String(row.application_id))?.ROWID ?? "");
-    const BUCKETS = [["current", "Not yet due"], ["d1_30", "1–30 days"], ["d31_60", "31–60 days"], ["d61_90", "61–90 days"], ["d90", "Over 90 days"]] as const;
-    const bucketOf = (due: string | null) => {
-      const late = due ? daysBetween(due, today) : 0;
-      return late <= 0 ? "current" : late <= 30 ? "d1_30" : late <= 60 ? "d31_60" : late <= 90 ? "d61_90" : "d90";
-    };
-    const ageing = BUCKETS.map(([key, label]) => ({ key, label, amount: sum(owed.filter((o) => bucketOf(o.due) === key), (o) => o.amount) }));
-    const overdueOwed = owed.filter((o) => bucketOf(o.due) !== "current");
+    // Receivables: unpaid fee and royalty invoices, aged by days past their due date (workflows/receivables.ts).
+    const owed = owedRows(agreements, instalments, reports);
+    const projectOfOwed = ownerOfOwed(projects);
+    const ageing = AGE_BUCKETS.map(([key, label]) => ({ key, label, amount: sum(owed.filter((o) => bucketOf(o.due, today) === key), (o) => o.amount) }));
+    const overdueOwed = owed.filter((o) => bucketOf(o.due, today) !== "current");
 
     // Store league: every opened store on its last three reported months against plan.
     const settings = auditSettings(tenant);
@@ -152,6 +141,7 @@ export function ownerRoutes(r: Router): void {
         audit_score: audit ? toNumOrNull(audit.score) : null, audit_rating: audit?.rating ?? null, audit_id: audit ? String(audit.ROWID) : null,
         open_actions: openActions.filter((a) => String(a.project_id) === pid).length,
         unpaid: finance ? sum(owed.filter((o) => projectOfOwed(o.row) === pid), (o) => o.amount) : null,
+        health_score: toNumOrNull(p.health_score), health_band: (p.health_band as string | null) ?? null,
       };
     }).sort((a, b) => (b.avg_net_sales ?? -1) - (a.avg_net_sales ?? -1) || String(a.project_code).localeCompare(String(b.project_code)));
 
