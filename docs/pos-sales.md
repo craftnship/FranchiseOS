@@ -48,7 +48,7 @@ With `POS`, on the report due day the job closes the month itself: it sums `pos_
 
 ## Health score
 
-The Reporting part gains the feed: a store on `POS` scores 100 when its feed is current, 60 when stale, and the "missing report" case no longer applies to it. A variance above tolerance in any of the last three months takes 20 points off Reporting, with the reason "Till and report differ by 12% in Sep".
+The Reporting part gains the feed: a store on the feed scores 100 when its feed is current, 60 when stale, and the "missing report" case no longer applies to it. A variance above tolerance in any of the last three months drops Reporting to 20, under the weak-part limit, so the store ranks no higher than Watch until those months roll off, with the reason "Till and report differ by 12% in Sep 2026". Under-reporting is the leak the feed exists to find, so it is never a two-point footnote.
 
 ## Screens
 

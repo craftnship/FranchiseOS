@@ -23,7 +23,8 @@ export function zohoCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): Zo
  * brand's own client is a Self Client (which has no redirect URI), else the brand's client.
  */
 export function posCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): ZohoAppCredentials | null {
-  if (env.ZOHO_POS_CLIENT_ID && env.ZOHO_POS_CLIENT_SECRET) return { clientId: env.ZOHO_POS_CLIENT_ID, clientSecret: env.ZOHO_POS_CLIENT_SECRET };
+  const id = env.ZOHO_POS_CLIENT_ID || env.ZOHO_FRANCHISEE_CLIENT_ID, secret = env.ZOHO_POS_CLIENT_SECRET || env.ZOHO_FRANCHISEE_CLIENT_SECRET;
+  if (id && secret) return { clientId: id, clientSecret: secret };
   return zohoCredentialsFromEnv(env);
 }
 

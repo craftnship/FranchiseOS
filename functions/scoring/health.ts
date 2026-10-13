@@ -66,8 +66,9 @@ export function complianceScore(c: NonNullable<HealthInputs["compliance"]>): num
 }
 
 export function reportingScore(r: NonNullable<HealthInputs["reporting"]>): number | null {
-  // A till feed replaces the report: current is full marks, stale loses some, a month where the franchisee's figure strayed loses more.
-  if (r.feed) return clamp((r.feed.status === "CONNECTED" ? 100 : 60) - (r.feed.variance.length ? 20 : 0));
+  // A till feed replaces the report: current is full marks, stale 60. A month where the franchisee's own figure strayed from
+  // the till scores 20, under the default weak-part limit, so the store ranks no higher than Watch until the months roll off.
+  if (r.feed) return r.feed.variance.length ? 20 : r.feed.status === "CONNECTED" ? 100 : 60;
   if (r.due <= 0) return null;
   return clamp(((r.on_time * 100) + (r.late * 50)) / r.due);
 }

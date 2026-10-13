@@ -130,6 +130,7 @@ describe("POS sales feed: connecting", () => {
 
   it("consents through the franchisee client when there is one, else the brand's", () => {
     expect(posCredentialsFromEnv({ ZOHO_CLIENT_ID: "brand", ZOHO_CLIENT_SECRET: "b", ZOHO_POS_CLIENT_ID: "pos", ZOHO_POS_CLIENT_SECRET: "p" } as NodeJS.ProcessEnv)).toEqual({ clientId: "pos", clientSecret: "p" });
+    expect(posCredentialsFromEnv({ ZOHO_CLIENT_ID: "brand", ZOHO_CLIENT_SECRET: "b", ZOHO_FRANCHISEE_CLIENT_ID: "fr", ZOHO_FRANCHISEE_CLIENT_SECRET: "f" } as NodeJS.ProcessEnv)).toEqual({ clientId: "fr", clientSecret: "f" });
     expect(posCredentialsFromEnv({ ZOHO_CLIENT_ID: "brand", ZOHO_CLIENT_SECRET: "b" } as NodeJS.ProcessEnv)).toEqual({ clientId: "brand", clientSecret: "b" });
     expect(posCredentialsFromEnv({} as NodeJS.ProcessEnv)).toBeNull();
   });
@@ -322,9 +323,11 @@ describe("POS sales feed: health score", () => {
   it("judges a store on the feed by whether it is current and whether the report strayed", () => {
     expect(reportingScore({ due: 0, on_time: 0, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [] } })).toBe(100);
     expect(reportingScore({ due: 3, on_time: 1, late: 2, feed: { status: "STALE", last_day: "2026-10-01", variance: [] } })).toBe(60);
-    expect(reportingScore({ due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } })).toBe(80);
-    const r = scoreHealth({ sales: null, payments: null, compliance: null, customer: null, reporting: { due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } } });
-    expect(r.parts.find((p) => p.part === "reporting")?.detail).toBe("Till and report differ by 12% in Sep 2026");
+    expect(reportingScore({ due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } })).toBe(20);
+    // A strayed report holds an otherwise healthy store at Watch, and is the first reason given.
+    const r = scoreHealth({ sales: { vs_plan_pct: 10, months: 3, months_under: 0 }, payments: { owed: 0, overdue: 0, oldest_days: 0, monthly_royalty: null }, compliance: null, customer: null, reporting: { due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } } });
+    expect(r).toMatchObject({ band: "WATCH", capped: true });
+    expect(r.reasons[0]).toMatchObject({ part: "reporting", text: "Till and report differ by 12% in Sep 2026" });
   });
 
   it("reads the feed from the store's rows", async () => {
@@ -333,6 +336,6 @@ describe("POS sales feed: health score", () => {
     await s.store.insert("sales_reports", { tenant_id: s.tid, project_id: s.project.ROWID, period: "2026-09", period_key: `${s.tid}:${s.project.ROWID}:2026-09`, status: "SUBMITTED", net_sales: 792_000, pos_net_sales: 900_000, variance_pct: -12 });
     const h = await computeNetworkHealth(s.store, { tenantId: s.tid }, "2026-10-11");
     expect(h.stores[0].inputs.reporting).toMatchObject({ feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } });
-    expect(h.stores[0].parts.find((p) => p.part === "reporting")).toMatchObject({ score: 80 });
+    expect(h.stores[0].parts.find((p) => p.part === "reporting")).toMatchObject({ score: 20 });
   });
 });
