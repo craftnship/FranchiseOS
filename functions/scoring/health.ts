@@ -22,12 +22,13 @@ export interface HealthInputs {
   /** What the store owes: oldest overdue age (0 when nothing is overdue yet) and a month's royalty when known. */
   payments: { owed: number; overdue: number; oldest_days: number; monthly_royalty: number | null } | null;
   compliance: { audit_score: number | null; critical_open: number; overdue_actions: number; expired_licences: number; audit_overdue: boolean } | null;
-  /** Months due and how they were reported; `feed` when the store's till sales arrive daily (docs/pos-sales.md). */
+  /** Months due and how they were reported; `feed` when the store's POS sales arrive daily (docs/pos-sales.md). */
   reporting: { due: number; on_time: number; late: number; feed?: FeedInput } | null;
   customer: { complaints: number; open: number } | null;
 }
 
-export interface FeedInput { status: "CONNECTED" | "STALE"; last_day: string | null; variance: { period: string; pct: number }[] }
+/** `variance`: recent months where the franchisee's report strayed from the POS figure, newest first; −12 means reported 12% under. */
+export interface FeedInput { status: "CONNECTED" | "STALE"; last_day: string | null; variance: { period: string; pct: number; pos?: number; reported?: number }[] }
 
 export interface HealthReason { part: HealthPart; score: number; text: string; money: string | null }
 export interface PartResult { part: HealthPart; score: number | null; weight: number; detail: string }
@@ -66,8 +67,8 @@ export function complianceScore(c: NonNullable<HealthInputs["compliance"]>): num
 }
 
 export function reportingScore(r: NonNullable<HealthInputs["reporting"]>): number | null {
-  // A till feed replaces the report: current is full marks, stale 60. A month where the franchisee's own figure strayed from
-  // the till scores 20, under the default weak-part limit, so the store ranks no higher than Watch until the months roll off.
+  // A POS feed replaces the report: current is full marks, stale 60. A month where the franchisee's own figure strayed from
+  // the POS figure scores 20, under the default weak-part limit, so the store ranks no higher than Watch until the months roll off.
   if (r.feed) return r.feed.variance.length ? 20 : r.feed.status === "CONNECTED" ? 100 : 60;
   if (r.due <= 0) return null;
   return clamp(((r.on_time * 100) + (r.late * 50)) / r.due);
@@ -113,8 +114,11 @@ function describe(part: HealthPart, inputs: HealthInputs, score: number | null):
       const r = inputs.reporting;
       if (r?.feed) {
         const v = r.feed.variance[0];
-        if (v) return { text: `Till and report differ by ${pct(v.pct)} in ${monthLabel(v.period)}`, money: null };
-        return { text: r.feed.status === "CONNECTED" ? "Till connected, sales come in daily" : `Till feed stale${r.feed.last_day ? ` since ${r.feed.last_day}` : ""}`, money: null };
+        if (v) {
+          const amounts = v.pos != null && v.reported != null ? ` (POS ${inr(v.pos)}, reported ${inr(v.reported)})` : "";
+          return { text: v.pct < 0 ? `${monthLabel(v.period)} sales under-reported by ${pct(v.pct)}${amounts}` : `${monthLabel(v.period)} report ${pct(v.pct)} above POS sales${amounts}`, money: null };
+        }
+        return { text: r.feed.status === "CONNECTED" ? "POS connected, sales come in daily" : `POS feed stale${r.feed.last_day ? ` since ${r.feed.last_day}` : ""}`, money: null };
       }
       if (!r || !r.due) return { text: "No sales reports due yet", money: null };
       const missing = r.due - r.on_time - r.late;

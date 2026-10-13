@@ -11,7 +11,7 @@ A 0–100 score made of five parts. Each part scores 0–100 on its own, and the
 | Sales | 35 | Average of the last three full reported months against the feasibility plan, less a penalty for each month under plan |
 | Payments | 25 | How old the oldest unpaid fee or royalty invoice is, and how the overdue amount compares with a month's royalty |
 | Compliance | 20 | The latest audit score, less open critical and overdue actions, expired licences and an overdue audit |
-| Reporting | 10 | Share of the last six sales reports that came in on time, by the tenant's report due day; for a store on the till feed, whether the feed is current and whether a recent report strayed from it |
+| Reporting | 10 | Share of the last six sales reports that came in on time, by the tenant's report due day; for a store on the POS feed, whether the feed is current and whether a recent report strayed from it |
 | Customer | 10 | Complaints from Zoho Desk. Left out until Desk is linked |
 
 - A part with no data (a store too new to have a full month, no audit yet, nothing owed) is left out and the other weights scale up.
@@ -37,7 +37,7 @@ Points between the rows are interpolated, then 5 points come off for each month 
 
 **Compliance.** Starts from the latest completed audit's score. Then 15 points come off per open critical action (up to 30), 5 per overdue action (up to 20), 15 per expired licence (up to 30), and 10 when the next audit is overdue. A store never audited scores 40 when its first audit is overdue, and is otherwise left out.
 
-**Reporting.** Over the last six months due, a report on time counts 100, late 50, missing 0. A store on the POS sales feed (docs/pos-sales.md) is judged by the feed instead: 100 while it is current, 60 when stale, and 20 when the franchisee's figure for any of the last three months differs from the till by more than the tolerance. 20 is under the default weak-part limit, so such a store ranks no higher than Watch until those months roll off, with the reason "Till and report differ by 12% in Sep 2026".
+**Reporting.** Over the last six months due, a report on time counts 100, late 50, missing 0. A store on the POS sales feed (docs/pos-sales.md) is judged by the feed instead: 100 while it is current, 60 when stale, and 20 when the franchisee's figure for any of the last three months differs from the POS figure by more than the tolerance. 20 is under the default weak-part limit, so such a store ranks no higher than Watch until those months roll off, with the reason "Sep 2026 sales under-reported by 12% (POS ₹6.4 L, reported ₹5.6 L)".
 
 ## Bands
 

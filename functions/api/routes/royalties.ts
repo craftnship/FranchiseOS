@@ -46,7 +46,7 @@ export function royaltyRoutes(r: Router): void {
     const { report, ...body } = parse(salesSchema, call.body);
     const file_ref = report ? await storeUpload(call, `projects/${call.params.id}/sales`, report) : undefined;
     const row = await submitReport(call.store, call.ctx, project, { ...body, file_ref }, today(call), portal ? "PORTAL" : "STAFF");
-    // The till's figure beside it, when the store has a feed.
+    // The POS figure beside it, when the store has a feed.
     return attachVariance(call.store, call.ctx, project, row, today(call));
   }, 201);
 

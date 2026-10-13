@@ -6,10 +6,10 @@ import { Dialog, Field, Form, FormError } from "./forms";
 import { DataTable, date, Icon, inr, Loaded, PageHeader, Panel, Pill } from "./ui";
 
 // The POS sales feed (docs/pos-sales.md): a franchisee connects their own Zoho Books from the portal
-// home, or uploads a daily CSV; staff see each store's till days beside what was reported.
+// home, or uploads a daily CSV; staff see each store's POS days beside what was reported.
 
 export const FEED_TONE: Record<string, string> = { CONNECTED: "good", STALE: "warn", NONE: "neutral" };
-export const FEED_TEXT: Record<string, string> = { CONNECTED: "Till connected", STALE: "Till feed stale", NONE: "No till feed" };
+export const FEED_TEXT: Record<string, string> = { CONNECTED: "POS connected", STALE: "POS feed stale", NONE: "No POS feed" };
 const CONN_TEXT: Record<string, string> = { ACTIVE: "Connected", FAILING: "Needs reconnecting", PENDING: "Choose organisation", DISCONNECTED: "Disconnected" };
 const CONN_TONE: Record<string, string> = { ACTIVE: "good", FAILING: "bad", PENDING: "warn", DISCONNECTED: "neutral" };
 const money = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : inr(Number(v)));
@@ -22,7 +22,7 @@ export function Variance({ pct, tolerance }: { pct: unknown; tolerance?: number 
   return <span style={{ color: beyond ? "var(--bad)" : undefined, fontWeight: beyond ? 600 : undefined }}>{v > 0 ? "+" : ""}{v}%</span>;
 }
 
-export const FeedPill = ({ status }: { status: unknown }) => <Pill value={FEED_TEXT[String(status)] ?? "No till feed"} tone={FEED_TONE[String(status)] ?? "neutral"} />;
+export const FeedPill = ({ status }: { status: unknown }) => <Pill value={FEED_TEXT[String(status)] ?? "No POS feed"} tone={FEED_TONE[String(status)] ?? "neutral"} />;
 
 /** Portal home: the franchisee's Zoho Books connection and each store's feed. */
 export function ConnectCard() {
@@ -52,7 +52,7 @@ export function ConnectCard() {
             {c.status === "ACTIVE" && c.last_error && <div className="notice warn"><Icon name="alert" /><span>{String(c.last_error)}</span></div>}
             <p className="muted" style={{ margin: "0 0 .5rem" }}>{c.org_name ? `${c.org_name}. ` : ""}We read daily sales totals only (invoices and credit notes), never customer details. Last pulled {c.last_pulled_at ? date(c.last_pulled_at) : "never"}.</p>
           </> : <p className="muted" style={{ margin: "0 0 .5rem" }}>{d.can_connect
-            ? "Connect the Zoho Books your till posts to and your daily sales flow in on their own; royalty is then worked out from what the till recorded. We only read sales totals, never customer details, and you can disconnect at any time."
+            ? "Connect the Zoho Books your POS posts to and your daily sales flow in on their own; royalty is then worked out from what the POS recorded. We only read sales totals, never customer details, and you can disconnect at any time."
             : "Upload your daily sales as a CSV from the Sales reports page until the Zoho Books connection is switched on."}</p>}
           <ul className="plain">
             {stores.map((s) => <li key={String(s.ROWID)} className="stat-line"><span className="code">{String(s.project_code)}</span><FeedPill status={s.feed} />{s.last_day ? <span className="muted">last day {date(s.last_day)}</span> : <Link to="/portal/sales">Upload daily sales</Link>}</li>)}
@@ -108,7 +108,7 @@ export function ZohoCallback() {
 
 const SAMPLE = "date,gross_sales,discounts,returns,tax,transactions\n2026-10-01,52400,1200,0,2620,118";
 
-/** One store's till days for a month, with CSV upload for stores whose till does not post to Books. */
+/** One store's POS days for a month, with CSV upload for stores whose POS does not post to Books. */
 export function PosPanel({ projectId, portal }: { projectId: string; portal?: boolean }) {
   const [period, setPeriod] = useState<string | undefined>(undefined);
   const load = useLoad(() => api<Row>("GET", `/projects/${projectId}/pos`, { query: { period } }), [projectId, period]);
@@ -123,15 +123,15 @@ export function PosPanel({ projectId, portal }: { projectId: string; portal?: bo
       const label = (p: string) => new Date(`${p}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
       const shift = (n: number) => { const [y, mo] = String(d.period).split("-").map(Number); const t = new Date(Date.UTC(y, mo - 1 + n, 1)); setPeriod(t.toISOString().slice(0, 7)); };
       return (
-        <Panel title={<>Daily sales from the till<FeedPill status={st.feed} /></>} flush action={<span className="panel-actions">
+        <Panel title={<>Daily sales from POS<FeedPill status={st.feed} /></>} flush action={<span className="panel-actions">
           <button className="btn ghost sm" onClick={() => shift(-1)} aria-label="Earlier month">‹</button>
           <select aria-label="Month" value={String(d.period)} onChange={(e) => setPeriod(e.target.value)}>{months.map((p) => <option key={p} value={p}>{label(p)}</option>)}</select>
           <button className="btn ghost sm" onClick={() => shift(1)} aria-label="Later month">›</button>
           {canUpload && <button className="btn sm" onClick={() => setUploading(true)}><Icon name="send" size={14} />Upload CSV</button>}
         </span>}>
           <dl className="summary flat">
-            <div><dt>Till net sales</dt><dd>{m.days ? inr(Number(m.net_sales)) : "—"}<span className="cell-sub">{m.days ? `${m.days} of ${m.days_expected} days` : "no days yet"}</span></dd></div>
-            <div><dt>Reported</dt><dd>{rep ? money(rep.basis === "POS" ? rep.reported_net_sales : rep.net_sales) : "—"}<span className="cell-sub">{rep ? (rep.basis === "POS" ? "billed on the till" : "franchisee's figure") : "not reported"}</span></dd></div>
+            <div><dt>POS net sales</dt><dd>{m.days ? inr(Number(m.net_sales)) : "—"}<span className="cell-sub">{m.days ? `${m.days} of ${m.days_expected} days` : "no days yet"}</span></dd></div>
+            <div><dt>Reported</dt><dd>{rep ? money(rep.basis === "POS" ? rep.reported_net_sales : rep.net_sales) : "—"}<span className="cell-sub">{rep ? (rep.basis === "POS" ? "royalty billed on POS" : "franchisee's figure") : "not reported"}</span></dd></div>
             <div><dt>Difference</dt><dd><Variance pct={rep?.variance_pct ?? (rep && m.days && Number(m.net_sales) > 0 ? Math.round((Number(rep.net_sales) / Number(m.net_sales) - 1) * 1000) / 10 : null)} tolerance={Number(d.tolerance_pct)} /><span className="cell-sub">tolerance {String(d.tolerance_pct)}%</span></dd></div>
             <div><dt>Source</dt><dd>{c ? <>{c.org_name ?? "Zoho Books"}<span className="cell-sub">{c.status === "ACTIVE" ? `last pulled ${c.last_pulled_at ? date(c.last_pulled_at) : "never"}` : CONN_TEXT[String(c.status)] ?? ""}</span></> : <>{st.last_day ? "CSV upload" : "None"}<span className="cell-sub">{st.last_day ? `last day ${date(st.last_day)}` : portal ? "connect Zoho Books from home" : "the franchisee can connect Zoho Books"}</span></>}</dd></div>
           </dl>
@@ -146,7 +146,7 @@ export function PosPanel({ projectId, portal }: { projectId: string; portal?: bo
             { key: "tax", label: "Tax", align: "right", render: (r) => money(r.tax) },
             { key: "transactions", label: "Bills", align: "right", render: (r) => r.transactions ?? "—" },
             { key: "source", label: "From", render: (r) => r.source === "BOOKS" ? "Zoho Books" : "Upload" },
-          ]} /> : <div className="state">No till sales for {label(String(d.period))} yet.</div>}
+          ]} /> : <div className="state">No POS sales for {label(String(d.period))} yet.</div>}
           {uploading && <UploadDialog projectId={projectId} busy={act.busy === "up"} error={act.error} onClose={() => { setUploading(false); act.clear(); }}
             onSave={(csv) => act.run("up", () => api<Row>("POST", `/projects/${projectId}/pos/upload`, { body: { csv } }), (r) => `${r.days} day${r.days === 1 ? "" : "s"} saved (${r.inserted} new, ${r.updated} updated).`).then((r) => r && setUploading(false))} />}
         </Panel>
@@ -188,18 +188,18 @@ function RoyaltySettingsForm({ initial }: { initial: RoyaltySettingsView }) {
     const r = await act.run("save", () => api<RoyaltySettingsView>("PUT", "/settings/royalties", { body: { royalty_basis: s.royalty_basis, pos_variance_tolerance_pct: s.pos_variance_tolerance_pct, royalty_auto_approve: s.royalty_auto_approve, report_due_day: s.report_due_day } }), "Saved. The next nightly run follows the new basis.");
     if (r) setS(r);
   };
-  const pull = () => act.run("pull", () => api<Row>("POST", "/admin/pos/pull"), (r) => `Pulled ${r.pulled} day${r.pulled === 1 ? "" : "s"} over ${r.connections} connection${r.connections === 1 ? "" : "s"}; ${r.closed} month${r.closed === 1 ? "" : "s"} closed from the till${r.failed ? `; ${r.failed} failed` : ""}.`);
+  const pull = () => act.run("pull", () => api<Row>("POST", "/admin/pos/pull"), (r) => `Pulled ${r.pulled} day${r.pulled === 1 ? "" : "s"} over ${r.connections} connection${r.connections === 1 ? "" : "s"}; ${r.closed} month${r.closed === 1 ? "" : "s"} closed from POS${r.failed ? `; ${r.failed} failed` : ""}.`);
   return (
-    <Panel title="Royalties" action={can("integration.admin") && <button type="button" className="btn ghost sm" disabled={!!act.busy} onClick={pull}>{act.busy === "pull" ? "Pulling…" : "Pull till sales now"}</button>}>
+    <Panel title="Royalties" action={can("integration.admin") && <button type="button" className="btn ghost sm" disabled={!!act.busy} onClick={pull}>{act.busy === "pull" ? "Pulling…" : "Pull POS sales now"}</button>}>
       {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
       <Form onSubmit={save} footer={<button className="btn" disabled={!!act.busy}>{act.busy === "save" ? "Saving…" : "Save royalties"}</button>}>
-        <Field label="Royalty is billed on" span hint={s.royalty_basis === "POS" ? "A store with a till feed has its month closed from the till on the due day; the franchisee's own figure is kept beside it. A store with no feed is billed on its report as before." : "The franchisee reports each month and finance approves it. Stores with a till feed show the difference, but it is not acted on."}>
+        <Field label="Royalty is billed on" span hint={s.royalty_basis === "POS" ? "A store with a POS feed has its month closed from POS sales on the due day; the franchisee's own figure is kept beside it. A store with no feed is billed on its report as before." : "The franchisee reports each month and finance approves it. Stores with a POS feed show the difference, but it is not acted on."}>
           <select value={s.royalty_basis} onChange={(e) => setS({ ...s, royalty_basis: e.target.value as "REPORTED" | "POS" })}>
             <option value="REPORTED">What the franchisee reports</option>
-            <option value="POS">What the till recorded (POS feed)</option>
+            <option value="POS">POS sales (what the POS recorded)</option>
           </select>
         </Field>
-        <Field label="Tolerance (%)" hint="A report further than this from the till is flagged for finance."><input type="number" min={0} max={100} step="0.5" value={s.pos_variance_tolerance_pct} onChange={(e) => setS({ ...s, pos_variance_tolerance_pct: Number(e.target.value) })} /></Field>
+        <Field label="Tolerance (%)" hint="A report further than this from the POS figure is flagged for finance."><input type="number" min={0} max={100} step="0.5" value={s.pos_variance_tolerance_pct} onChange={(e) => setS({ ...s, pos_variance_tolerance_pct: Number(e.target.value) })} /></Field>
         <Field label="Reports due by day" hint="Of the following month."><input type="number" min={1} max={28} value={s.report_due_day} onChange={(e) => setS({ ...s, report_due_day: Number(e.target.value) })} /></Field>
         <Field label="Approve on its own" span hint="With the POS basis: a month that is complete and within tolerance is approved and invoiced by the nightly job. Off, finance approves every month.">
           <label className="check"><input type="checkbox" checked={s.royalty_auto_approve} onChange={(e) => setS({ ...s, royalty_auto_approve: e.target.checked })} /> Invoice complete, in-tolerance months without a review</label>

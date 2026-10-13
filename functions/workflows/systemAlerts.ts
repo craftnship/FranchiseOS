@@ -18,7 +18,7 @@ export async function alertAdmins(store: Store, tenantId: string, n: { kind: str
 }
 
 export const JOB_STEPS = ["project_risk", "two_way_sync", "pos_sales", "store_health", "reservation_expiry", "reminders"] as const;
-export const JOB_LABEL: Record<string, string> = { project_risk: "Project risk and Zoho Projects sync", two_way_sync: "Books payments and CRM edits", pos_sales: "Till sales from franchisee Books", store_health: "Franchisee health score", reservation_expiry: "Territory reservations", reminders: "Daily reminders" };
+export const JOB_LABEL: Record<string, string> = { project_risk: "Project risk and Zoho Projects sync", two_way_sync: "Books payments and CRM edits", pos_sales: "POS sales from franchisee Books", store_health: "Franchisee health score", reservation_expiry: "Territory reservations", reminders: "Daily reminders" };
 
 /** One row per active tenant per step of the daily job, so the health screen shows the last run; a failure alerts. */
 export async function recordJobRun(store: Store, run: { step: string; ok: boolean; error?: string; requestId: string; now: Date }): Promise<void> {

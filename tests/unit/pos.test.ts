@@ -208,10 +208,10 @@ describe("POS sales feed: pulling", () => {
 });
 
 describe("POS sales feed: royalty on real sales", () => {
-  it("closes the month from the till with the variance against the franchisee's figure, and waits for finance", async () => {
+  it("closes the month from POS with the variance against the franchisee's figure, and waits for finance", async () => {
     const s = await setup({ settings: { royalty_basis: "POS" } });
     await s.store.insert("franchisee_connections", { tenant_id: s.tid, franchisee_id: s.fr.ROWID, provider: "ZOHO_BOOKS", zoho_dc: "IN", org_id: "ORG-1", refresh_token: "RT", status: "ACTIVE", conn_key: `${s.tid}:${s.fr.ROWID}:ZOHO_BOOKS` });
-    // Pepper reported September 12% under what the till will say.
+    // Pepper reported September 12% under what the POS will say.
     const rep = (await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-09", gross_sales: 800_000, net_sales: 792_000 })).data;
     const r = await s.job(() => s.feed("2026-08-20", "2026-10-10", 30_000));
     expect(r).toMatchObject({ closed: 2, approved: 0 });
@@ -225,10 +225,10 @@ describe("POS sales feed: royalty on real sales", () => {
     expect(l.feed).toMatchObject({ status: "CONNECTED", basis: "POS", last_day: "2026-10-10" });
     expect(l.months[0]).toMatchObject({ period: "2026-09", variance_pct: -12, strayed: true, pos: { net_sales: 900_000, days: 30, gaps: 0 } });
     const o = (await s.call("tony", "GET", "/dashboard/owner")).data;
-    expect(o.revenue.till).toEqual({ connected: 1, stale: 0, total: 1, basis: "POS" });
-    expect(o.attention.items.filter((i: any) => i.kind === "Till").map((i: any) => i.title)).toEqual(["PROJ-1 Sep 2026: till and report differ by 12%"]);
+    expect(o.revenue.pos).toEqual({ connected: 1, stale: 0, total: 1, basis: "POS" });
+    expect(o.attention.items.filter((i: any) => i.kind === "POS").map((i: any) => i.title)).toEqual(["PROJ-1 Sep 2026: sales under-reported by 12%"]);
     expect((await s.call("tony", "GET", "/royalties", undefined, NOW, { status: "SUBMITTED" })).data.totals).toMatchObject({ waiting: 2, strayed: 1 });
-    // Finance approves as usual; the invoice is on the till's figure.
+    // Finance approves as usual; the invoice is on the POS figure.
     const ok = await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`);
     expect(ok.data).toMatchObject({ status: "INVOICED", royalty_amount: 54_000 });
     // A rerun leaves the invoiced month alone and re-closes the open one.
@@ -253,7 +253,7 @@ describe("POS sales feed: royalty on real sales", () => {
   it("never approves a month with a gap in the feed, or one beyond tolerance", async () => {
     const s = await setup({ settings: { royalty_basis: "POS", royalty_auto_approve: true } });
     await s.store.insert("franchisee_connections", { tenant_id: s.tid, franchisee_id: s.fr.ROWID, provider: "ZOHO_BOOKS", zoho_dc: "IN", org_id: "ORG-1", refresh_token: "RT", status: "ACTIVE", conn_key: `${s.tid}:${s.fr.ROWID}:ZOHO_BOOKS` });
-    await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-08", gross_sales: 300_000, net_sales: 300_000 }); // 17% under the till
+    await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-08", gross_sales: 300_000, net_sales: 300_000 }); // 17% under the POS figure
     const r = await s.job(() => s.feed("2026-08-20", "2026-10-10", 30_000, { skip: ["2026-09-14"] }));
     expect(r).toMatchObject({ closed: 2, approved: 0 });
     expect(s.invoices).toHaveLength(0);
@@ -271,8 +271,8 @@ describe("POS sales feed: royalty on real sales", () => {
     expect(rep.basis ?? null).toBeNull();
     expect((await s.store.findMany("sales_reports", { tenant_id: s.tid })).length).toBe(1);
     const o = (await s.call("tony", "GET", "/dashboard/owner")).data;
-    expect(o.revenue.till.basis).toBe("REPORTED");
-    expect(o.attention.items.filter((i: any) => i.kind === "Till")).toHaveLength(1);
+    expect(o.revenue.pos.basis).toBe("REPORTED");
+    expect(o.attention.items.filter((i: any) => i.kind === "POS")).toHaveLength(1);
     expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).data).toMatchObject({ royalty_amount: 47_520 });
   });
 });
@@ -325,9 +325,14 @@ describe("POS sales feed: health score", () => {
     expect(reportingScore({ due: 3, on_time: 1, late: 2, feed: { status: "STALE", last_day: "2026-10-01", variance: [] } })).toBe(60);
     expect(reportingScore({ due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } })).toBe(20);
     // A strayed report holds an otherwise healthy store at Watch, and is the first reason given.
-    const r = scoreHealth({ sales: { vs_plan_pct: 10, months: 3, months_under: 0 }, payments: { owed: 0, overdue: 0, oldest_days: 0, monthly_royalty: null }, compliance: null, customer: null, reporting: { due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED", last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } } });
+    const inputs = { sales: { vs_plan_pct: 10, months: 3, months_under: 0 }, payments: { owed: 0, overdue: 0, oldest_days: 0, monthly_royalty: null }, compliance: null, customer: null, reporting: { due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED" as const, last_day: "2026-10-10", variance: [{ period: "2026-09", pct: -12 }] } } };
+    const r = scoreHealth(inputs);
     expect(r).toMatchObject({ band: "WATCH", capped: true });
-    expect(r.reasons[0]).toMatchObject({ part: "reporting", text: "Till and report differ by 12% in Sep 2026" });
+    expect(r.reasons[0]).toMatchObject({ part: "reporting", text: "Sep 2026 sales under-reported by 12%" });
+    // With the amounts, and the other way round when the report is the higher figure.
+    const feed = (pct: number) => ({ due: 3, on_time: 3, late: 0, feed: { status: "CONNECTED" as const, last_day: "2026-10-10", variance: [{ period: "2026-09", pct, pos: 2_108_960, reported: 1_883_000 }] } });
+    expect(scoreHealth({ ...inputs, reporting: feed(-10.7) }).reasons[0].text).toBe("Sep 2026 sales under-reported by 11% (POS ₹21.1 L, reported ₹18.8 L)");
+    expect(scoreHealth({ ...inputs, reporting: feed(4) }).reasons[0].text).toBe("Sep 2026 report 4% above POS sales (POS ₹21.1 L, reported ₹18.8 L)");
   });
 
   it("reads the feed from the store's rows", async () => {

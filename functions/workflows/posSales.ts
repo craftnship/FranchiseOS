@@ -12,7 +12,7 @@ import { approveReport, duePeriods, nextPeriod, periodLabel, periodOf, royaltySe
 
 // POS sales feed (docs/pos-sales.md): each store's daily sales from the franchisee's own Zoho Books,
 // or a CSV upload, into pos_sales; the month closed from those rows so royalty is billed on what the
-// till recorded, with the franchisee's own figure kept beside it as the variance.
+// POS recorded, with the franchisee's own figure kept beside it as the variance.
 
 export const POS_PROVIDER = "ZOHO_BOOKS";
 export type RoyaltyBasis = "REPORTED" | "POS";
@@ -83,7 +83,7 @@ export interface PosMonth {
   days: number; days_expected: number; gaps: string[]; first_day: string | null; last_day: string | null; rows: Row[];
 }
 
-/** One store's till rows for a month, with the days the month should have had (from the opening day to yesterday) that are missing. */
+/** One store's POS rows for a month, with the days the month should have had (from the opening day to yesterday) that are missing. */
 export async function posMonth(repo: TenantRepo, project: Row, period: string, today: string): Promise<PosMonth> {
   const from = `${period}-01`, before = `${nextPeriod(period)}-01`;
   const rows = await repo.findMany("pos_sales", { project_id: String(project.ROWID) }, { range: { column: "day", from, before }, orderBy: "day", limit: 40 });
@@ -101,13 +101,13 @@ export async function posMonth(repo: TenantRepo, project: Row, period: string, t
   };
 }
 
-/** The franchisee's figure against the till's, as a percentage of the till: −12 means they reported 12% less. */
+/** The franchisee's figure against the POS figure, as a percentage of the POS figure: −12 means they reported 12% less. */
 export const variancePct = (reported: number | null, pos: number): number | null => (reported === null || pos <= 0 ? null : round((reported / pos - 1) * 100, 1));
 
 export interface CloseResult { action: "no_feed" | "invoiced_already" | "closed" | "approved"; report?: Row; variance_pct?: number | null; gaps?: number }
 
 /**
- * Closes a month from the till: writes or updates the month's sales report on the POS basis, keeps
+ * Closes a month from the POS feed: writes or updates the month's sales report on the POS basis, keeps
  * the franchisee's own figure as the variance, and approves it when the tenant allows that and the
  * month is complete and within tolerance. Otherwise finance approves it as usual.
  */
@@ -202,7 +202,7 @@ export async function pullConnection(store: Store, ctx: TenantContext, conn: Row
       await deliver(store, ctx, {
         kind: "pos.connection_failed", entityType: "franchisee", entityId: String(conn.franchisee_id), userIds: owners, roles: ["FRANCHISE_MANAGER"],
         title: `Zoho Books sales feed stopped${conn.org_name ? ` for ${conn.org_name}` : ""}`,
-        body: `${error.split("\n")[0].slice(0, 160)} Reconnect Zoho Books from the portal home so royalty keeps using till sales.`,
+        body: `${error.split("\n")[0].slice(0, 160)} Reconnect Zoho Books from the portal home so royalty keeps using POS sales.`,
         link: "/portal", dedupe: `pos:failed:${conn.ROWID}:${opts.today}`,
       }, opts.now);
     }
@@ -223,7 +223,7 @@ export async function refreshFeedStatus(repo: TenantRepo, today: string, setting
   return stale;
 }
 
-/** Closes due months from the till for every opened store with a feed, when the tenant bills on POS. */
+/** Closes due months from the POS feed for every opened store with a feed, when the tenant bills on POS. */
 export async function closeDueMonths(store: Store, ctx: TenantContext, opts: { today: string; now: Date; books: ZohoBooksClient | null }): Promise<{ closed: number; approved: number }> {
   const repo = new TenantRepo(store, ctx.tenantId);
   const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
@@ -346,7 +346,7 @@ export function parseSalesCsv(text: string, bounds: { opened: string | null; tod
   return [...out.values()].sort((a, b) => a.day.localeCompare(b.day));
 }
 
-/** The till's months for a store's ledger: one read over the whole span, summed per month, with variance against the report. */
+/** The POS months for a store's ledger: one read over the whole span, summed per month, with variance against the report. */
 export async function posByPeriod(repo: TenantRepo, project: Row, periods: string[], today: string): Promise<Map<string, { net_sales: number; days: number; gaps: number; last_day: string | null }>> {
   const out = new Map<string, { net_sales: number; days: number; gaps: number; last_day: string | null }>();
   if (!periods.length) return out;
@@ -367,7 +367,7 @@ export async function posByPeriod(repo: TenantRepo, project: Row, periods: strin
 }
 
 /**
- * Puts the till's figure and the variance on a franchisee's report, so the Royalties screen and the
+ * Puts the POS figure and the variance on a franchisee's report, so the Royalties screen and the
  * attention list can show it without reading the days again. Reports already on the POS basis keep theirs.
  */
 export async function attachVariance(store: Store, ctx: Pick<TenantContext, "tenantId">, project: Row, report: Row, today: string): Promise<Row> {
@@ -399,5 +399,5 @@ export async function refreshVariance(store: Store, ctx: Pick<TenantContext, "te
 export const varianceText = (reported: number, pos: number, period: string) => {
   const v = variancePct(reported, pos);
   const inr = (n: number) => (n >= 100_000 ? `₹${round(n / 100_000, 1)} L` : `₹${Math.round(n).toLocaleString("en-IN")}`);
-  return v === null ? "" : `reported ${inr(reported)} for ${periodLabel(period)}, the till says ${inr(pos)} (${v > 0 ? "+" : ""}${v}%)`;
+  return v === null ? "" : `${periodLabel(period)} ${v < 0 ? `sales under-reported by ${Math.abs(v)}%` : `report ${v}% above POS sales`} (POS ${inr(pos)}, reported ${inr(reported)})`;
 };

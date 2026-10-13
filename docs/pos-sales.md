@@ -1,12 +1,12 @@
 # POS sales feed
 
-Daily sales straight from each store's own Zoho Books, so royalty is worked out from what the till recorded rather than what the franchisee typed in at month end. Under-reporting is the largest leak in franchising; this closes it without leaving the Zoho ecosystem.
+Daily sales straight from each store's own Zoho Books, so royalty is worked out from what the POS recorded rather than what the franchisee typed in at month end. Under-reporting is the largest leak in franchising; this closes it without leaving the Zoho ecosystem.
 
 ## The decision behind it
 
-Each franchisee is its own company with its own GSTIN, so its sales live in the franchisee's own Zoho Books organisation (fed by Zoho's POS or any till that posts to Books), not the brand's. FranchiseOS therefore connects to **each franchisee's Books**, read-only, with the franchisee's consent. The brand's own Books stays what it is today: where the brand raises fee and royalty invoices.
+Each franchisee is its own company with its own GSTIN, so its sales live in the franchisee's own Zoho Books organisation (fed by Zoho POS or any billing system that posts to Books), not the brand's. FranchiseOS therefore connects to **each franchisee's Books**, read-only, with the franchisee's consent. The brand's own Books stays what it is today: where the brand raises fee and royalty invoices.
 
-Stores whose till does not post to Books (or no till at all) can upload a daily CSV instead. The feed, the comparison and the royalty logic are the same whichever way the rows arrive.
+Stores whose POS does not post to Books (or that have no POS) can upload a daily CSV instead. The feed, the comparison and the royalty logic are the same whichever way the rows arrive.
 
 ## Connecting a store
 
@@ -41,20 +41,20 @@ Tenant setting `royalty_basis`: `REPORTED` (today's behaviour) or `POS`. A store
 With `POS`, on the report due day the job closes the month itself: it sums `pos_sales` for the month, writes or updates the month's `sales_reports` row with `basis = POS`, `source = POS`, `net_sales = pos_net_sales`, and submits it. The franchisee's own figure, when they entered one, is kept in `reported_net_sales` and the difference in `variance_pct`.
 
 - Variance within `pos_variance_tolerance_pct` (default 5) and `royalty_auto_approve = true`: the report is approved and invoiced by the job, with the usual claim so it is billed once.
-- Otherwise the report waits for finance as today, with the variance shown in red on the Royalties screen and a "Needs your attention" item: "Madurai reported ₹5.6 L, the till says ₹6.4 L (−12%)".
+- Otherwise the report waits for finance as today, with the variance shown in red on the Royalties screen and a "Needs your attention" item: "Madurai Sep 2026: sales under-reported by 12%" with "POS ₹6.4 L · Reported ₹5.6 L · Royalty billed on POS" beneath it.
 - A month with a gap in the feed (missing days) is never auto-approved; the gap is listed on the report.
 
 `royalty_auto_approve` defaults to `false` for the pilot; it is a settings switch under Admin → Settings → Royalties.
 
 ## Health score
 
-The Reporting part gains the feed: a store on the feed scores 100 when its feed is current, 60 when stale, and the "missing report" case no longer applies to it. A variance above tolerance in any of the last three months drops Reporting to 20, under the weak-part limit, so the store ranks no higher than Watch until those months roll off, with the reason "Till and report differ by 12% in Sep 2026". Under-reporting is the leak the feed exists to find, so it is never a two-point footnote.
+The Reporting part gains the feed: a store on the feed scores 100 when its feed is current, 60 when stale, and the "missing report" case no longer applies to it. A variance above tolerance in any of the last three months drops Reporting to 20, under the weak-part limit, so the store ranks no higher than Watch until those months roll off, with the reason "Sep 2026 sales under-reported by 12% (POS ₹6.4 L, reported ₹5.6 L)". When the report is the higher figure the reason reads "Sep 2026 report 4% above POS sales". Under-reporting is the leak the feed exists to find, so it is never a two-point footnote.
 
 ## Screens
 
-- **Portal home**: the Connect card, with status, organisation name, last pull and Disconnect. Per store: "Till connected · last day 12 Oct" or "Upload daily sales".
+- **Portal home**: the Connect card, with status, organisation name, last pull and Disconnect. Per store: "POS connected · last day 12 Oct" or "Upload daily sales".
 - **Royalties** (store page and the brand's Royalties page): each month shows POS net, reported net and the variance; the basis badge on the row; the feed status in the header.
-- **Owner dashboard**: "Till coverage: 4 of 5 stores" beside Stores trading; the revenue series uses POS where a store has it. The attention list carries variance and stale-feed items.
+- **Owner dashboard**: "POS coverage: 4 of 5 stores" beside Stores trading; the revenue series uses POS where a store has it. The attention list carries variance and stale-feed items.
 - **Admin → Settings → Royalties**: basis, tolerance, auto-approve.
 
 ## API
@@ -83,4 +83,8 @@ The state is signed and expires; the exchange refuses a tampered state and a fra
 
 ## Demo (aadai)
 
-No demo franchisee has a Books organisation, so the demo uses uploads: three months of daily rows for Chennai, Bengaluru and Coimbatore (Coimbatore's till 12% above its reported September) and no feed for Madurai and Hyderabad. The Royalties screen then shows the variance, the owner dashboard "Till coverage: 3 of 5", and Coimbatore's September waits for finance with the difference in red.
+No demo franchisee has a Books organisation, so the demo uses uploads: three months of daily rows for Chennai, Bengaluru and Coimbatore (Coimbatore's POS 12% above its reported September) and no feed for Madurai and Hyderabad. The Royalties screen then shows the variance, the owner dashboard "POS coverage: 3 of 5", and Coimbatore's September waits for finance with the difference in red.
+
+## Wording
+
+The app says **POS**, never "till": Indian retail users say POS or billing, and "till" read as jargon in review. A difference between the report and the POS figure is phrased by who is lower, with both amounts: "Sep 2026 sales under-reported by 11% (POS ₹21.1 L, reported ₹18.8 L)" or "Sep 2026 report 4% above POS sales". Internal names (`pos_*` columns, basis `POS`) are unchanged.

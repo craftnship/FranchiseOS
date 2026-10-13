@@ -91,9 +91,9 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
       const dueOn = `${nextPeriod(per)}-${String(dueDay).padStart(2, "0")}`;
       if (!r.submitted_at || day(r.submitted_at)! <= dueOn) onTime++; else late++;
     }
-    // A store on the till feed is judged by the feed instead: is it current, and did any recent month's report stray from it.
+    // A store on the POS feed is judged by the feed instead: is it current, and did any recent month's report stray from it.
     const feed = feedStatus(p, today, pos);
-    const strayed = mine.slice(-3).filter((x) => x.variance_pct != null && Math.abs(toNum(x.variance_pct)) > pos.pos_variance_tolerance_pct).map((x) => ({ period: String(x.period), pct: toNum(x.variance_pct) })).reverse();
+    const strayed = mine.slice(-3).filter((x) => x.variance_pct != null && Math.abs(toNum(x.variance_pct)) > pos.pos_variance_tolerance_pct).map((x) => ({ period: String(x.period), pct: toNum(x.variance_pct), pos: toNum(x.pos_net_sales), reported: toNum(x.reported_net_sales ?? x.net_sales) })).reverse();
     const reporting = feed !== "NONE"
       ? { due: periods.length, on_time: onTime, late, feed: { status: feed, last_day: day(p.pos_last_day), variance: strayed } }
       : periods.length ? { due: periods.length, on_time: onTime, late } : null;

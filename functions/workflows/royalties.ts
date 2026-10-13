@@ -223,16 +223,16 @@ export async function royaltyLedger(store: Store, ctx: TenantContext, project: R
   const pos = posSettings(tenant);
   const due = duePeriods(project, today);
   const thisMonth = periodOf(today);
-  // The till's figure for each month, beside what was reported (docs/pos-sales.md).
-  const till = await posByPeriod(repo, project, [...due, thisMonth], today);
+  // The POS figure for each month, beside what was reported (docs/pos-sales.md).
+  const posMonths = await posByPeriod(repo, project, [...due, thisMonth], today);
   const months = [...due].reverse().map((p) => {
     const r = byPeriod.get(p) ?? null;
     const dueOn = `${nextPeriod(p)}-${String(s.report_due_day).padStart(2, "0")}`;
-    const t = till.get(p) ?? null;
+    const t = posMonths.get(p) ?? null;
     const variance = r ? (r.basis === "POS" ? (r.variance_pct == null ? null : toNum(r.variance_pct)) : t ? variancePct(toNum(r.net_sales), t.net_sales) : null) : null;
     return { period: p, label: periodLabel(p), due_on: dueOn, late: !r && today > dueOn, report: r, pos: t, variance_pct: variance, strayed: variance !== null && Math.abs(variance) > pos.pos_variance_tolerance_pct };
   });
-  const mtd = till.get(thisMonth) ?? null;
+  const mtd = posMonths.get(thisMonth) ?? null;
   const sum = (k: string, f: (r: Row) => boolean = () => true) => round2(reports.filter(f).reduce((a, r) => a + toNum(r[k]), 0));
   const invoiced = (r: Row) => r.status === "INVOICED" || r.status === "PAID";
   return {
