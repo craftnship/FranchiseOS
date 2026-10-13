@@ -18,8 +18,8 @@ type Kind = "store" | "opening" | "territory";
 const KINDS: [Kind, string][] = [["store", "Open stores"], ["opening", "Openings in progress"], ["territory", "Open territories"]];
 const toneOf = (p: Row) => (p.kind === "store" ? "store" : p.kind === "opening" ? `opening ${String(p.status).toLowerCase()}` : `territory ${String(p.status).toLowerCase()}`);
 
-export default function NetworkMap() {
-  const load = useLoad(() => api<Row>("GET", "/dashboard/map"), []);
+export default function NetworkMap({ region = "" }: { region?: string }) {
+  const load = useLoad(() => api<Row>("GET", "/dashboard/map", { query: region ? { region } : {} }), [region]);
   const nav = useNavigate();
   const [shown, setShown] = useState<Record<Kind, boolean>>({ store: true, opening: true, territory: true });
   const [hover, setHover] = useState<Row | null>(null);

@@ -8,6 +8,7 @@ import { auditSettings, nextDue } from "../../workflows/audits";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
 import { allowed } from "../../common/rbac";
+import { regionFor, scopeOf } from "./regions";
 
 // The brand owner's view on the dashboard: what the trading network earns, what is owed, how
 // stores rank, how compliant they are, and the items waiting on the brand team today.
@@ -61,13 +62,24 @@ export function ownerRoutes(r: Router): void {
     const q = parse(querySchema, call.query);
     const finance = await allowed(call.ctx, "finance.view", call.permissions);
     const today = call.now.toISOString().slice(0, 10);
-    const [projects, sites, territories, apps, franchisees, models, reports, agreements, instalments, audits, actions, licences, orders, approvals, tenant] = await Promise.all([
+    const [allProjects, sites, territories, allApps, franchisees, allModels, allReports, allAgreements, allInstalments, allAudits, allActions, allLicences, allOrders, allApprovals, tenant] = await Promise.all([
       fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchise_applications"),
       fetchAll(call.repo, "franchisees"), fetchAll(call.repo, "feasibility_models"), fetchAll(call.repo, "sales_reports"), fetchAll(call.repo, "agreements"),
       fetchAll(call.repo, "fee_instalments"), fetchAll(call.repo, "audits"), fetchAll(call.repo, "corrective_actions"), fetchAll(call.repo, "licences"),
       fetchAll(call.repo, "purchase_orders"), fetchAll(call.repo, "approval_instances", { status: "PENDING" }), call.store.findOne("tenants", { ROWID: call.ctx.tenantId }),
     ]);
-    const place = storeNamer(projects, sites, territories, apps, franchisees);
+    const place = storeNamer(allProjects, sites, territories, allApps, franchisees);
+    // Limited to one region when asked, or when the caller is (regions.ts).
+    const { region, locked } = regionFor(call);
+    const scope = scopeOf(region, locked, { territories, sites, apps: allApps, projects: allProjects });
+    const inProject = (x: Row) => scope.projectId(x.project_id);
+    const projects = allProjects.filter(scope.project), apps = allApps.filter(scope.application);
+    const models = allModels.filter((m) => scope.applicationId(m.application_id));
+    const reports = allReports.filter(inProject), audits = allAudits.filter(inProject), actions = allActions.filter(inProject), licences = allLicences.filter(inProject), orders = allOrders.filter(inProject);
+    const agreements = allAgreements.filter((a) => scope.applicationId(a.application_id));
+    const agreementIds = new Set(agreements.map((a) => String(a.ROWID)));
+    const instalments = region ? allInstalments.filter((i) => agreementIds.has(String(i.agreement_id)) || inProject(i)) : allInstalments;
+    const approvals = region ? allApprovals.filter((a) => a.entity_type === "application" && scope.applicationId(a.entity_id)) : allApprovals;
     const projOf = new Map(projects.map((p) => [String(p.ROWID), p]));
     const opened = projects.filter((p) => p.status === "OPENED" && p.actual_opening_date);
     const live = (pid: unknown) => { const p = projOf.get(String(pid)); return !!p && p.status !== "CLOSED"; };
@@ -201,7 +213,7 @@ export function ownerRoutes(r: Router): void {
     items.sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone] || String(a.date ?? "9999").localeCompare(String(b.date ?? "9999")));
 
     return {
-      as_of: call.now.toISOString(), months: q.months,
+      as_of: call.now.toISOString(), months: q.months, region, region_locked: locked,
       period: { from: cur[0], to: last, label: q.months === 1 ? periodLabel(last) : `${periodLabel(cur[0])} to ${periodLabel(last)}`, previous_label: q.months === 1 ? periodLabel(prev[0]) : `${periodLabel(prev[0])} to ${periodLabel(prev.at(-1)!)}` },
       finance,
       revenue: finance ? {

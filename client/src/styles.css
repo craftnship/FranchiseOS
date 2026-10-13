@@ -641,3 +641,4 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .map-key i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1.5px solid transparent; }
 .map-key i.store { background: #17b26a; } .map-key i.opening { background: #2e90fa; } .map-key i.opening.amber { background: #f79009; } .map-key i.opening.red { background: #f04438; }
 .map-key i.territory { background: var(--surface); border-color: #98a2b3; } .map-key i.territory.reserved { background: #fde4b5; border-color: #f79009; } .map-key i.territory.allocated { background: #d1e0ff; border-color: #5b7ff5; }
+.region-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .75rem; border: 1px solid var(--border); border-radius: 8px; font-size: .85rem; font-weight: 600; background: var(--surface); }

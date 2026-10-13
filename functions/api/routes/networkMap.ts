@@ -3,6 +3,7 @@ import { toNumOrNull } from "../../common/values";
 import { cityCoords } from "../../common/indiaCities";
 import { Router } from "../router";
 import { fetchAll } from "./shared";
+import { regionFor, scopeOf } from "./regions";
 import { storeNamer } from "./owner";
 
 // The network map: open stores, openings in progress and territories not yet taken, each placed by
@@ -25,6 +26,8 @@ export function networkMapRoutes(r: Router): void {
     const by = (rows: Row[]) => new Map(rows.map((x) => [String(x.ROWID), x]));
     const siteOf = by(sites), terOf = by(territories), appOf = by(apps);
     const place = storeNamer(projects, sites, territories, apps, franchisees);
+    const { region, locked } = regionFor(call);
+    const scope = scopeOf(region, locked, { territories, sites, apps, projects });
     const points: MapPoint[] = [];
     const unplaced: { kind: PointKind; name: string }[] = [];
     const used = new Set<string>();
@@ -35,7 +38,7 @@ export function networkMapRoutes(r: Router): void {
     };
     for (const p of projects) {
       const kind: PointKind | null = p.status === "OPENED" ? "store" : ACTIVE.includes(String(p.status)) ? "opening" : null;
-      if (!kind) continue;
+      if (!kind || !scope.project(p)) continue;
       const site = siteOf.get(String(p.site_id));
       const ter = terOf.get(String(site?.territory_id ?? appOf.get(String(p.application_id))?.territory_id ?? ""));
       if (ter) used.add(String(ter.ROWID));
@@ -50,7 +53,7 @@ export function networkMapRoutes(r: Router): void {
     }
     // Territories with no store or opening on them yet: where the network can still grow.
     for (const t of territories) {
-      if (used.has(String(t.ROWID)) || !["AVAILABLE", "RESERVED", "ALLOCATED"].includes(String(t.status))) continue;
+      if (used.has(String(t.ROWID)) || !scope.territory(t) || !["AVAILABLE", "RESERVED", "ALLOCATED"].includes(String(t.status))) continue;
       const loc = locate(undefined, t, t.city);
       if (!loc) { unplaced.push({ kind: "territory", name: String(t.name ?? t.territory_code) }); continue; }
       const score = toNumOrNull(t.opportunity_score);
@@ -69,7 +72,7 @@ export function networkMapRoutes(r: Router): void {
       points,
       by_state: [...states.values()].sort((a, b) => b.stores - a.stores || b.openings - a.openings || b.territories - a.territories || a.state.localeCompare(b.state)),
       totals: { stores: points.filter((p) => p.kind === "store").length, openings: points.filter((p) => p.kind === "opening").length, territories: points.filter((p) => p.kind === "territory").length },
-      unplaced,
+      unplaced, region,
     };
   });
 }

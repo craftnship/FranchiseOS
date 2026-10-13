@@ -13,7 +13,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   PROJECT_MANAGER: ["project.write", "project.open", "dashboard.view"],
   TRAINING_MANAGER: ["project.write"],
   OPERATIONS_MANAGER: ["dashboard.view"],
-  REGIONAL_MANAGER: ["site.write", "site.evaluate", "territory.reserve", "territory.write"],
+  REGIONAL_MANAGER: ["site.write", "site.evaluate", "territory.reserve", "territory.write", "dashboard.view"],
   FRANCHISEE: ["application.submit", "application.withdraw", "portal.view"],
   FRANCHISEE_STAFF: ["portal.view"],
   VENDOR: ["portal.view"],

@@ -6,6 +6,8 @@ import { log } from "../../common/logger";
 import { ROLES } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { Call, parse, Router } from "../router";
+import { checkRegion } from "./regions";
+import { fetchAll } from "./shared";
 
 // User and role administration for the caller's tenant (user.admin; SUPER_ADMIN by default).
 
@@ -16,11 +18,13 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
   role,
   franchisee_id: z.string().max(40).nullish(),
+  region: z.string().trim().max(60).nullish(),
 });
 const changeSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   role: role.optional(),
   franchisee_id: z.string().max(40).nullable().optional(),
+  region: z.string().trim().max(60).nullable().optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 }).refine((b) => Object.keys(b).length > 0, { message: "Nothing to change." });
 
@@ -38,12 +42,21 @@ async function checkFranchisee(call: Call, roleCode: string, franchiseeId: strin
   }
 }
 
+/** Staff can be limited to one region (dashboards show only it); a regional manager must be. */
+async function checkUserRegion(call: Call, roleCode: string, region: string | null | undefined): Promise<string | null> {
+  const portal = PORTAL_ROLES.has(roleCode) || roleCode === "VENDOR";
+  if (portal && region) throw new AppError("VALIDATION_FAILED", "Franchisee and vendor users aren't limited by region.", { region: "only for staff roles" });
+  if (roleCode === "REGIONAL_MANAGER" && !region?.trim()) throw new AppError("VALIDATION_FAILED", "Regional managers need a region.", { region: "required for this role" });
+  return portal ? null : checkRegion(call, region);
+}
+
 function view(u: Row, roles: Map<string, Row>, franchisees: Map<string, Row>): Row {
   const r = [...roles.values()].find((x) => String(x.ROWID) === String(u.role_id));
   const f = u.franchisee_id ? franchisees.get(String(u.franchisee_id)) : null;
   return {
     id: String(u.ROWID), name: u.name ?? null, email: u.email, status: u.status, role: r?.code ?? null,
     franchisee: f ? { id: String(f.ROWID), name: f.display_name ?? f.franchise_code } : null,
+    region: u.region ?? null,
     // Signed in at least once: the row carries their Catalyst user id rather than an invite key.
     signed_in: u.status !== "INVITED",
     created_at: u.CREATEDTIME ?? null,
@@ -68,6 +81,7 @@ export function userRoutes(r: Router): void {
         return { code: c, name: row.name ?? c, permissions: c === "SUPER_ADMIN" ? ["*"] : (byRole.get(String(row.ROWID)) ?? []).sort(), active_users: counts.get(String(row.ROWID)) ?? 0, portal: PORTAL_ROLES.has(c) || c === "VENDOR" };
       }),
       franchisees: franchisees.map((f) => ({ id: String(f.ROWID), name: f.display_name ?? f.franchise_code })),
+      regions: [...new Set((await fetchAll(call.repo, "territories")).map((t) => String(t.region ?? "").trim()).filter(Boolean))].sort(),
       invites_by_email: !!call.auth,
     };
   });
@@ -78,6 +92,7 @@ export function userRoutes(r: Router): void {
     const roleRow = roles.get(b.role);
     if (!roleRow) throw new AppError("VALIDATION_FAILED", "Unknown role.", { role: "not set up for this tenant" });
     await checkFranchisee(call, b.role, b.franchisee_id);
+    const region = await checkUserRegion(call, b.role, b.region);
     const existing = (await call.store.findMany("users", { email: b.email }, { limit: 5 })).concat(await call.store.findMany("users", { external_user_id: pendingKey(b.email) }, { limit: 1 }));
     if (existing.length) throw new AppError("VALIDATION_FAILED", "Someone with this email already has a FranchiseOS account.", { email: "already added" });
     // Catalyst sends the invitation email when invites are on; otherwise the person signs up or is
@@ -95,8 +110,8 @@ export function userRoutes(r: Router): void {
         log("warn", "user.invite_failed", { request_id: call.ctx.requestId, error: String((e as Error)?.message ?? e).slice(0, 300) });
       }
     }
-    const row = await call.repo.insert("users", { email: b.email, name: b.name, status: "INVITED", role_id: String(roleRow.ROWID), external_user_id: externalUserId, franchisee_id: b.franchisee_id ?? null });
-    await logActivity(call.store, call.ctx, { entityType: "user", entityId: String(row.ROWID), action: "user:invited", metadata: { email: b.email, role: b.role, franchisee_id: b.franchisee_id ?? null, email_sent: invited } });
+    const row = await call.repo.insert("users", { email: b.email, name: b.name, status: "INVITED", role_id: String(roleRow.ROWID), external_user_id: externalUserId, franchisee_id: b.franchisee_id ?? null, region });
+    await logActivity(call.store, call.ctx, { entityType: "user", entityId: String(row.ROWID), action: "user:invited", metadata: { email: b.email, role: b.role, franchisee_id: b.franchisee_id ?? null, region, email_sent: invited } });
     const franchisees = new Map((await call.repo.findMany("franchisees", {}, { limit: 300 })).map((f) => [String(f.ROWID), f]));
     return { user: view(row, roles, franchisees), email_sent: invited };
   }, 201);
@@ -111,6 +126,7 @@ export function userRoutes(r: Router): void {
     const nextFranchisee = b.franchisee_id !== undefined ? b.franchisee_id : (PORTAL_ROLES.has(nextRole) || nextRole === "VENDOR" ? (user.franchisee_id as string | null) : null);
     if (b.role && !roles.has(b.role)) throw new AppError("VALIDATION_FAILED", "Unknown role.", { role: "not set up for this tenant" });
     await checkFranchisee(call, nextRole, nextFranchisee);
+    const nextRegion = await checkUserRegion(call, nextRole, b.region !== undefined ? b.region : (user.region as string | null));
     const self = String(user.ROWID) === call.ctx.userId;
     if (self && (b.status === "INACTIVE" || (b.role && b.role !== current?.code))) {
       throw new AppError("VALIDATION_FAILED", "You can't deactivate yourself or change your own role.", { [b.status ? "status" : "role"]: "not on your own account" });
@@ -126,6 +142,7 @@ export function userRoutes(r: Router): void {
     if (b.name !== undefined && b.name !== user.name) { patch.name = b.name; changes.name = { from: user.name ?? null, to: b.name }; }
     if (b.role && b.role !== current?.code) { patch.role_id = String(roles.get(b.role)!.ROWID); changes.role = { from: current?.code ?? null, to: b.role }; }
     if (String(nextFranchisee ?? "") !== String(user.franchisee_id ?? "")) { patch.franchisee_id = nextFranchisee ?? null; changes.franchisee_id = { from: user.franchisee_id ?? null, to: nextFranchisee ?? null }; }
+    if (String(nextRegion ?? "") !== String(user.region ?? "")) { patch.region = nextRegion; changes.region = { from: user.region ?? null, to: nextRegion }; }
     // Reactivating an invite that never signed in puts it back to INVITED.
     if (b.status && b.status !== user.status && !(user.status === "INVITED" && b.status === "ACTIVE")) {
       const to = b.status === "ACTIVE" && String(user.external_user_id).startsWith("invite:") ? "INVITED" : b.status;

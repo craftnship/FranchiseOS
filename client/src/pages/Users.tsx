@@ -35,6 +35,7 @@ export function Users() {
                 { key: "name", label: "Name", sort: (u) => String(u.name ?? u.email), render: (u) => <>{u.name ?? <span className="muted">—</span>}<span className="cell-sub">{u.email}</span></> },
                 { key: "role", label: "Role", render: (u) => (u.role ? label(u.role) : <span className="muted">No role</span>) },
                 { key: "franchisee", label: "Franchisee", sort: (u) => String(u.franchisee?.name ?? "~"), render: (u) => u.franchisee?.name ?? <span className="muted">—</span> },
+                { key: "region", label: "Region", sort: (u) => String(u.region ?? "~"), render: (u) => u.region ?? <span className="muted">All</span> },
                 { key: "status", label: "Status", render: (u) => <>{<Pill value={u.status === "INVITED" ? "Invited" : u.status} tone={STATUS_TONE[String(u.status)]} />}{u.status === "INVITED" && <span className="cell-sub">Not signed in yet</span>}</> },
                 { key: "created_at", label: "Added", render: (u) => date(u.created_at) },
                 { key: "_act", label: "", render: (u) => (
@@ -57,7 +58,7 @@ export function Users() {
               ]} />
               <p className="panel-foot muted">What each role can do applies to everyone in the tenant who holds it. It can't be edited here yet.</p>
             </Panel>
-            {(adding || editing) && <UserDialog user={editing} roles={roles} franchisees={d.franchisees as Row[]} invites={!!d.invites_by_email} busy={!!act.busy} error={act.error} onClose={close}
+            {(adding || editing) && <UserDialog user={editing} roles={roles} franchisees={d.franchisees as Row[]} regions={(d.regions ?? []) as string[]} invites={!!d.invites_by_email} busy={!!act.busy} error={act.error} onClose={close}
               onSave={(body) => (editing
                 ? act.run("save", () => api<Row>("PATCH", `/admin/users/${editing.id}`, { body }), "Saved.")
                 : act.run("save", () => api<Row>("POST", "/admin/users", { body }), (r) => r.email_sent ? `Added ${body.email}. Catalyst has emailed them an invitation.` : `Added ${body.email}. They get access the first time they sign in with that email.`)
@@ -73,19 +74,22 @@ export function Users() {
   );
 }
 
-function UserDialog({ user, roles, franchisees, invites, busy, error, onSave, onClose }: { user: Row | null; roles: Row[]; franchisees: Row[]; invites: boolean; busy: boolean; error: ApiError | null; onSave: (b: Row) => void; onClose: () => void }) {
+function UserDialog({ user, roles, franchisees, regions, invites, busy, error, onSave, onClose }: { user: Row | null; roles: Row[]; franchisees: Row[]; regions: string[]; invites: boolean; busy: boolean; error: ApiError | null; onSave: (b: Row) => void; onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState(String(user?.name ?? ""));
   const [role, setRole] = useState(String(user?.role ?? ""));
   const [fr, setFr] = useState(String(user?.franchisee?.id ?? ""));
+  const [region, setRegion] = useState(String(user?.region ?? ""));
   const portal = PORTAL.has(role) || role === "VENDOR";
   const submit = () => {
-    if (!user) return onSave({ email: email.trim(), name: name.trim(), role, franchisee_id: portal && fr ? fr : null });
+    if (!user) return onSave({ email: email.trim(), name: name.trim(), role, franchisee_id: portal && fr ? fr : null, region: !portal && region ? region : null });
     const body: Row = {};
     if (name.trim() !== String(user.name ?? "")) body.name = name.trim();
     if (role !== user.role) body.role = role;
     const nextFr = portal ? fr || null : null;
     if ((nextFr ?? "") !== String(user.franchisee?.id ?? "")) body.franchisee_id = nextFr;
+    const nextRegion = portal ? null : region || null;
+    if ((nextRegion ?? "") !== String(user.region ?? "")) body.region = nextRegion;
     if (Object.keys(body).length) onSave(body); else onClose();
   };
   const f = error?.fields ?? {};
@@ -104,6 +108,12 @@ function UserDialog({ user, roles, franchisees, invites, busy, error, onSave, on
           <select value={fr} onChange={(e) => setFr(e.target.value)} required={role !== "VENDOR"}>
             <option value="">{role === "VENDOR" ? "None" : "Choose a franchisee"}</option>
             {franchisees.map((x) => <option key={String(x.id)} value={String(x.id)}>{String(x.name)}</option>)}
+          </select>
+        </Field>}
+        {!portal && role && regions.length > 0 && <Field label="Region" span error={f.region} hint="Their dashboards and map show this region only. Leave as all regions for head-office staff.">
+          <select value={region} onChange={(e) => setRegion(e.target.value)} required={role === "REGIONAL_MANAGER"}>
+            <option value="">{role === "REGIONAL_MANAGER" ? "Choose a region" : "All regions"}</option>
+            {regions.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </Field>}
         <div className="span"><FormError error={error} /></div>

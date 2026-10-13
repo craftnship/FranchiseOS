@@ -8,9 +8,11 @@ import { addDays, launchSettings, networkLaunches } from "../../workflows/launch
 import { storeNamer } from "./owner";
 import { allowed } from "../../common/rbac";
 import { separateInstalments } from "../../workflows/funding";
+import { regionScope } from "./regions";
 
 // Executive dashboards (spec §24, FOS-059..063). Every KPI carries `drill`: the list route and
 // query that returns the records behind the number. Computed live from Data Store at pilot scale.
+// Each one takes `region` (regions.ts); a caller limited to a region always gets theirs.
 
 interface Kpi { value: number | null; drill?: { path: string; query: Record<string, string> } }
 const kpi = (value: number | null, path?: string, query: Record<string, string> = {}): Kpi => (path ? { value, drill: { path, query } } : { value });
@@ -35,10 +37,16 @@ export function dashboardRoutes(r: Router): void {
     const today = call.now.toISOString().slice(0, 10);
     // Fee figures are for callers with finance.view only.
     const finance = await allowed(call.ctx, "finance.view", call.permissions);
-    const [franchisees, apps, projects, feasibility, agreements, instalments, audits] = await Promise.all([
-      fetchAll(call.repo, "franchisees"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "feasibility_models"),
+    const [scope, allFranchisees, allApps, allProjects, allFeasibility, allAgreements, allInstalments, allAudits] = await Promise.all([
+      regionScope(call), fetchAll(call.repo, "franchisees"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "feasibility_models"),
       fetchAll(call.repo, "agreements", { status: "SIGNED" }), fetchAll(call.repo, "fee_instalments"), fetchAll(call.repo, "audits", { status: "COMPLETED" }),
     ]);
+    const franchisees = allFranchisees.filter(scope.franchisee), apps = allApps.filter(scope.application), projects = allProjects.filter(scope.project);
+    const feasibility = allFeasibility.filter((f) => scope.applicationId(f.application_id));
+    const agreements = allAgreements.filter((a) => scope.applicationId(a.application_id));
+    const agreementIds = new Set(agreements.map((a) => String(a.ROWID)));
+    const instalments = scope.region ? allInstalments.filter((i) => agreementIds.has(String(i.agreement_id)) || scope.projectId(i.project_id)) : allInstalments;
+    const audits = allAudits.filter((a) => scope.projectId(a.project_id));
     // Fee figures come from the copy of each Books invoice kept on the agreement (fees.ts) and on
     // each later instalment (funding.ts); an instalment that is the signing invoice counts once.
     const billed = agreements.filter((a) => a.fee_status && a.fee_status !== "VOID");
@@ -49,7 +57,8 @@ export function dashboardRoutes(r: Router): void {
     const openApps = apps.filter((a) => OPEN_APPS.includes(String(a.status)));
     const active = projects.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
     // Opening day: new stores behind their launch sales plan, and agreements inside the renewal notice with nothing decided.
-    const launches = (await networkLaunches(call.store, call.ctx, today)).totals as { watching: number; behind: number };
+    const watched = ((await networkLaunches(call.store, call.ctx, today)).stores as Row[]).filter((x) => x.stage === "WATCH" && scope.projectId(x.project_id));
+    const launches = { watching: watched.length, behind: watched.filter((x) => x.behind).length };
     const notice = launchSettings(await call.store.findOne("tenants", { ROWID: call.ctx.tenantId })).renewal_notice_days;
     const renewalsDue = agreements.filter((a) => a.expiry_date && String(a.expiry_date).slice(0, 10) <= addDays(today, notice) && !["RENEWED", "NOT_RENEWING"].includes(String(a.renewal_status ?? ""))).length;
     return {
@@ -78,7 +87,8 @@ export function dashboardRoutes(r: Router): void {
   });
 
   r.on("GET", "/dashboard/pipeline", "dashboard.view", async (call) => {
-    const apps = await fetchAll(call.repo, "franchise_applications");
+    const [scope, all] = await Promise.all([regionScope(call), fetchAll(call.repo, "franchise_applications")]);
+    const apps = all.filter(scope.application);
     const counts = countBy(apps, "status");
     // Funnel stage n counts every application that reached it, so later stages include earlier ones.
     const reached = FUNNEL.map((s, i) => ({ stage: s, count: FUNNEL.slice(i).reduce((n, later) => n + (counts[later] ?? 0), 0) }));
@@ -99,7 +109,8 @@ export function dashboardRoutes(r: Router): void {
   r.on("GET", "/dashboard/openings", "dashboard.view", async (call) => {
     const q = parse(z.object({ months: z.coerce.number().int().min(1).max(24).default(12) }), call.query);
     const today = call.now.toISOString().slice(0, 10);
-    const projects = await fetchAll(call.repo, "franchise_projects");
+    const [scope, all] = await Promise.all([regionScope(call), fetchAll(call.repo, "franchise_projects")]);
+    const projects = all.filter(scope.project);
     const byMonth: Record<string, { planned: number; opened: number }> = {};
     for (const p of projects) {
       const opened = p.status === "OPENED" || p.status === "CLOSED";
@@ -123,10 +134,10 @@ export function dashboardRoutes(r: Router): void {
 
   r.on("GET", "/dashboard/risk", "dashboard.view", async (call) => {
     const today = call.now.toISOString().slice(0, 10);
-    const [all, sites, territories, apps, franchisees] = await Promise.all([
-      fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchisees"),
+    const [scope, all, sites, territories, apps, franchisees] = await Promise.all([
+      regionScope(call), fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchise_applications"), fetchAll(call.repo, "franchisees"),
     ]);
-    const projects = all.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)));
+    const projects = all.filter((p) => ACTIVE_PROJECTS.includes(String(p.status)) && scope.project(p));
     const atRisk = projects
       .filter((p) => p.status === "AT_RISK" || p.risk_level === "HIGH" || isSlipping(p) || isDelayed(p, today))
       .sort((a, b) => toNum(b.forecast_slip_days) - toNum(a.forecast_slip_days) || toNum(a.readiness_score) - toNum(b.readiness_score));
@@ -164,7 +175,8 @@ export function dashboardRoutes(r: Router): void {
   });
 
   r.on("GET", "/dashboard/territories", "dashboard.view", async (call) => {
-    const territories = await fetchAll(call.repo, "territories");
+    const [scope, all] = await Promise.all([regionScope(call), fetchAll(call.repo, "territories")]);
+    const territories = all.filter(scope.territory);
     return {
       by_status: Object.entries(countBy(territories, "status")).map(([status, n]) => ({ status, ...kpi(n, "/territories", { status }) })),
       // Map points for the opportunity map; territories without coordinates are listed but not plotted.

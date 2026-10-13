@@ -531,3 +531,14 @@ No schema, permission or setting changes.
 - **The openings tile** shows how many openings are on pace, instead of the average readiness.
 - **The map shows its CC BY 4.0 credit.**
 - **Failed job steps** record the full error.
+
+## Regional view (2026-10-13)
+
+- **Region filter.** The dashboard has a region picker, shown when territories use more than one `region`. Every panel follows it: `/dashboard/network`, `/owner`, `/pipeline`, `/openings`, `/risk`, `/territories`, `/map` and `/analytics` all take `?region=`, and `GET /dashboard/regions` lists the regions.
+- **How records get a region.** A store or opening takes its site's territory, else its application's territory. An application takes its site's territory, else its own. Fees, reports, audits, licences and purchase orders follow their store.
+- **Regional managers.** A user with a `region` on their row always sees that region on these endpoints, whatever they ask for. Regional managers must have one: user admin refuses a regional manager without a region, and refuses a region no territory uses. Any other staff user can also be limited to a region. Franchisee and vendor users can't be.
+- **New permission grant.** `REGIONAL_MANAGER` now gets `dashboard.view` (not `finance.view`). An existing tenant needs:
+  - the `region` varchar column added to `users`
+  - a `role_permissions` row for `REGIONAL_MANAGER` with `perm_key = <tenant_id>:REGIONAL_MANAGER:dashboard.view`
+  - a region set on each existing regional manager
+- **Not yet limited by region:** the list pages behind the drill links (projects, applications and so on) show the whole network.

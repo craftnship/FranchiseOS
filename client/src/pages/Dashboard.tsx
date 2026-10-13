@@ -44,18 +44,25 @@ const KIND_ICON: Record<string, string> = { Approval: "check", "Sales report": "
 export function Dashboard() {
   const [params, setParams] = useSearchParams();
   const months = params.get("months") ?? "1";
-  const network = useLoad(() => api<Network>("GET", "/dashboard/network"), []);
-  const owner = useLoad(() => api<Row>("GET", "/dashboard/owner", { query: { months } }), [months]);
-  const pipeline = useLoad(() => api<Row>("GET", "/dashboard/pipeline"), []);
-  const openings = useLoad(() => api<Row>("GET", "/dashboard/openings"), []);
-  const risk = useLoad(() => api<Row>("GET", "/dashboard/risk"), []);
-  const territories = useLoad(() => api<Row>("GET", "/dashboard/territories"), []);
-  const reload = () => [network, owner, pipeline, openings, risk, territories].forEach((l) => l.reload());
+  // Every panel follows the region picked here; a regional manager always sees their own (server-side).
+  const region = params.get("region") ?? "";
+  const rq = region ? { region } : {};
+  const regions = useLoad(() => api<Row>("GET", "/dashboard/regions"), []);
+  const network = useLoad(() => api<Network>("GET", "/dashboard/network", { query: rq }), [region]);
+  const owner = useLoad(() => api<Row>("GET", "/dashboard/owner", { query: { months, ...rq } }), [months, region]);
+  const pipeline = useLoad(() => api<Row>("GET", "/dashboard/pipeline", { query: rq }), [region]);
+  const openings = useLoad(() => api<Row>("GET", "/dashboard/openings", { query: rq }), [region]);
+  const risk = useLoad(() => api<Row>("GET", "/dashboard/risk", { query: rq }), [region]);
+  const territories = useLoad(() => api<Row>("GET", "/dashboard/territories", { query: rq }), [region]);
+  const reload = () => [regions, network, owner, pipeline, openings, risk, territories].forEach((l) => l.reload());
   const fees = useAction(() => { network.reload(); owner.reload(); });
   // Fee figures are refreshed daily from Books; this checks the unpaid ones now.
   const checkFees = () => fees.run("fees", () => api<Row>("POST", "/fees/sync"),
     (r) => (r.paid ? `${r.paid} fee${r.paid === 1 ? "" : "s"} newly paid in Books.` : r.checked ? `Checked ${r.checked} unpaid fee${r.checked === 1 ? "" : "s"} in Books; nothing new.` : "No unpaid fees to check."));
-  const setMonths = (v: string) => { const n = new URLSearchParams(params); if (v === "1") n.delete("months"); else n.set("months", v); setParams(n, { replace: true }); };
+  const setParam = (k: string, v: string, fallback: string) => { const n = new URLSearchParams(params); if (v === fallback) n.delete(k); else n.set(k, v); setParams(n, { replace: true }); };
+  const setMonths = (v: string) => setParam("months", v, "1");
+  const rg = regions.data;
+  const shownRegion = rg?.locked ? String(rg.region) : region;
   const o = owner.data;
   // Renewals and launches come from the network KPIs; they join the owner's list as "soon" items.
   const n0 = network.data;
@@ -69,8 +76,10 @@ export function Dashboard() {
   return (
     <div className="dashboard">
       <PageHeader title="Network overview"
-        subtitle={o ? <>Trading figures for <strong>{o.period.label}</strong> against {o.period.previous_label} · As of {asOf}</> : "Trading, compliance, expansion and openings"}
+        subtitle={o ? <>{shownRegion ? <><strong>{shownRegion}</strong> region · </> : null}Trading figures for <strong>{o.period.label}</strong> against {o.period.previous_label} · As of {asOf}</> : "Trading, compliance, expansion and openings"}
         actions={<>
+          {rg?.locked ? <span className="region-pill" title="You see your region only"><Icon name="territories" size={14} />{String(rg.region)}</span>
+            : rg && rg.regions.length > 1 && <select aria-label="Region" value={region} onChange={(e) => setParam("region", e.target.value, "")}><option value="">All regions</option>{rg.regions.map((x: string) => <option key={x} value={x}>{x}</option>)}</select>}
           <select aria-label="Period" value={months} onChange={(e) => setMonths(e.target.value)}>{PERIODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           {can("finance.view") && <button className="btn secondary" onClick={checkFees} disabled={!!fees.busy}><Icon name="money" size={16} />{fees.busy ? "Checking…" : "Check fees in Books"}</button>}
           <button className="btn secondary" onClick={() => window.print()}><Icon name="folder" size={16} />Save as PDF</button>
@@ -206,7 +215,7 @@ export function Dashboard() {
       </div>
 
       <h2 className="section-title">Network</h2>
-      <Suspense fallback={<div className="panel"><div className="panel-body state">Loading the map…</div></div>}><NetworkMap /></Suspense>
+      <Suspense fallback={<div className="panel"><div className="panel-body state">Loading the map…</div></div>}><NetworkMap region={region} /></Suspense>
 
       <h2 className="section-title">Growth and openings</h2>
       <Loaded load={network}>{(n) => (

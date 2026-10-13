@@ -16,7 +16,7 @@ const code = (name: string) => [c(name, "varchar", { required: true, searchable:
 export const TABLES: Table[] = [
   // Platform
   { name: "tenants", phase: "MVP", columns: [c("tenant_code", "varchar", { unique: true, required: true }), c("name", "varchar", { required: true }), status, c("zoho_dc", "varchar", { required: true }), c("timezone", "varchar"), c("currency", "varchar"), c("settings_json", "text")] },
-  { name: "users", phase: "MVP", columns: [tenant, c("email", "varchar", { required: true, searchable: true }), c("name", "varchar"), status, fk("role_id", "roles"), c("external_user_id", "varchar", { unique: true, required: true }), fk("franchisee_id", "franchisees", false)] },
+  { name: "users", phase: "MVP", columns: [tenant, c("email", "varchar", { required: true, searchable: true }), c("name", "varchar"), status, fk("role_id", "roles"), c("external_user_id", "varchar", { unique: true, required: true }), fk("franchisee_id", "franchisees", false), c("region", "varchar")] },
   { name: "roles", phase: "MVP", columns: [tenant, c("code", "varchar", { required: true }), c("name", "varchar"), c("tenant_code_key", "varchar", { unique: true })] },
   { name: "role_permissions", phase: "MVP", columns: [tenant, fk("role_id", "roles"), c("permission_code", "varchar", { required: true }), c("perm_key", "varchar", { unique: true })] },
   { name: "tenant_integrations", phase: "MVP", columns: [tenant, c("provider", "varchar", { required: true }), c("zoho_dc", "varchar"), c("org_id", "varchar"), c("portal_id", "varchar"), c("refresh_token", "encrypted"), c("webhook_secret", "encrypted"), status, c("provider_key", "varchar", { unique: true })] },

@@ -35,6 +35,7 @@ export class StoreUserDirectory implements UserDirectory {
       tenantId,
       roleCodes: role ? [String(role.code)] : [],
       ...(user.franchisee_id ? { franchiseeId: String(user.franchisee_id) } : {}),
+      ...(user.region ? { region: String(user.region) } : {}),
     };
   }
 

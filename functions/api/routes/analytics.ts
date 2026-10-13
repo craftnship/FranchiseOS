@@ -33,7 +33,9 @@ const reported = (r: Row) => r.status !== "RETURNED";
 
 export function analyticsRoutes(r: Router): void {
   r.on("GET", "/analytics", "dashboard.view", async (call) => {
-    const q = parse(querySchema, call.query);
+    const parsed = parse(querySchema, call.query);
+    // A caller limited to a region (regions.ts) always gets theirs.
+    const q = { ...parsed, region: call.ctx.region ?? parsed.region };
     const today = call.now.toISOString().slice(0, 10);
     const [projects, sites, territories, franchisees, apps, agreements, models, reports, logs] = await Promise.all([
       fetchAll(call.repo, "franchise_projects"), fetchAll(call.repo, "sites"), fetchAll(call.repo, "territories"), fetchAll(call.repo, "franchisees"),
@@ -52,8 +54,8 @@ export function analyticsRoutes(r: Router): void {
       const ter = terOf.get(String(site?.territory_id ?? app?.territory_id ?? ""));
       return { region: (ter?.region as string) ?? null, city: (site?.city ?? ter?.city ?? app?.preferred_city ?? null) as string | null };
     };
-    const regions = [...new Set(territories.map((t) => t.region).filter(Boolean).map(String))].sort();
-    const inRegion = (region: string | null) => !q.region || region === q.region;
+    const regions = [...new Set(territories.map((t) => t.region).filter(Boolean).map(String))].sort().filter((x) => !call.ctx.region || x === q.region);
+    const inRegion = (region: string | null) => !q.region || region?.toLowerCase() === q.region.toLowerCase();
 
     // Months shown: the last `months` finished months, oldest first.
     const last = prevPeriod(periodOf(today));

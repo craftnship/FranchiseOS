@@ -8,6 +8,8 @@ export interface TenantContext {
   correlationId: string;
   /** Set for portal users: the franchisee record they belong to (§25). */
   franchiseeId?: string;
+  /** Set for staff limited to one region (regional managers): dashboards show only that region. */
+  region?: string;
   /** Sends notification emails; absent when no sender is configured (inbox only). */
   mailer?: Mailer;
 }
