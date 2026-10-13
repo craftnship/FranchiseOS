@@ -22,12 +22,13 @@ export const ACTIVE_PROJECT_STATES = ["PLANNING", "IN_PROGRESS", "AT_RISK", "REA
 /**
  * Pace-based risk: a project is judged on whether it is keeping up, not on how much is done, so a new
  * project on schedule is LOW. Blockers (mandatory items blocked or overdue) make it HIGH, any overdue
- * item MEDIUM. A forecast opening past the target is MEDIUM, two weeks or more HIGH. Close to opening, low readiness counts too: RED within 14 days is HIGH, and anything
+ * item MEDIUM, an opening past its target date HIGH. A forecast opening past the target is MEDIUM, two weeks or more HIGH. Close to opening, low readiness counts too: RED within 14 days is HIGH, and anything
  * short of GREEN within 30 days is at least MEDIUM.
  */
 export function riskLevel(r: Pick<ReadinessResult, "rag" | "blockers" | "overdue">, daysToOpening: number | null = null, slipDays = 0): RiskLevel {
   const near = (days: number) => daysToOpening !== null && daysToOpening <= days;
-  if (r.blockers.length || (near(14) && r.rag === "RED") || slipDays >= 14) return "HIGH";
+  const pastTarget = daysToOpening !== null && daysToOpening < 0;
+  if (r.blockers.length || pastTarget || (near(14) && r.rag === "RED") || slipDays >= 14) return "HIGH";
   if (r.overdue.length || (near(30) && r.rag !== "GREEN") || slipDays > 0) return "MEDIUM";
   return "LOW";
 }

@@ -28,6 +28,8 @@ export interface ReadinessResult {
   score: number;
   weighted_score: number;
   rag: Rag;
+  /** Weighted share of the checklist due by today: where the project should be on its plan. */
+  expected: number;
   blockers: string[];
   overdue: string[];
   by_category: Record<string, number>;
@@ -42,9 +44,16 @@ export function isBlocker(item: ChecklistItem, today: string): boolean {
   return item.mandatory && item.status !== "COMPLETED" && (item.status === "BLOCKED" || isOverdue(item, today));
 }
 
-export function rag(score: number): Rag {
-  if (score >= 85) return "GREEN";
-  if (score >= 70) return "AMBER";
+/**
+ * Pace-based RAG: a project is judged against the progress its own due dates expect by now, so an
+ * early opening on schedule is green. Within 15 points of pace is green and within 30 amber, so once
+ * everything is due it matches the old fixed scale (85+ green, 70+ amber). A blocker always makes it red.
+ */
+export function rag(score: number, expected = 100, blocked = false): Rag {
+  if (blocked) return "RED";
+  const gap = expected - score;
+  if (score >= 85 || gap <= 15) return "GREEN";
+  if (gap <= 30) return "AMBER";
   return "RED";
 }
 
@@ -53,6 +62,7 @@ export function calculateReadiness(items: ChecklistItem[], today: string, weight
   const byCategory: Record<string, number> = {};
   let earned = 0;
   let possible = 0;
+  let due = 0;
   for (const w of weights) {
     const inCat = items.filter((i) => i.category === w.code);
     if (!inCat.length) continue; // categories without tasks are excluded and the rest renormalised
@@ -60,6 +70,9 @@ export function calculateReadiness(items: ChecklistItem[], today: string, weight
     const done = inCat.filter((i) => i.status === "COMPLETED").reduce((s, i) => s + (i.weight ?? 1), 0);
     const pct = total > 0 ? done / total : 0;
     byCategory[w.code] = round(pct * 100);
+    // An item with no due date isn't expected yet; finished items count as expected even if early.
+    const dueNow = inCat.filter((i) => (i.due_date && i.due_date <= today) || i.status === "COMPLETED").reduce((s, i) => s + (i.weight ?? 1), 0);
+    due += total > 0 ? (dueNow / total) * w.weight : 0;
     earned += pct * w.weight;
     possible += w.weight;
   }
@@ -67,5 +80,6 @@ export function calculateReadiness(items: ChecklistItem[], today: string, weight
   const blockers = items.filter((i) => isBlocker(i, today)).map((i) => i.id);
   const overdue = items.filter((i) => isOverdue(i, today)).map((i) => i.id);
   const score = blockers.length ? Math.min(weighted, 69) : weighted;
-  return { score, weighted_score: weighted, rag: rag(score), blockers, overdue, by_category: byCategory };
+  const expected = possible > 0 ? round((due / possible) * 100) : 0;
+  return { score, weighted_score: weighted, rag: rag(score, expected, blockers.length > 0), expected, blockers, overdue, by_category: byCategory };
 }

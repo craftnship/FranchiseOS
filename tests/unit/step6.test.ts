@@ -53,7 +53,8 @@ describe("readiness and risk (FOS-058, D-7)", () => {
     const s = await setup();
     const c = { ...ctx(["SYSTEM"], s.tid) };
     const first = await refreshReadiness(s.store, c, String(s.project.ROWID), { today: TODAY, now: NOW });
-    expect(first).toMatchObject({ score: 28.57, rag: "RED", risk_level: "LOW", status: "IN_PROGRESS", blockers: [] });
+    // 28.57% done with nothing due yet is on pace, so green.
+    expect(first).toMatchObject({ score: 28.57, rag: "GREEN", expected: 28.57, risk_level: "LOW", status: "IN_PROGRESS", blockers: [] });
 
     const blocked = await s.call("pm", "PATCH", `/projects/${s.project.ROWID}/checklist/${s.rows[2].ROWID}`, { blocked: true, reason: "No candidates" });
     expect(blocked.data.readiness).toMatchObject({ status: "AT_RISK", blockers: [String(s.rows[2].ROWID)] });
@@ -61,7 +62,7 @@ describe("readiness and risk (FOS-058, D-7)", () => {
     expect(cleared.data.readiness.status).toBe("IN_PROGRESS");
 
     expect(await s.store.findMany("readiness_snapshots", { project_id: String(s.project.ROWID) })).toHaveLength(3);
-    expect((await s.store.findOne("franchise_projects", { ROWID: String(s.project.ROWID) }))).toMatchObject({ readiness_rag: "RED", risk_level: "LOW" });
+    expect((await s.store.findOne("franchise_projects", { ROWID: String(s.project.ROWID) }))).toMatchObject({ readiness_rag: "GREEN", risk_level: "LOW" });
   });
 
   it("judges risk on pace: blockers or overdue items, and low readiness only close to opening", () => {
@@ -186,7 +187,7 @@ describe("global search and portal (FOS-048)", () => {
     const s = await setup();
     const home = (await s.call("pepper", "GET", "/portal/home")).data;
     expect(home.application.application_code).toBe("APP-000001");
-    expect(home.project).toMatchObject({ project_code: "PROJ-000001", readiness: { rag: "RED" } });
+    expect(home.project).toMatchObject({ project_code: "PROJ-000001", readiness: { rag: "GREEN" } });
     expect(home.upcoming_tasks).toHaveLength(2);
     expect(home.next_action).toMatchObject({ owner: "you", path: "/portal/tasks" });
     const other = (await s.call("happy", "GET", "/portal/home")).data;

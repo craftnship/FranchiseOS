@@ -487,3 +487,15 @@ Other changes:
 - "Save as PDF" uses the browser's print dialog with an A4 landscape print layout.
 
 No schema, permission or setting changes.
+
+## Pace-based readiness (2026-10-13)
+
+Readiness RAG is judged against the progress the checklist's own due dates expect by today (`expected` on the readiness result), not a fixed score:
+- within 15 points of pace (or 85%+ done) is green;
+- within 30 points is amber;
+- anything further behind is red;
+- a blocker is always red.
+
+Once everything is due, this matches the old 85/70 scale. An opening past its target date is now HIGH risk.
+
+Stored colours change on each project's next readiness refresh: the daily risk job, or any checklist change.

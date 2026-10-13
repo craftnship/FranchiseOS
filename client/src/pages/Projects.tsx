@@ -71,6 +71,7 @@ export function ReadinessCard({ r }: { r: Row }) {
           {r.score !== r.weighted_score
             ? <p>Capped at <strong>{r.score}%</strong> by {r.blockers.length} blocker{r.blockers.length === 1 ? "" : "s"}. Tasks are {r.weighted_score}% done by weight.</p>
             : <p>Tasks are <strong>{r.weighted_score}%</strong> done by weight.</p>}
+          {r.expected !== undefined && <p className="muted">By today's due dates it should be <strong>{r.expected}%</strong>; the colour shows how far ahead or behind that it is.</p>}
           {(r.blocker_items?.length ?? 0) > 0 && <div className="issue-list"><span className="muted">Blockers</span>{r.blocker_items.map((i: Row) => <Pill key={i.item} value={i.item} tone="bad" />)}</div>}
           {(r.overdue_items?.length ?? 0) > 0 && <div className="issue-list"><span className="muted">Overdue</span>{r.overdue_items.map((i: Row) => <Pill key={i.item} value={i.item} tone="warn" />)}</div>}
         </div>

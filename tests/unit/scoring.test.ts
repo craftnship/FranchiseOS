@@ -115,3 +115,20 @@ describe("readiness (§20, D-7)", () => {
     expect(r.by_category.CONSTRUCTION).toBe(75);
   });
 });
+
+describe("pace-based readiness RAG", () => {
+  const item = (id: string, status: "OPEN" | "COMPLETED", due: string, category = "CONSTRUCTION") => ({ id, category, mandatory: false, status, due_date: due });
+  it("judges progress against what is due by now", async () => {
+    const { calculateReadiness } = await import("../../functions/scoring/readiness");
+    const w = [{ code: "CONSTRUCTION", weight: 100 }];
+    // Nothing due yet and nothing done: on pace.
+    expect(calculateReadiness([item("a", "OPEN", "2026-12-01"), item("b", "OPEN", "2026-12-10")], "2026-10-01", w)).toMatchObject({ score: 0, expected: 0, rag: "GREEN" });
+    // Half due, a quarter done: 25 points behind is amber; three quarters due is 50 behind, red.
+    const four = [item("a", "COMPLETED", "2026-09-01"), item("b", "OPEN", "2026-09-20"), item("c", "OPEN", "2026-12-01"), item("d", "OPEN", "2026-12-02")];
+    expect(calculateReadiness(four, "2026-10-01", w)).toMatchObject({ score: 25, expected: 50, rag: "AMBER" });
+    expect(calculateReadiness(four, "2026-12-01", w)).toMatchObject({ score: 25, expected: 75, rag: "RED" });
+    // Everything due, 75% done: amber.
+    four[1].status = "COMPLETED"; four[2].status = "COMPLETED";
+    expect(calculateReadiness(four, "2026-12-05", w)).toMatchObject({ score: 75, expected: 100, rag: "AMBER" });
+  });
+});
