@@ -73,6 +73,15 @@ export default function NetworkMap() {
                 </div>
               );
             })()}
+            <div className="map-key" aria-hidden="true">
+              <span><i className="pt store" />Open store</span>
+              <span><i className="pt opening green" />Opening on pace</span>
+              <span><i className="pt opening amber" />Opening behind</span>
+              <span><i className="pt opening red" />Opening at risk</span>
+              <span><i className="pt territory available" />Territory available</span>
+              <span><i className="pt territory reserved" />Reserved</span>
+              <span><i className="pt territory allocated" />Allocated</span>
+            </div>
             {d.unplaced.length > 0 && <p className="muted small map-note">{d.unplaced.length} without a location: {d.unplaced.slice(0, 4).map((u: Row) => u.name).join(", ")}{d.unplaced.length > 4 ? "…" : ""}</p>}
           </div>
         )}</Loaded>

@@ -634,3 +634,8 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .state-table td.num, .state-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .state-table th { padding: .55rem .9rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 @media print { .map-actions { display: none; } }
+.map-key { display: flex; flex-wrap: wrap; gap: .35rem 1rem; font-size: .74rem; color: var(--muted); margin-top: .6rem; }
+.map-key span { display: inline-flex; align-items: center; gap: .35rem; }
+.map-key i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1.5px solid transparent; }
+.map-key i.store { background: #17b26a; } .map-key i.opening { background: #2e90fa; } .map-key i.opening.amber { background: #f79009; } .map-key i.opening.red { background: #f04438; }
+.map-key i.territory { background: var(--surface); border-color: #98a2b3; } .map-key i.territory.reserved { background: #fde4b5; border-color: #f79009; } .map-key i.territory.allocated { background: #d1e0ff; border-color: #5b7ff5; }
