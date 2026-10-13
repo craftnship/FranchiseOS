@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildRouter } from "../../functions/api/app";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { HttpBooksClient } from "../../functions/integrations/booksClient";
+import { posCredentialsFromEnv } from "../../functions/integrations/tenantClients";
 import { signState, verifyState } from "../../functions/integrations/zohoOAuth";
 import { reportingScore, scoreHealth } from "../../functions/scoring/health";
 import { parseSalesCsv, runPosSalesJob } from "../../functions/workflows/posSales";
@@ -125,6 +126,12 @@ describe("POS sales feed: connecting", () => {
     const id = done.data.connection.ROWID;
     expect((await s.call("pepper", "POST", `/portal/connections/${id}/organization`, { org_id: "ORG-9" })).error?.code).toBe("VALIDATION_FAILED");
     expect((await s.call("pepper", "POST", `/portal/connections/${id}/organization`, { org_id: "ORG-2" })).data.connection).toMatchObject({ status: "ACTIVE", org_name: "Pepper Foods" });
+  });
+
+  it("consents through the franchisee client when there is one, else the brand's", () => {
+    expect(posCredentialsFromEnv({ ZOHO_CLIENT_ID: "brand", ZOHO_CLIENT_SECRET: "b", ZOHO_POS_CLIENT_ID: "pos", ZOHO_POS_CLIENT_SECRET: "p" } as NodeJS.ProcessEnv)).toEqual({ clientId: "pos", clientSecret: "p" });
+    expect(posCredentialsFromEnv({ ZOHO_CLIENT_ID: "brand", ZOHO_CLIENT_SECRET: "b" } as NodeJS.ProcessEnv)).toEqual({ clientId: "brand", clientSecret: "b" });
+    expect(posCredentialsFromEnv({} as NodeJS.ProcessEnv)).toBeNull();
   });
 
   it("says so when the OAuth client or state secret is not set up", async () => {
