@@ -178,7 +178,7 @@ export function ownerRoutes(r: Router): void {
     // The POS figure and the franchisee's report disagree by more than the tolerance: finance decides which to bill on.
     for (const x of reports.filter((x) => x.status === "SUBMITTED" && x.variance_pct != null && Math.abs(toNum(x.variance_pct)) > pos.pos_variance_tolerance_pct)) {
       const v = toNum(x.variance_pct), fmt = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
-      add({ kind: "POS", tone: "warn", title: `${place(x.project_id).name} ${periodLabel(String(x.period))}: ${v < 0 ? `sales under-reported by ${Math.abs(v)}%` : `report ${Math.abs(v)}% above POS sales`}`, detail: `POS ${fmt(toNum(x.pos_net_sales))} · Reported ${fmt(toNum(x.reported_net_sales ?? x.net_sales))} · Royalty billed on ${x.basis === "POS" ? "POS" : "the report"}`, href: `/projects/${x.project_id}`, date: day(x.submitted_at) });
+      add({ kind: "POS", tone: "warn", title: `${place(x.project_id).name} ${periodLabel(String(x.period))}: ${v < 0 ? `sales under-reported by ${Math.abs(Math.round(v))}%` : `report ${Math.abs(Math.round(v))}% above POS sales`}`, detail: `POS ${fmt(toNum(x.pos_net_sales))} · Reported ${fmt(toNum(x.reported_net_sales ?? x.net_sales))} · Royalty billed on ${x.basis === "POS" ? "POS" : "the report"}`, href: `/projects/${x.project_id}`, date: day(x.submitted_at) });
     }
     for (const p of opened.filter((p) => feedOf(p) === "STALE")) {
       add({ kind: "POS", tone: "warn", title: `${place(p.ROWID).name} POS feed stale`, detail: `Last day of sales ${day(p.pos_last_day)}; the franchisee may need to reconnect Zoho Books`, href: `/projects/${p.ROWID}`, date: day(p.pos_last_day) });
