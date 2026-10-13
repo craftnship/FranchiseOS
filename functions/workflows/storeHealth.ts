@@ -21,16 +21,8 @@ const day = (v: unknown) => (v ? String(v).slice(0, 10) : null);
 export const settingsOf = (tenant: Row | null): Record<string, unknown> => { try { return tenant?.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { return {}; } };
 export const healthSettingsFor = (tenant: Row | null): HealthSettings => healthSettings(settingsOf(tenant));
 
-/** Every row of a table for the tenant, paged past the 300-row cap. */
-async function allRows(repo: TenantRepo, table: string, where: Record<string, string> = {}, max = 5000): Promise<Row[]> {
-  const out: Row[] = [];
-  for (let offset = 0; offset < max; offset += 300) {
-    const rows = await repo.findMany(table, where, { orderBy: "ROWID", limit: 300, offset });
-    out.push(...rows);
-    if (rows.length < 300) break;
-  }
-  return out;
-}
+/** Every row of a table for the tenant; the store pages past the 300-row cap. */
+const allRows = (repo: TenantRepo, table: string, where: Record<string, string> = {}): Promise<Row[]> => repo.findMany(table, where, { orderBy: "ROWID" });
 
 export interface StoreHealth extends HealthResult { project: Row; region: string | null; inputs: HealthInputs }
 

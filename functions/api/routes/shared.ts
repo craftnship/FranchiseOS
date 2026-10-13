@@ -1,5 +1,6 @@
 import { AppError, ErrorCode } from "../../common/errors";
 import { isPortalUser } from "../../common/rbac";
+import { ROW_CAP } from "../../common/catalystStore";
 import { Row, TenantRepo } from "../../common/store";
 import { Call } from "../router";
 import { z } from "zod";
@@ -61,15 +62,9 @@ export function defined<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
-/** Every row of a table for this tenant, paged past the 300-row ZCQL cap (dashboards, pilot scale). */
-export async function fetchAll(repo: TenantRepo, table: string, where: Record<string, string> = {}, max = 3000): Promise<Row[]> {
-  const out: Row[] = [];
-  for (let offset = 0; offset < max; offset += 300) {
-    const rows = await repo.findMany(table, where, { orderBy: "ROWID", limit: 300, offset });
-    out.push(...rows);
-    if (rows.length < 300) break;
-  }
-  return out;
+/** Every row of a table for this tenant: the store pages past the 300-row ZCQL cap and logs when `max` is hit. */
+export async function fetchAll(repo: TenantRepo, table: string, where: Record<string, string> = {}, max = ROW_CAP): Promise<Row[]> {
+  return repo.findMany(table, where, { orderBy: "ROWID", limit: max });
 }
 
 /**

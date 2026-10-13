@@ -196,7 +196,7 @@ export async function refreshReport(store: Store, ctx: TenantContext, books: Zoh
 export async function syncTenantRoyalties(store: Store, ctx: TenantContext, books: ZohoBooksClient): Promise<{ checked: number; paid: number; failed: number }> {
   const out = { checked: 0, paid: 0, failed: 0 };
   const repo = new TenantRepo(store, ctx.tenantId);
-  for (const r of await repo.findMany("sales_reports", { status: "INVOICED" }, { limit: 300 })) {
+  for (const r of await repo.findMany("sales_reports", { status: "INVOICED" })) {
     try {
       out.checked++;
       if ((await refreshReport(store, ctx, books, r)).status === "PAID") out.paid++;

@@ -125,7 +125,7 @@ export async function runProjectRiskJob(
     const repo = new TenantRepo(store, tenantId);
     const projects = await projectsFor(tenantId).catch(() => null);
     for (const state of ACTIVE_PROJECT_STATES) {
-      for (const p of await repo.findMany("franchise_projects", { status: state }, { limit: 300 })) {
+      for (const p of await repo.findMany("franchise_projects", { status: state })) {
         out.projects++;
         try {
           if (projects && p.zoho_project_id) { await syncProjectTasks(store, ctx, projects, String(p.ROWID)); out.synced++; }

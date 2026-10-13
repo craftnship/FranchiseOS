@@ -214,7 +214,7 @@ export async function syncTenantInstalments(store: Store, ctx: TenantContext, bo
   const out = { raised: 0, paid: 0, failed: 0 };
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = now.toISOString().slice(0, 10);
-  const projects = (await Promise.all(OPEN_PROJECT.map((s) => repo.findMany("franchise_projects", { status: s }, { limit: 300 })))).flat();
+  const projects = (await Promise.all(OPEN_PROJECT.map((s) => repo.findMany("franchise_projects", { status: s })))).flat();
   for (const project of projects) {
     try {
       const agreement = await agreementFor(repo, project);

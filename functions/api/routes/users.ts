@@ -66,8 +66,8 @@ function view(u: Row, roles: Map<string, Row>, franchisees: Map<string, Row>): R
 export function userRoutes(r: Router): void {
   r.on("GET", "/admin/users", "user.admin", async (call) => {
     const [users, roles, franchisees, perms] = await Promise.all([
-      call.repo.findMany("users", {}, { limit: 300 }), rolesByCode(call),
-      call.repo.findMany("franchisees", {}, { limit: 300 }), call.repo.findMany("role_permissions", {}, { limit: 300 }),
+      call.repo.findMany("users", {}), rolesByCode(call),
+      call.repo.findMany("franchisees", {}), call.repo.findMany("role_permissions", {}),
     ]);
     const fmap = new Map(franchisees.map((f) => [String(f.ROWID), f]));
     const byRole = new Map<string, string[]>();
@@ -112,7 +112,7 @@ export function userRoutes(r: Router): void {
     }
     const row = await call.repo.insert("users", { email: b.email, name: b.name, status: "INVITED", role_id: String(roleRow.ROWID), external_user_id: externalUserId, franchisee_id: b.franchisee_id ?? null, region });
     await logActivity(call.store, call.ctx, { entityType: "user", entityId: String(row.ROWID), action: "user:invited", metadata: { email: b.email, role: b.role, franchisee_id: b.franchisee_id ?? null, region, email_sent: invited } });
-    const franchisees = new Map((await call.repo.findMany("franchisees", {}, { limit: 300 })).map((f) => [String(f.ROWID), f]));
+    const franchisees = new Map((await call.repo.findMany("franchisees", {})).map((f) => [String(f.ROWID), f]));
     return { user: view(row, roles, franchisees), email_sent: invited };
   }, 201);
 
@@ -153,7 +153,7 @@ export function userRoutes(r: Router): void {
       const action = changes.status ? (patch.status === "INACTIVE" ? "user:deactivated" : "user:reactivated") : "user:updated";
       await logActivity(call.store, call.ctx, { entityType: "user", entityId: String(user.ROWID), action, metadata: { email: user.email, ...changes } });
     }
-    const franchisees = new Map((await call.repo.findMany("franchisees", {}, { limit: 300 })).map((f) => [String(f.ROWID), f]));
+    const franchisees = new Map((await call.repo.findMany("franchisees", {})).map((f) => [String(f.ROWID), f]));
     return view({ ...user, ...updated }, roles, franchisees);
   });
 }

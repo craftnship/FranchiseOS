@@ -746,8 +746,8 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
   }
 
   // Fee instalments past their due date (the signing invoice is chased per agreement above).
-  const signed = new Map((await repo.findMany("agreements", { status: "SIGNED" }, { limit: 300 })).map((a) => [String(a.ROWID), a]));
-  for (const f of overdueInstalments(await repo.findMany("fee_instalments", { status: "INVOICED" }, { limit: 300 }), signed, today)) {
+  const signed = new Map((await repo.findMany("agreements", { status: "SIGNED" })).map((a) => [String(a.ROWID), a]));
+  for (const f of overdueInstalments(await repo.findMany("fee_instalments", { status: "INVOICED" }), signed, today)) {
     const project = projectsById.get(String(f.project_id));
     if (!project) continue;
     const due = String(f.invoice_due_date).slice(0, 10);
@@ -807,7 +807,7 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
   }
 
   // A loan not yet sanctioned when fit-out is a month away puts the opening at risk.
-  for (const plan of await repo.findMany("funding_plans", {}, { limit: 300 })) {
+  for (const plan of await repo.findMany("funding_plans", {})) {
     if (!["PLANNED", "APPLIED", "REJECTED"].includes(String(plan.status))) continue;
     const project = projectsById.get(String(plan.project_id));
     if (!project || !["NOT_STARTED", "PLANNING", "IN_PROGRESS", "AT_RISK"].includes(String(project.status))) continue;
@@ -833,7 +833,7 @@ const SALES_LATE_DAYS = 5;
 async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo, today: string, now: Date): Promise<number> {
   const { report_due_day } = royaltySettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
   let sent = 0;
-  for (const project of await repo.findMany("franchise_projects", { status: "OPENED" }, { limit: 300 })) {
+  for (const project of await repo.findMany("franchise_projects", { status: "OPENED" })) {
     const pid = String(project.ROWID);
     const reports = new Map((await repo.findMany("sales_reports", { project_id: pid }, { limit: 300 })).map((r) => [String(r.period), r]));
     const missing = duePeriods(project, today).filter((p) => { const r = reports.get(p); return !r || r.status === "RETURNED"; });

@@ -134,7 +134,7 @@ export function approvalRoutes(r: Router): void {
   // Inbox: pending approvals whose current step this user can act on, directly or by delegation.
   r.on("GET", "/approvals", null, async (call) => {
     const q = parse(page.extend({ scope: z.enum(["mine", "all"]).default("mine") }), call.query);
-    const pending = await call.repo.findMany("approval_instances", { status: "PENDING" }, { orderBy: "step_due_at", limit: 300 });
+    const pending = await call.repo.findMany("approval_instances", { status: "PENDING" }, { orderBy: "step_due_at" });
     const roles = new Set([...call.ctx.roles, ...(await delegatedRoles(call))]);
     const all = q.scope === "all" && (call.ctx.roles.includes("SUPER_ADMIN") || call.ctx.roles.includes("FRANCHISE_DIRECTOR"));
     const shown = pending

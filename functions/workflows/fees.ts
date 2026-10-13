@@ -64,7 +64,7 @@ export async function refreshFee(
 
 /** Signed agreements whose fee is not settled yet (an unchecked one has no fee_status). */
 export async function unsettledFees(repo: TenantRepo): Promise<Row[]> {
-  const signed = await repo.findMany("agreements", { status: "SIGNED" }, { limit: 300 });
+  const signed = await repo.findMany("agreements", { status: "SIGNED" });
   return signed.filter((a) => a.zoho_books_invoice_id && !["PAID", "VOID"].includes(String(a.fee_status ?? "")));
 }
 

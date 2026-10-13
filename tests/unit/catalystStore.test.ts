@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CatalystStore, describeError, isThrottled, MAX_IN_FLIGHT } from "../../functions/common/catalystStore";
+import { CatalystStore, describeError, isThrottled, MAX_IN_FLIGHT, ROW_CAP } from "../../functions/common/catalystStore";
 
 const fakeApp = (exec: (q: string) => Promise<unknown[]>) => ({
   datastore: () => ({ table: () => ({ insertRow: async (r: any) => r, updateRow: async (r: any) => r }) }),
@@ -16,6 +16,30 @@ describe("Catalyst store under load", () => {
     const broken = new CatalystStore(fakeApp(async () => { bad++; throw new Error("Invalid column"); }), async () => {});
     await expect(broken.findMany("t", {})).rejects.toThrow("Invalid column");
     expect(bad).toBe(1);
+  });
+
+  it("reads past the 300-row ZCQL cap in pages, and stops at the limit asked for", async () => {
+    const queries: string[] = [];
+    const rowsFor = (q: string) => {
+      queries.push(q);
+      const m = /LIMIT (?:(\d+),)?(\d+)$/.exec(q)!;
+      const offset = Number(m[1] ?? 0), limit = Number(m[2]);
+      // 720 rows in the table.
+      return Array.from({ length: Math.max(0, Math.min(limit, 720 - offset)) }, (_, i) => ({ t: { ROWID: String(offset + i + 1) } }));
+    };
+    const store = new CatalystStore(fakeApp(async (q) => rowsFor(q)), async () => {});
+    const all = await store.findMany("t", { status: "OPENED" });
+    expect(all).toHaveLength(720);
+    expect(all.at(-1)).toEqual({ ROWID: "720" });
+    expect(queries).toHaveLength(3);
+    expect(queries[1]).toContain("ORDER BY ROWID ASC LIMIT 300,300");
+    queries.length = 0;
+    expect(await store.findMany("t", {}, { limit: 500 })).toHaveLength(500);
+    expect(queries.map((q) => q.slice(q.indexOf("LIMIT")))).toEqual(["LIMIT 300", "LIMIT 300,200"]);
+    queries.length = 0;
+    expect(await store.findMany("t", {}, { limit: 40, orderBy: "period", desc: true })).toHaveLength(40);
+    expect(queries).toEqual(["SELECT * FROM t ORDER BY period DESC LIMIT 40"]);
+    expect(ROW_CAP).toBeGreaterThan(720);
   });
 
   it("caps queries in flight", async () => {

@@ -76,7 +76,7 @@ export function auditRoutes(r: Router): void {
       ...(q.q ? { contains: { columns: ["action", "entity_id", "metadata_json"], term: q.q } } : {}),
     });
     const page = rows.slice(0, q.limit);
-    const users = new Map((await call.repo.findMany("users", {}, { limit: 300 })).map((u) => [String(u.ROWID), u]));
+    const users = new Map((await call.repo.findMany("users", {})).map((u) => [String(u.ROWID), u]));
     const entities = await describe(call.repo, page);
     const items = page.map((a) => {
       let meta: Row = {};

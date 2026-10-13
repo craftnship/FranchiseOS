@@ -1,3 +1,4 @@
+import { log } from "./logger";
 import { DuplicateKeyError, Primitive, QueryOptions, Row, Store } from "./store";
 
 /**
@@ -10,6 +11,10 @@ interface CatalystApp {
 }
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Rows ZCQL returns per query. */
+export const PAGE = 300;
+/** The most rows one findMany reads without a limit; reaching it is logged, never silent. */
+export const ROW_CAP = 10_000;
 
 function ident(name: string): string {
   if (!IDENT.test(name)) throw new Error(`Unsafe identifier: ${name}`);
@@ -41,8 +46,8 @@ export function buildSelect(table: string, where: Record<string, Primitive>, opt
   let q = `SELECT * FROM ${t}`;
   if (clauses.length) q += ` WHERE ${clauses.join(" AND ")}`;
   if (opts.orderBy) q += ` ORDER BY ${ident(opts.orderBy)} ${opts.desc ? "DESC" : "ASC"}`;
-  // ZCQL caps rows per query (300); callers page with offset.
-  const limit = Math.min(opts.limit ?? 300, 300);
+  // ZCQL caps rows per query (300); findMany pages past it.
+  const limit = Math.min(opts.limit ?? PAGE, PAGE);
   q += opts.offset ? ` LIMIT ${opts.offset},${limit}` : ` LIMIT ${limit}`;
   return q;
 }
@@ -145,7 +150,26 @@ export class CatalystStore implements Store {
     return (await this.findMany(table, where, { limit: 1 }))[0] ?? null;
   }
 
-  async findMany(table: string, where: Record<string, Primitive>, opts?: QueryOptions): Promise<Row[]> {
+  /**
+   * Every matching row up to `limit` (ROW_CAP when none is given), read 300 at a time: ZCQL caps a
+   * query at 300 rows, and a caller that asks for more, or for all, must not be cut off without
+   * knowing. Pages are ordered by ROWID unless the caller orders them, so no row is skipped or repeated.
+   */
+  async findMany(table: string, where: Record<string, Primitive>, opts: QueryOptions = {}): Promise<Row[]> {
+    const want = opts.limit ?? ROW_CAP;
+    if (want <= PAGE) return this.page(table, where, opts);
+    const paged: QueryOptions = { ...opts, orderBy: opts.orderBy ?? "ROWID" };
+    const out: Row[] = [];
+    for (let offset = opts.offset ?? 0; out.length < want; offset += PAGE) {
+      const rows = await this.page(table, where, { ...paged, offset, limit: Math.min(PAGE, want - out.length) });
+      out.push(...rows);
+      if (rows.length < PAGE) break;
+    }
+    if (out.length >= want) log("warn", "store.row_cap", { table, limit: want, hint: "rows past the limit were not read" });
+    return out;
+  }
+
+  private async page(table: string, where: Record<string, Primitive>, opts: QueryOptions): Promise<Row[]> {
     const q = buildSelect(table, where, opts);
     const result = await this.run(() => this.app.zcql().executeZCQLQuery(q));
     // ZCQL wraps each row as { tableName: {...} }.
