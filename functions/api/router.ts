@@ -114,6 +114,15 @@ export class Router {
 
   async handle(req: ApiRequest, deps: ApiDeps): Promise<ApiResult> {
     const requestId = req.requestId ?? newRequestId();
+    const started = Date.now();
+    const result = await this.dispatch(req, deps, requestId);
+    // One line per call, so a slow or refused request can be found by its request id.
+    const err = (result.body as { error?: { code?: string } }).error;
+    log(result.status >= 500 ? "error" : "info", "api.request", { request_id: requestId, method: req.method.toUpperCase(), path: normalizePath(req.path), http_status: result.status, duration_ms: Date.now() - started, ...(err?.code ? { error_code: err.code } : {}) });
+    return result;
+  }
+
+  private async dispatch(req: ApiRequest, deps: ApiDeps, requestId: string): Promise<ApiResult> {
     try {
       const m = this.match(req.method, normalizePath(req.path));
       if (m === null) throw new AppError("NOT_FOUND", "Route not found.");

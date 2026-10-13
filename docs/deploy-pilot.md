@@ -554,3 +554,16 @@ One 0–100 score per trading store from sales against plan, payments, complianc
 - **Screens.** Dashboard: a Franchisee health panel beside Compliance, and a Health column in the store league. Map: a “Colour by health” switch. Store page: a Franchisee health card at the top of an open store (the franchisee sees it too). Settings: the weights and band limits.
 - **Demo expectations (aadai).** Chennai Healthy; Coimbatore and Madurai on Watch or At risk from their overdue amounts and plan shortfall; Hyderabad scored without the sales part (too new); Mysuru not scored (still opening). The first run should alert FRANCHISE_MANAGER and OPERATIONS_MANAGER users and the South regional manager for every At risk store, so expect those emails.
 
+## Hardening (2026-10-13)
+
+Platform fixes from the enterprise review (`reviews/review-2026-10-13-enterprise.md` in the project files). No schema change; functions and the web app both deploy.
+
+- **Row ceiling.** `findMany` now pages past ZCQL's 300 rows up to the limit asked for (10,000 when none is given) and logs `store.row_cap` when that is reached. Daily loops no longer stop at the 301st store.
+- **Invoice claim.** Approving a sales report or raising an instalment first takes a claim, an `integration_events` row with `source_system = FOS`, so two approvals at once raise one Books invoice. A claim that failed can be taken again; one left behind by a timed-out function frees itself after 10 minutes. These rows show on Integration health as "Royalty invoice" or "Fee invoice" only when they failed.
+- **Stuck webhook events.** An event still PROCESSING after 10 minutes is listed under "Needs attention" and can be retried.
+- **Transitions** re-read the record just before writing it; a second person moving the same record is told to refresh.
+- **Access.** A regional manager's region now bounds every record read or written by id. Loans, capex and the sanction letter need `project.write` or `finance.view`; staff records need `project.write` or `dashboard.view`; agreement fee amounts show only with `finance.view` (the status still shows). In practice the Legal manager loses those reads and the Operations manager loses loans and capex; grant `finance.view` or `project.write` to a role that needs them. A vendor user is never linked to a franchisee, a user with no role is refused, and only a super admin can make or unmake a super admin. User emails are checked within the tenant only.
+- **Zoho calls** time out after 15 seconds (60 for uploads and downloads). A read is tried three times after a refusal, a server error or a timeout; a write only after a refusal.
+- **Logs.** Every API call logs one `api.request` line with method, path, HTTP status, duration and request id. A job step that lost some tenants or records now records as failed and alerts super admins, instead of passing quietly.
+- **To check in the Catalyst console (not code):** under Data Store → each table → Permissions, the App User role must have no read or write rights on any table. The API runs with admin scope and does its own tenant isolation; if App User could read, any signed-in user could query every table through the Data Store REST API.
+

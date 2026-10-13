@@ -38,8 +38,11 @@ export async function runCron(context: CronContext, sdk: CatalystSdk, now = new 
     let failed = 0;
     for (const [step, run] of steps) {
       try {
-        await run();
-        await recordJobRun(store, { step, ok: true, requestId, now });
+        const result = await run() as { failed?: number } | undefined;
+        // A step that got through but lost some tenants or records is a failure to the people on call.
+        const lost = Number(result?.failed ?? 0);
+        if (lost > 0) { failed++; await recordJobRun(store, { step, ok: false, error: `${lost} item${lost === 1 ? "" : "s"} failed inside the step; see the logs for job.${step}`, requestId, now }); }
+        else await recordJobRun(store, { step, ok: true, requestId, now });
       } catch (e) {
         failed++;
         const error = describeError(e);
