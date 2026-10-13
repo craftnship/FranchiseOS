@@ -96,10 +96,17 @@ export function Dashboard() {
             <Headline title="Network sales" value={inrShort(r.net_sales)} to={`/analytics?months=${Math.max(3, Number(months))}`} spark={r.series.map((m: Row) => Number(m.net_sales))}>
               <Delta v={r.net_sales_change_pct} against={d.period.previous_label} />
             </Headline>
-            {d.finance && <Headline title="Royalty + fund billed" value={inrShort(r.royalty)} to="/royalties">
-              {r.royalty || !r.reports ? <Delta v={r.royalty_change_pct} against={d.period.previous_label} /> : <span className="kpi-hint">Reports in, not yet invoiced</span>}
-              {r.collection_pct !== null && <span className="kpi-hint">{r.collection_pct}% collected</span>}
-            </Headline>}
+            {/* Before the month's reports are reviewed, billed is ₹0; show what they will raise instead. */}
+            {d.finance && (!r.royalty && r.royalty_pending
+              ? <Headline title="Royalty + fund due" value={inrShort(r.royalty_pending)} to="/royalties">
+                  <span className="kpi-hint warn-text">{r.awaiting_review} report{r.awaiting_review === 1 ? "" : "s"} awaiting review</span>
+                  <span className="kpi-hint">Billed once approved</span>
+                </Headline>
+              : <Headline title="Royalty + fund billed" value={inrShort(r.royalty)} to="/royalties">
+                  {r.royalty || !r.reports ? <Delta v={r.royalty_change_pct} against={d.period.previous_label} /> : <span className="kpi-hint">Reports in, not yet invoiced</span>}
+                  {r.collection_pct !== null && <span className="kpi-hint">{r.collection_pct}% collected</span>}
+                  {r.royalty_pending > 0 && <span className="kpi-hint">+ {inrShort(r.royalty_pending)} on {r.awaiting_review} awaiting review</span>}
+                </Headline>)}
             {d.finance && <Headline title="Receivables" value={inrShort(rc.total)} to="/fees">
               <span className={`kpi-hint ${rc.overdue ? "bad-text" : ""}`}>{rc.overdue ? `${inrShort(rc.overdue)} overdue` : "Nothing overdue"}</span>
               <span className="kpi-hint">Fees {inrShort(rc.fees)} · Royalty {inrShort(rc.royalty)}</span>

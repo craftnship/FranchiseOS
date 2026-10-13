@@ -17,7 +17,7 @@ async function setup() {
     const fr = await ins("franchisees", { franchise_code: `FR-${n}`, tenant_code_key: `${tid}:FR-${n}`, display_name: `Owner ${n}`, status: "ACTIVE" });
     const app = await ins("franchise_applications", { application_code: `APP-${n}`, tenant_code_key: `${tid}:APP-${n}`, franchisee_id: fr.ROWID, status: "ACTIVE", territory_id: n === 1 ? ter.ROWID : null, preferred_city: `City ${n}` });
     const site = await ins("sites", { site_code: `SITE-${n}`, tenant_code_key: `${tid}:SITE-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, territory_id: n === 1 ? ter.ROWID : null, city: `City ${n}`, area_sqft: 2000, status: "READY_FOR_PROJECT" });
-    await ins("feasibility_models", { application_id: app.ROWID, site_id: site.ROWID, monthly_revenue: plan, status: "CALCULATED" });
+    await ins("feasibility_models", { application_id: app.ROWID, site_id: site.ROWID, monthly_revenue: plan, royalty_pct: 4, marketing_fund_pct: 1, status: "CALCULATED" });
     // Store 2's signing invoice never got its Books id, so its instalment can only be matched to the agreement.
     const agr = await ins("agreements", { agreement_code: `AGR-${n}`, tenant_code_key: `${tid}:AGR-${n}`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "SIGNED", fee_status: n === 2 ? "OVERDUE" : "PAID", fee_total: 500_000, fee_balance: n === 2 ? 500_000 : 0, fee_due_date: "2026-08-01", zoho_books_invoice_id: n === 2 ? null : `INV-${n}` });
     if (n === 2) await ins("fee_instalments", { agreement_id: agr.ROWID, kind: "FEE", label: "Franchise fee", amount: 500_000, raise_on: "SIGNING", status: "INVOICED", invoice_total: 500_000, invoice_balance: 500_000, invoice_due_date: "2026-08-01" });
@@ -52,6 +52,8 @@ describe("owner dashboard", () => {
     expect(o.revenue).toMatchObject({ net_sales: 1_000_000, reports: 1, due: 2, reporting_pct: 50, stores_trading: 2 });
     expect(o.revenue.previous).toMatchObject({ net_sales: 1_400_000, royalty: 70_000, collected: 45_000 });
     expect(o.revenue.net_sales_change_pct).toBe(-28.6);
+    // September's report isn't approved yet: nothing billed, but its royalty and fund are due at the store's rates.
+    expect(o.revenue).toMatchObject({ royalty: 0, awaiting_review: 1, royalty_pending: 50_000 });
     const q = (await s.call("/dashboard/owner", { months: "3" })).data;
     expect(q.revenue).toMatchObject({ net_sales: 2_400_000, royalty: 70_000, collection_pct: 64.3 });
     expect(o.receivables).toMatchObject({ total: 525_000, overdue: 525_000, fees: 500_000, royalty: 25_000 });

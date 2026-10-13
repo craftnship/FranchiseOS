@@ -49,12 +49,21 @@ export function royaltySettings(tenant: Row | null): RoyaltySettings {
 const has = (v: unknown) => v !== null && v !== undefined && v !== "" && String(v) !== "null";
 
 /** The store's rates: set on the project, else the feasibility model it was approved on, else the tenant default. */
-export async function ratesFor(store: Store, ctx: Pick<TenantContext, "tenantId">, project: Row): Promise<{ royalty_pct: number | null; marketing_fund_pct: number | null; source: "store" | "feasibility" | "tenant" | null }> {
-  if (has(project.royalty_pct)) return { royalty_pct: toNum(project.royalty_pct), marketing_fund_pct: has(project.marketing_fund_pct) ? toNum(project.marketing_fund_pct) : 0, source: "store" };
+export async function ratesFor(store: Store, ctx: Pick<TenantContext, "tenantId">, project: Row): Promise<Rates> {
+  if (has(project.royalty_pct)) return ratesFrom(project, null, null);
   const repo = new TenantRepo(store, ctx.tenantId);
   const model = project.application_id ? (await repo.findMany("feasibility_models", { application_id: String(project.application_id) }, { orderBy: "ROWID", desc: true, limit: 1 }))[0] : null;
+  if (model && has(model.royalty_pct)) return ratesFrom(project, model, null);
+  return ratesFrom(project, model ?? null, await store.findOne("tenants", { ROWID: ctx.tenantId }));
+}
+
+export interface Rates { royalty_pct: number | null; marketing_fund_pct: number | null; source: "store" | "feasibility" | "tenant" | null }
+
+/** The same choice as ratesFor, from rows already loaded (the store's latest feasibility model, the tenant). */
+export function ratesFrom(project: Row, model: Row | null, tenant: Row | null): Rates {
+  if (has(project.royalty_pct)) return { royalty_pct: toNum(project.royalty_pct), marketing_fund_pct: has(project.marketing_fund_pct) ? toNum(project.marketing_fund_pct) : 0, source: "store" };
   if (model && has(model.royalty_pct)) return { royalty_pct: toNum(model.royalty_pct), marketing_fund_pct: has(model.marketing_fund_pct) ? toNum(model.marketing_fund_pct) : 0, source: "feasibility" };
-  const s = royaltySettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
+  const s = royaltySettings(tenant);
   if (s.royalty_pct != null) return { royalty_pct: s.royalty_pct, marketing_fund_pct: s.marketing_fund_pct ?? 0, source: "tenant" };
   return { royalty_pct: null, marketing_fund_pct: null, source: null };
 }

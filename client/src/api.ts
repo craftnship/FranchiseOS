@@ -44,7 +44,7 @@ async function request<T>(method: string, path: string, opts: { query?: Record<s
   return json.data as T;
 }
 
-export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; permissions?: string[]; zoho_web?: ZohoWeb | null }
+export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; name?: string | null; email?: string | null; region?: string | null; permissions?: string[]; zoho_web?: ZohoWeb | null }
 export interface ZohoWeb { crm: string; sign: string; books: string; books_org: string | null }
 
 let current: Me | null = null;

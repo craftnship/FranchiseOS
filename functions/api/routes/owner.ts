@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
-import { duePeriods, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
+import { duePeriods, ratesFrom, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
 import { separateInstalments } from "../../workflows/funding";
 import { auditSettings, nextDue } from "../../workflows/audits";
@@ -90,14 +90,25 @@ export function ownerRoutes(r: Router): void {
     const prev = window(prevPeriod(cur[0]), q.months);
     const trend = window(last, 12);
     const inP = (ps: string[]) => (x: Row) => ps.includes(String(x.period)) && reported(x);
+    // Royalty a submitted report will raise once approved, at the store's rates (as approval works it out).
+    const latestModel = new Map<string, Row>();
+    for (const m of [...models].sort((a, b) => String(a.ROWID).localeCompare(String(b.ROWID), undefined, { numeric: true }))) latestModel.set(String(m.application_id), m);
+    const expectedRoyalty = (x: Row) => {
+      const p = projOf.get(String(x.project_id));
+      const r = p ? ratesFrom(p, latestModel.get(String(p.application_id)) ?? null, tenant) : null;
+      return r?.royalty_pct == null ? null : toNum(x.net_sales) * (r.royalty_pct + (r.marketing_fund_pct ?? 0)) / 100;
+    };
     const totals = (ps: string[]) => {
       const rows = reports.filter(inP(ps));
+      const waiting = rows.filter((x) => x.status === "SUBMITTED");
       const due = opened.reduce((a, p) => a + duePeriods(p, today).filter((d) => ps.includes(d)).length, 0);
       return {
         net_sales: sum(rows, (x) => toNum(x.net_sales)),
         royalty: sum(rows.filter(invoiced), (x) => toNum(x.royalty_amount) + toNum(x.marketing_amount)),
         collected: sum(rows.filter(invoiced), (x) => toNum(x.invoice_total) - toNum(x.invoice_balance)),
         reports: rows.length, due,
+        awaiting_review: waiting.length,
+        royalty_pending: sum(waiting, (x) => expectedRoyalty(x) ?? 0),
       };
     };
     const now = totals(cur), before = totals(prev);

@@ -38,7 +38,9 @@ async function zohoWeb(call: Call): Promise<ZohoWeb | null> {
 export function buildRouter(): Router {
   const r = new Router();
   r.on("GET", "/me", null, async (call) => ({
-    user_id: call.ctx.userId, tenant_id: call.ctx.tenantId, roles: call.ctx.roles, franchisee_id: call.ctx.franchiseeId ?? null,
+    user_id: call.ctx.userId, tenant_id: call.ctx.tenantId, roles: call.ctx.roles, franchisee_id: call.ctx.franchiseeId ?? null, region: call.ctx.region ?? null,
+    // Who is signed in, for the header.
+    ...await call.repo.findOne("users", { ROWID: call.ctx.userId }).then((u) => ({ name: (u?.name as string) ?? null, email: (u?.email as string) ?? null })),
     // For showing only the actions the caller may take; every route still checks on the server.
     permissions: call.ctx.roles.includes("SUPER_ADMIN") ? ["*"] : [...await call.permissions(call.ctx.roles)].sort(),
     // Staff get the tenant's Zoho web addresses, so record IDs can open in Zoho.

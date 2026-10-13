@@ -173,7 +173,10 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
     "/portal/messages": parseInt(String(pending.find((t) => t.kind === "message")?.title ?? "0"), 10) || 0,
     "/messages": (threads.data ?? []).filter((t) => Number(t.unread) > 0).length,
   };
-  const initials = role.split("_").map((w) => w[0]).join("").slice(0, 2);
+  // The person's name and role, and their region when limited to one; the brand's name when there is no name.
+  const who = me.name?.trim() || null;
+  const initials = (who ? who.split(/\s+/) : role.split("_")).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const meta = who ? [label(role), me.region].filter(Boolean).join(" · ") : [me.region, brand.name].filter(Boolean).join(" · ");
   return (
     <div className={`app ${open ? "nav-open" : ""}`}>
       <aside className="sidebar">
@@ -201,7 +204,7 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           <Bell portal={portal} />
           <div className="user">
             <span className="avatar">{initials}</span>
-            <span className="user-meta"><strong>{label(role)}</strong><small>Tenant {me.tenant_id.slice(-6)}</small></span>
+            <span className="user-meta" title={me.email ?? undefined}><strong>{who ?? label(role)}</strong><small>{meta}</small></span>
             <button className="icon-btn" onClick={signOut} title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>
           </div>
         </header>
