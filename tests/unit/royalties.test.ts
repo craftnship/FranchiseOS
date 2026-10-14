@@ -62,6 +62,20 @@ describe("monthly sales and royalties", () => {
     expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).error?.code).toBe("INVALID_TRANSITION");
   });
 
+  it("approves a report again after it was sent back, instead of mistaking its old claim for a lock", async () => {
+    const s = await setup();
+    const rep = await s.store.insert("sales_reports", { tenant_id: s.tid, project_id: s.project.ROWID, franchisee_id: s.fr.ROWID, period: "2026-09", period_key: `${s.tid}:${s.project.ROWID}:2026-09`, status: "SUBMITTED", gross_sales: 100, net_sales: 100 });
+    expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).data.status).toBe("INVOICED");
+    // Sent back (the invoice voided in Books and the link removed), as the clean-up on the pilot did.
+    await s.store.update("sales_reports", String(rep.ROWID), { status: "SUBMITTED", zoho_books_invoice_id: null });
+    s.invoices.clear();
+    const again = await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`);
+    expect(again.success).toBe(true);
+    expect(again.data.status).toBe("INVOICED");
+    expect(s.invoices.size).toBe(1);
+    expect(await s.store.findMany("integration_events", { tenant_id: s.tid, source_system: "FOS" })).toHaveLength(1);
+  });
+
   it("lists the months a store owes from its opening month, at its feasibility rates", async () => {
     const s = await setup();
     const l = (await s.call("pepper", "GET", `${s.base}/royalties`)).data;

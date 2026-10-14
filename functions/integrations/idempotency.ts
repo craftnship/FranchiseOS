@@ -31,13 +31,15 @@ export function isStaleProcessing(row: Row, now = new Date()): boolean {
  * Runs handler at most once per event. A duplicate of an event that is processed or in flight
  * returns { duplicate: true } so the webhook can answer 200 without repeating side effects.
  * A previously FAILED event, or one left PROCESSING by a function that died, may be retried.
+ * With retakeDone, a PROCESSED event may run again too: the caller's own record then decides
+ * whether the work is still due (a claim, not a webhook).
  */
 export async function processOnce<T>(
   store: Store,
   tenantId: string,
   evt: { source: string; eventId: string; recordId: string; payload: unknown },
   handler: () => Promise<T>,
-  opts: { alert?: boolean; now?: Date } = {},
+  opts: { alert?: boolean; now?: Date; retakeDone?: boolean } = {},
 ): Promise<ProcessResult<T>> {
   const key = eventKey(evt.source, evt.eventId, evt.recordId);
   let rowId: string;
@@ -55,7 +57,8 @@ export async function processOnce<T>(
   } catch (e) {
     if (!(e instanceof DuplicateKeyError)) throw e;
     const existing = await store.findOne("integration_events", { event_key: key });
-    if (!existing || (existing.status !== "FAILED" && !isStaleProcessing(existing, opts.now))) return { duplicate: true };
+    const retake = !!existing && (existing.status === "FAILED" || isStaleProcessing(existing, opts.now) || (!!opts.retakeDone && existing.status === "PROCESSED"));
+    if (!existing || !retake) return { duplicate: true };
     rowId = String(existing.ROWID);
     await store.update("integration_events", rowId, { status: "PROCESSING" });
   }
@@ -81,10 +84,12 @@ export async function processOnce<T>(
  * Claims one piece of work (raising an invoice, say) before it calls Zoho, so two people clicking at
  * the same moment, or a person and the daily job, cannot both do it: the second caller is told to
  * refresh. The claim is the same integration_events row a webhook uses, so a claim that failed can be
- * taken again, and one cut off by a timed-out function frees itself after STALE_AFTER_MS.
+ * taken again, and one cut off by a timed-out function frees itself after STALE_AFTER_MS. A finished
+ * claim is history, not a lock: the record's own status (re-read inside `work`) decides whether the
+ * work is due again, so a report sent back after approval can be approved a second time.
  */
 export async function claim<T>(store: Store, tenantId: string, what: string, recordId: string, work: () => Promise<T>, now?: Date): Promise<T> {
-  const r = await processOnce(store, tenantId, { source: "FOS", eventId: what, recordId, payload: null }, work, { alert: false, now });
+  const r = await processOnce(store, tenantId, { source: "FOS", eventId: what, recordId, payload: null }, work, { alert: false, now, retakeDone: true });
   if (r.duplicate) throw new AppError("INVALID_TRANSITION", "Someone else is doing this right now; refresh in a moment.");
   return r.result;
 }

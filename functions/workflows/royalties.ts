@@ -160,6 +160,9 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
   ];
   // One approval at a time per report: a second click, or the job, waits for this one (idempotency.ts).
   return claim(store, ctx.tenantId, "royalty_invoice", String(report.ROWID), async () => {
+  // Inside the claim, the report's own state is the truth: an approval that raced ahead, or an earlier one, stops here.
+  const fresh = await repo.findOne("sales_reports", { ROWID: String(report.ROWID) });
+  if (fresh?.status !== "SUBMITTED") throw new AppError("INVALID_TRANSITION", "This report was already approved.");
   const found = adoptInvoice(await books.findInvoice(ref), { customer_id: String(franchisee.zoho_books_customer_id), total: round2(royalty + marketing), taxed: !!settings.books_tax_id, ref });
   const invoice = found ?? (royalty + marketing > 0 ? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: lines }) : null);
   let state: Row = {};

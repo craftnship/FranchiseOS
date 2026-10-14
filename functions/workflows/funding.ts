@@ -171,6 +171,9 @@ export async function raiseInstalment(store: Store, ctx: TenantContext, books: Z
     : { name: "Franchise fee", description: `${row.label}, agreement ${agreement.agreement_code}, store ${project.project_code}`, rate: toNum(row.amount), quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) };
   // One raise at a time per instalment: a second click, or the job, waits for this one (idempotency.ts).
   return claim(store, ctx.tenantId, "fee_invoice", String(row.ROWID), async () => {
+  // Inside the claim, the instalment's own state is the truth: a raise that ran ahead, or an earlier one, stops here.
+  const fresh = await repo.findOne("fee_instalments", { ROWID: String(row.ROWID) });
+  if (fresh?.status !== "SCHEDULED") throw new AppError("INVALID_TRANSITION", "This instalment is already invoiced.");
   const invoice = adoptInvoice(await books.findInvoice(ref), { customer_id: String(franchisee.zoho_books_customer_id), total: toNum(row.amount), taxed: !deposit && !!settings.books_tax_id, ref }) ?? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: [line] });
   let state: Row = {};
   try {
