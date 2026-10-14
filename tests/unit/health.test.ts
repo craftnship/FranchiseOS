@@ -102,4 +102,15 @@ describe("integration health", () => {
     const later = (await s.call("tony", "GET", "/admin/integrations")).data.jobs;
     expect(later.find((j: any) => j.step === "project_risk")).toMatchObject({ ok: true, last_run: expect.any(String) });
   });
+
+  it("shows the newest run when an older run carries the higher ROWID", async () => {
+    const s = await setup();
+    await recordJobRun(s.store, { step: "project_risk", ok: true, requestId: "J1", now: new Date("2026-10-14T03:30:00Z") });
+    // The Data Store hands ROWIDs out in blocks, so yesterday's failed run can land with the higher one.
+    const old = await s.store.insert("integration_logs", { tenant_id: s.tid, source_system: "FOS_JOBS", entity_type: "job", entity_id: "project_risk", operation: "project_risk", status: "FAILED", attempt: 1, request_id: "J0", error_message: "Zoho Projects down", CREATEDTIME: "2026-10-13T03:30:00.000Z" });
+    const [run] = await s.store.findMany("integration_logs", { request_id: "J1" });
+    expect(Number(old.ROWID)).toBeGreaterThan(Number(run.ROWID));
+    const job = (await s.call("tony", "GET", "/admin/integrations")).data.jobs.find((j: any) => j.step === "project_risk");
+    expect(job).toMatchObject({ ok: true, error: null, last_run: run.CREATEDTIME });
+  });
 });

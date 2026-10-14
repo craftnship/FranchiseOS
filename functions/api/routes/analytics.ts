@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Row } from "../../common/store";
+import { oldestFirst, Row } from "../../common/store";
 import { round, toNum, toNumOrNull } from "../../common/values";
 import { duePeriods, tradedFullMonth, nextPeriod, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { parse, Router } from "../router";
@@ -45,7 +45,7 @@ export function analyticsRoutes(r: Router): void {
     const byId = (rows: Row[]) => new Map(rows.map((x) => [String(x.ROWID), x]));
     const siteOf = byId(sites), terOf = byId(territories), frOf = byId(franchisees), appOf = byId(apps);
     const modelOf = new Map<string, Row>();
-    for (const m of [...models].sort((a, b) => String(a.ROWID).localeCompare(String(b.ROWID), undefined, { numeric: true }))) modelOf.set(String(m.application_id), m);
+    for (const m of [...models].sort(oldestFirst)) modelOf.set(String(m.application_id), m);
     const signedOf = new Map<string, Row>();
     for (const a of agreements) if (a.status === "SIGNED" || a.signed_at) signedOf.set(String(a.application_id), a);
 

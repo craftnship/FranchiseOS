@@ -59,15 +59,16 @@ export function integrationRoutes(r: Router): void {
   r.on("GET", "/admin/integrations", "integration.admin", async (call) => {
     const since = new Date(call.now.getTime() - 7 * DAY).toISOString();
     const [dead, failed, logs, events, integration] = await Promise.all([
-      call.repo.findMany("integration_logs", { status: "DEAD_LETTER" }, { orderBy: "ROWID", desc: true, limit: 100 }),
-      call.repo.findMany("integration_events", { status: "FAILED" }, { orderBy: "ROWID", desc: true, limit: 100 }),
-      call.repo.findMany("integration_logs", {}, { orderBy: "ROWID", desc: true, limit: 300 }),
-      call.repo.findMany("integration_events", {}, { orderBy: "ROWID", desc: true, limit: 300 }),
+      call.repo.findMany("integration_logs", { status: "DEAD_LETTER" }, { orderBy: "CREATEDTIME", desc: true, limit: 100 }),
+      call.repo.findMany("integration_events", { status: "FAILED" }, { orderBy: "CREATEDTIME", desc: true, limit: 100 }),
+      call.repo.findMany("integration_logs", {}, { orderBy: "CREATEDTIME", desc: true, limit: 300 }),
+      call.repo.findMany("integration_events", {}, { orderBy: "CREATEDTIME", desc: true, limit: 300 }),
       call.repo.findOne("tenant_integrations", { provider: "ZOHO" }),
     ]);
     // Each step's own last runs: the general log window above fills with Zoho calls on a busy night, so the
-    // early steps' rows would fall outside it and the screen would show a stale last run.
-    const jobRuns = await Promise.all(JOB_STEPS.map((step) => call.repo.findMany("integration_logs", { source_system: "FOS_JOBS", entity_id: step }, { orderBy: "ROWID", desc: true, limit: 10 })));
+    // early steps' rows would fall outside it and the screen would show a stale last run. Newest by CREATEDTIME:
+    // ROWIDs are not in time order (see store.ts), so a run from yesterday can carry the higher one.
+    const jobRuns = await Promise.all(JOB_STEPS.map((step) => call.repo.findMany("integration_logs", { source_system: "FOS_JOBS", entity_id: step }, { orderBy: "CREATEDTIME", desc: true, limit: 10 })));
     // Last 7 days by system: calls and events that worked, and those that gave up.
     const sources: Record<string, { ok: number; failed: number; retried: number }> = {};
     const bump = (s: string, k: "ok" | "failed" | "retried") => { (sources[s] ??= { ok: 0, failed: 0, retried: 0 })[k]++; };

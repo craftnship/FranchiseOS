@@ -1,7 +1,7 @@
 import { logActivity } from "../common/audit";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
-import { Row, Store, TenantRepo } from "../common/store";
+import { oldestFirst, Row, Store, TenantRepo } from "../common/store";
 import { round, toBool, toNum, toNumOrNull } from "../common/values";
 import { HealthBand, HealthInputs, HealthResult, HealthSettings, healthSettings, scoreHealth } from "../scoring/health";
 import { auditSettings, nextDue } from "./audits";
@@ -44,7 +44,7 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
   const by = (rows: Row[]) => new Map(rows.map((x) => [String(x.ROWID), x]));
   const siteOf = by(sites), terOf = by(territories), appOf = by(apps);
   const latestModel = new Map<string, Row>();
-  for (const m of [...models].sort((a, b) => String(a.ROWID).localeCompare(String(b.ROWID), undefined, { numeric: true }))) latestModel.set(String(m.application_id), m);
+  for (const m of [...models].sort(oldestFirst)) latestModel.set(String(m.application_id), m);
   const owed = owedRows(agreements, instalments, reports);
   const ownerOf = projectOfOwed(projects);
   const opened = projects.filter((p) => p.actual_opening_date);

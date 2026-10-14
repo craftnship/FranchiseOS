@@ -120,7 +120,7 @@ export async function sendAgreement(
   const repo = new TenantRepo(store, ctx.tenantId);
   const app = await repo.findOne("franchise_applications", { ROWID: args.applicationId });
   if (!app) throw new AppError("APPLICATION_NOT_FOUND");
-  const agreements = await repo.findMany("agreements", { application_id: args.applicationId }, { orderBy: "ROWID", desc: true, limit: 20 });
+  const agreements = await repo.findMany("agreements", { application_id: args.applicationId }, { orderBy: "CREATEDTIME", desc: true, limit: 20 });
   if (agreements.some((a) => a.status === "SIGNED")) throw new AppError("AGREEMENT_ALREADY_SIGNED");
   const open = agreements.find((a) => OPEN_AGREEMENT.includes(String(a.status)));
   if (open && open.zoho_sign_request_id) return { agreement: open, sent: false };

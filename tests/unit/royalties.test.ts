@@ -70,6 +70,14 @@ describe("monthly sales and royalties", () => {
     expect(l.totals).toMatchObject({ missing: 2, waiting: 0 });
   });
 
+  it("rates come from the newest feasibility model, not the one with the highest ROWID", async () => {
+    const s = await setup();
+    // An older, superseded model that the Data Store gave the higher ROWID.
+    const app = (await s.store.findMany("franchise_applications", {}))[0];
+    await s.store.insert("feasibility_models", { tenant_id: s.tid, application_id: app.ROWID, site_id: "1", status: "CALCULATED", royalty_pct: 4, marketing_fund_pct: 1, CREATEDTIME: "2026-01-01T00:00:00.000Z" });
+    expect((await s.call("pepper", "GET", `${s.base}/royalties`)).data.rates).toEqual({ royalty_pct: 6, marketing_fund_pct: 2, source: "feasibility" });
+  });
+
   it("takes a report from the franchisee, with the month's checks", async () => {
     const s = await setup();
     const post = (body: any) => s.call("pepper", "POST", `${s.base}/sales`, body);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Row } from "../../common/store";
+import { oldestFirst, Row } from "../../common/store";
 import { round, toBool, toNum, toNumOrNull } from "../../common/values";
 import { duePeriods, ratesFrom, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
@@ -97,7 +97,7 @@ export function ownerRoutes(r: Router): void {
     const inP = (ps: string[]) => (x: Row) => ps.includes(String(x.period)) && reported(x);
     // Royalty a submitted report will raise once approved, at the store's rates (as approval works it out).
     const latestModel = new Map<string, Row>();
-    for (const m of [...models].sort((a, b) => String(a.ROWID).localeCompare(String(b.ROWID), undefined, { numeric: true }))) latestModel.set(String(m.application_id), m);
+    for (const m of [...models].sort(oldestFirst)) latestModel.set(String(m.application_id), m);
     const expectedRoyalty = (x: Row) => {
       const p = projOf.get(String(x.project_id));
       const r = p ? ratesFrom(p, latestModel.get(String(p.application_id)) ?? null, tenant) : null;

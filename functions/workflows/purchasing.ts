@@ -1,7 +1,7 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { AppError } from "../common/errors";
-import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
+import { DuplicateKeyError, newestFirst, Row, Store, TenantRepo } from "../common/store";
 import { round, toBool, toNum } from "../common/values";
 import { recordPoSpend } from "./capex";
 
@@ -158,7 +158,7 @@ export async function purchasingFor(store: Store, ctx: TenantContext, project: R
   const pkg = packageStatus(s.items, s.orders);
   const vendorName = new Map(s.vendors.map((v) => [String(v.ROWID), String(v.name)]));
   const orders = s.orders
-    .sort((a, b) => String(b.ROWID).localeCompare(String(a.ROWID), undefined, { numeric: true }))
+    .sort(newestFirst)
     .map((o): Row => ({ ...o, lines: lines(o), vendor_name: vendorName.get(String(o.vendor_id)) ?? "—", late: isLate(o, today), overdue: o.status === "CONFIRMED" && !!o.expected_delivery && String(o.expected_delivery).slice(0, 10) < today }));
   return {
     package: pkg, met: packageMet(pkg), orders,

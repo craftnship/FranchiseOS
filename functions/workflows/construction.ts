@@ -1,7 +1,7 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { AppError } from "../common/errors";
-import { Row, Store, TenantRepo } from "../common/store";
+import { newestFirst, Row, Store, TenantRepo } from "../common/store";
 import { toNum, toNumOrNull } from "../common/values";
 
 // Construction depth for an opening project: the brand design approved before fit-out, dated and
@@ -17,7 +17,6 @@ export const FITOUT_TASK = "FITOUT";
 /** Photos further than this from the site's pin are flagged. */
 export const FAR_FROM_SITE_M = 500;
 
-const byRowid = (a: Row, b: Row) => String(b.ROWID).localeCompare(String(a.ROWID), undefined, { numeric: true });
 
 /** Great-circle distance in metres. */
 export function distanceM(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -36,11 +35,11 @@ export async function constructionFor(store: Store, ctx: TenantContext, project:
   const pid = String(project.ROWID);
   const [designs, photos, snags, site] = await Promise.all([
     repo.findMany("design_reviews", { project_id: pid }, { limit: 300 }),
-    repo.findMany("site_photos", { project_id: pid }, { orderBy: "ROWID", desc: true, limit: 300 }),
+    repo.findMany("site_photos", { project_id: pid }, { orderBy: "CREATEDTIME", desc: true, limit: 300 }),
     repo.findMany("snags", { project_id: pid }, { limit: 300 }),
     projectSite(repo, project),
   ]);
-  designs.sort(byRowid);
+  designs.sort(newestFirst);
   const approved = designs.find((d) => d.status === "APPROVED") ?? null;
   const open = snags.filter((s) => s.status === "OPEN" || s.status === "FIXED");
   const blocking = open.filter((s) => s.severity !== "MINOR");

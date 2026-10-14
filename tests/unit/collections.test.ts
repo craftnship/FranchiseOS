@@ -90,10 +90,10 @@ describe("collections: the ladder", () => {
     await s.remind("2026-10-12T03:00:00Z");
     const d = await s.list();
     const inst = d.items.find((i: any) => i.kind === "INSTALMENT");
-    // Finance may read the list but not act; the super admin acts.
-    expect((await s.call("fin", "POST", `/collections/${inst.ROWID}/promise`, { date: "2026-10-20", note: "Cheque on the way" })).error?.code).toBe("ACCESS_DENIED");
+    // The director may read the list but not act; finance (collections.manage) and the super admin act.
+    expect((await s.call("dir", "POST", `/collections/${inst.ROWID}/promise`, { date: "2026-10-20", note: "Cheque on the way" })).error?.code).toBe("ACCESS_DENIED");
     expect((await s.call("tony", "POST", `/collections/${inst.ROWID}/promise`, { date: "2026-10-01" })).error?.fields).toEqual({ date: "in the past" });
-    const p = (await s.call("tony", "POST", `/collections/${inst.ROWID}/promise`, { date: "2026-10-20", note: "Cheque on the way" })).data;
+    const p = (await s.call("fin", "POST", `/collections/${inst.ROWID}/promise`, { date: "2026-10-20", note: "Cheque on the way" })).data;
     expect(p).toMatchObject({ status: "PROMISED", promise_date: "2026-10-20", promise_broken: false });
     // Still promised: no step goes out even though 30 days late comes on 20 Oct.
     await s.remind("2026-10-20T03:00:00Z");

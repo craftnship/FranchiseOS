@@ -23,7 +23,8 @@ export class MemoryStore implements Store {
   async insert(table: string, row: Row): Promise<Row> {
     this.checkUnique(table, row);
     const now = new Date().toISOString();
-    const stored = { ...row, ROWID: String(++this.seq), CREATEDTIME: now, MODIFIEDTIME: now };
+    // A test may hand in CREATEDTIME to stage rows whose age and ROWID disagree, as the Data Store's can.
+    const stored = { ...row, ROWID: String(++this.seq), CREATEDTIME: row.CREATEDTIME ?? now, MODIFIEDTIME: now };
     this.rows(table).push(stored);
     return { ...stored };
   }
@@ -54,7 +55,8 @@ export class MemoryStore implements Store {
       const k = opts.orderBy;
       const cmp = (x: unknown, y: unknown) =>
         typeof x === "number" && typeof y === "number" ? x - y : /^\d+$/.test(String(x)) && /^\d+$/.test(String(y)) ? Number(x) - Number(y) : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0;
-      out = [...out].sort((a, b) => cmp(a[k], b[k]) * (opts.desc ? -1 : 1));
+      const dir = opts.desc ? -1 : 1;
+      out = [...out].sort((a, b) => (cmp(a[k], b[k]) || cmp(a.ROWID, b.ROWID)) * dir);
     }
     const start = opts.offset ?? 0;
     return out.slice(start, opts.limit ? start + opts.limit : undefined).map((r) => ({ ...r }));

@@ -70,8 +70,8 @@ export function auditRoutes(r: Router): void {
     if (q.entity_id) where.entity_id = q.entity_id;
     if (q.actor_user_id) where.actor_user_id = q.actor_user_id;
     const rows = await call.repo.findMany("activity_logs", where, {
-      // ROWIDs only grow, and timestamps tie within a second.
-      orderBy: "ROWID", desc: true, offset: q.offset, limit: q.limit + 1,
+      // Newest first by the row's own clock: ROWIDs are not in time order (see store.ts).
+      orderBy: "CREATEDTIME", desc: true, offset: q.offset, limit: q.limit + 1,
       ...(q.from || q.to ? { range: { column: "created_at", from: q.from, before: q.to ? nextDay(q.to) : undefined } } : {}),
       ...(q.q ? { contains: { columns: ["action", "entity_id", "metadata_json"], term: q.q } } : {}),
     });

@@ -21,6 +21,16 @@ export interface QueryOptions {
   range?: { column: string; from?: string; before?: string };
 }
 
+/**
+ * Row age. Catalyst hands ROWIDs out in blocks per server, so they are not in time order: a row written on
+ * the 14th can carry a lower ROWID than one written on the 13th. "Latest" therefore means CREATEDTIME, and
+ * ROWID only breaks a tie within the same millisecond. Queries that want the newest rows order by CREATEDTIME
+ * for the same reason; ROWID order is only for paging, where any stable order will do.
+ */
+const byRowid = (a: Row, b: Row) => String(a.ROWID ?? "").localeCompare(String(b.ROWID ?? ""), undefined, { numeric: true });
+export const oldestFirst = (a: Row, b: Row): number => String(a.CREATEDTIME ?? "").localeCompare(String(b.CREATEDTIME ?? "")) || byRowid(a, b);
+export const newestFirst = (a: Row, b: Row): number => oldestFirst(b, a);
+
 /** Minimal persistence port. CatalystStore implements it for Data Store; MemoryStore for tests. */
 export interface Store {
   insert(table: string, row: Row): Promise<Row>;

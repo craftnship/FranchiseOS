@@ -1,7 +1,7 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { AppError } from "../common/errors";
-import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
+import { DuplicateKeyError, newestFirst, Row, Store, TenantRepo } from "../common/store";
 import { toNum, toNumOrNull } from "../common/values";
 import { DEFAULTS } from "../../database/seed/defaults";
 
@@ -51,7 +51,7 @@ export async function plannedMonthlyRevenue(repo: TenantRepo, project: Row): Pro
   let model = app?.feasibility_id ? await repo.findOne("feasibility_models", { ROWID: String(app.feasibility_id) }) : null;
   if (!model) {
     const all = await repo.findMany("feasibility_models", { application_id: String(project.application_id) }, { limit: 50 });
-    model = all.sort((a, b) => String(b.ROWID).localeCompare(String(a.ROWID), undefined, { numeric: true }))[0] ?? null;
+    model = all.sort(newestFirst)[0] ?? null;
   }
   const v = toNumOrNull(model?.monthly_revenue);
   return v && v > 0 ? v : null;

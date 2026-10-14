@@ -54,7 +54,7 @@ const has = (v: unknown) => v !== null && v !== undefined && v !== "" && String(
 export async function ratesFor(store: Store, ctx: Pick<TenantContext, "tenantId">, project: Row): Promise<Rates> {
   if (has(project.royalty_pct)) return ratesFrom(project, null, null);
   const repo = new TenantRepo(store, ctx.tenantId);
-  const model = project.application_id ? (await repo.findMany("feasibility_models", { application_id: String(project.application_id) }, { orderBy: "ROWID", desc: true, limit: 1 }))[0] : null;
+  const model = project.application_id ? (await repo.findMany("feasibility_models", { application_id: String(project.application_id) }, { orderBy: "CREATEDTIME", desc: true, limit: 1 }))[0] : null;
   if (model && has(model.royalty_pct)) return ratesFrom(project, model, null);
   return ratesFrom(project, model ?? null, await store.findOne("tenants", { ROWID: ctx.tenantId }));
 }
