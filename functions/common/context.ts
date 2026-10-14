@@ -14,6 +14,12 @@ export interface TenantContext {
   mailer?: Mailer;
 }
 
+/**
+ * The user to record on a row's *_by column: the signed-in user's id, or null when the actor is a job
+ * ("SYSTEM:job"), since those columns are user foreign keys and the Data Store rejects anything but a number.
+ */
+export const actorId = (ctx: Pick<TenantContext, "userId">): string | null => (/^\d+$/.test(ctx.userId) ? ctx.userId : null);
+
 export interface Mailer {
   send(msg: { to: string; subject: string; html: string; text: string }): Promise<void>;
 }

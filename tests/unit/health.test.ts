@@ -97,5 +97,9 @@ describe("integration health", () => {
     expect(jobs.find((j: any) => j.step === "two_way_sync")).toMatchObject({ ok: false, error: "Books down", last_success: null });
     expect(jobs.find((j: any) => j.step === "reminders")).toMatchObject({ ok: null, last_run: null });
     expect(await s.inbox("tony")).toEqual(["Daily job failed: Books payments and CRM edits"]);
+    // A busy night of Zoho calls after the first step does not push its run off the screen.
+    for (let i = 0; i < 400; i++) await s.store.insert("integration_logs", { tenant_id: s.tid, source_system: "BOOKS", entity_type: "invoice", entity_id: `I${i}`, operation: "create", status: "SUCCESS", attempt: 1, request_id: "J3" });
+    const later = (await s.call("tony", "GET", "/admin/integrations")).data.jobs;
+    expect(later.find((j: any) => j.step === "project_risk")).toMatchObject({ ok: true, last_run: expect.any(String) });
   });
 });

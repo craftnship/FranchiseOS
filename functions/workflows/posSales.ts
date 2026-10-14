@@ -1,5 +1,5 @@
 import { logActivity } from "../common/audit";
-import { Mailer, TenantContext } from "../common/context";
+import { actorId, Mailer, TenantContext } from "../common/context";
 import { AppError } from "../common/errors";
 import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
@@ -124,7 +124,7 @@ export async function closeMonthFromPos(store: Store, ctx: TenantContext, projec
   const fields: Row = {
     basis: "POS", source: "POS", gross_sales: month.gross_sales, net_sales: month.net_sales, transactions: month.transactions || null,
     pos_net_sales: month.net_sales, reported_net_sales: reported, variance_pct: variance,
-    status: "SUBMITTED", submitted_by: ctx.userId, submitted_at: opts.now.toISOString(), review_note: null,
+    status: "SUBMITTED", submitted_by: actorId(ctx), submitted_at: opts.now.toISOString(), review_note: null,
   };
   let report: Row;
   if (existing) report = await repo.update("sales_reports", String(existing.ROWID), fields);

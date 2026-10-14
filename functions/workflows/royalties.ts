@@ -1,4 +1,4 @@
-import { TenantContext } from "../common/context";
+import { actorId, TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { claim } from "../integrations/idempotency";
 import { AppError } from "../common/errors";
@@ -92,7 +92,7 @@ export async function submitReport(store: Store, ctx: TenantContext, project: Ro
   const existing = await repo.findOne("sales_reports", { period_key: key });
   const fields: Row = {
     gross_sales: round2(input.gross_sales), net_sales: round2(input.net_sales), transactions: input.transactions ?? null, notes: input.notes ?? null,
-    ...(input.file_ref ? { file_ref: input.file_ref } : {}), status: "SUBMITTED", submitted_by: ctx.userId, submitted_at: new Date().toISOString(), source: by,
+    ...(input.file_ref ? { file_ref: input.file_ref } : {}), status: "SUBMITTED", submitted_by: actorId(ctx), submitted_at: new Date().toISOString(), source: by,
   };
   let row: Row;
   if (existing) {
@@ -116,7 +116,7 @@ export async function submitReport(store: Store, ctx: TenantContext, project: Ro
 /** Sends a report back to the franchisee with a note. */
 export async function returnReport(store: Store, ctx: TenantContext, report: Row, note: string): Promise<Row> {
   if (report.status !== "SUBMITTED") throw new AppError("INVALID_TRANSITION", "Only a submitted report can be returned.");
-  const row = await new TenantRepo(store, ctx.tenantId).update("sales_reports", String(report.ROWID), { status: "RETURNED", review_note: note, reviewed_by: ctx.userId, reviewed_at: new Date().toISOString() });
+  const row = await new TenantRepo(store, ctx.tenantId).update("sales_reports", String(report.ROWID), { status: "RETURNED", review_note: note, reviewed_by: actorId(ctx), reviewed_at: new Date().toISOString() });
   await logActivity(store, ctx, { entityType: "sales_report", entityId: String(report.ROWID), action: "royalty:returned", metadata: { project_id: String(report.project_id), period: report.period, note } });
   return row;
 }
@@ -175,7 +175,7 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
   const zero = !invoice;
   const row = await repo.update("sales_reports", String(report.ROWID), {
     status: zero ? "PAID" : "INVOICED", royalty_pct: rates.royalty_pct, marketing_fund_pct: rates.marketing_fund_pct ?? 0, royalty_amount: royalty, marketing_amount: marketing,
-    zoho_books_invoice_id: invoice?.id ?? null, reviewed_by: ctx.userId, reviewed_at: now.toISOString(), review_note: null, ...state,
+    zoho_books_invoice_id: invoice?.id ?? null, reviewed_by: actorId(ctx), reviewed_at: now.toISOString(), review_note: null, ...state,
   });
   await logActivity(store, ctx, {
     entityType: "sales_report", entityId: String(report.ROWID), action: "royalty:invoiced",

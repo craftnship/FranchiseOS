@@ -217,6 +217,8 @@ describe("POS sales feed: royalty on real sales", () => {
     expect(r).toMatchObject({ closed: 2, approved: 0 });
     const sep = (await s.store.findOne("sales_reports", { ROWID: String(rep.ROWID) }))!;
     expect(sep).toMatchObject({ basis: "POS", source: "POS", status: "SUBMITTED", net_sales: 900_000, pos_net_sales: 900_000, reported_net_sales: 792_000, variance_pct: -12 });
+    // The job is not a user: submitted_by is a user foreign key, so it stays null rather than "SYSTEM:job".
+    expect(sep.submitted_by).toBeNull();
     const aug = await s.store.findOne("sales_reports", { period_key: `${s.tid}:${s.project.ROWID}:2026-08` });
     expect(aug).toMatchObject({ basis: "POS", net_sales: 360_000, reported_net_sales: null, variance_pct: null });
     expect(s.invoices).toHaveLength(0);

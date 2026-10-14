@@ -65,13 +65,16 @@ export function integrationRoutes(r: Router): void {
       call.repo.findMany("integration_events", {}, { orderBy: "ROWID", desc: true, limit: 300 }),
       call.repo.findOne("tenant_integrations", { provider: "ZOHO" }),
     ]);
+    // Each step's own last runs: the general log window above fills with Zoho calls on a busy night, so the
+    // early steps' rows would fall outside it and the screen would show a stale last run.
+    const jobRuns = await Promise.all(JOB_STEPS.map((step) => call.repo.findMany("integration_logs", { source_system: "FOS_JOBS", entity_id: step }, { orderBy: "ROWID", desc: true, limit: 10 })));
     // Last 7 days by system: calls and events that worked, and those that gave up.
     const sources: Record<string, { ok: number; failed: number; retried: number }> = {};
     const bump = (s: string, k: "ok" | "failed" | "retried") => { (sources[s] ??= { ok: 0, failed: 0, retried: 0 })[k]++; };
     for (const l of logs) if (l.source_system !== "FOS_JOBS" && recent(l, since)) bump(String(l.source_system), l.status === "SUCCESS" ? "ok" : l.status === "RETRYING" ? "retried" : "failed");
     for (const e of events) if (recent(e, since)) bump(String(e.source_system), e.status === "PROCESSED" ? "ok" : e.status === "PROCESSING" ? "retried" : "failed");
-    const jobs = JOB_STEPS.map((step) => {
-      const runs = logs.filter((l) => l.source_system === "FOS_JOBS" && l.entity_id === step);
+    const jobs = JOB_STEPS.map((step, i) => {
+      const runs = jobRuns[i];
       const last = runs[0];
       const lastOk = runs.find((x) => x.status === "SUCCESS");
       return { step, name: JOB_LABEL[step], last_run: last ? at(last) : null, ok: last ? last.status === "SUCCESS" : null, error: last?.status === "SUCCESS" ? null : last?.error_message ?? null, last_success: lastOk ? at(lastOk) : null };
