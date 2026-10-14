@@ -5,6 +5,7 @@ import { PortalConstruction } from "./components/Construction";
 import { PortalTeam } from "./components/Staffing";
 import { PortalOrders, Vendors } from "./components/Purchasing";
 import { Fees, PortalFunding } from "./components/Funding";
+import { Collections } from "./components/Collections";
 import { AuditPage, Audits, PortalAudits } from "./components/Audits";
 import { Launches, PortalLaunch, Renewals } from "./components/Launch";
 import { BrandDocuments, MessagesInbox, MessageThread, PortalDocuments, PortalMessages, PortalTodo } from "./components/PortalHub";
@@ -106,6 +107,7 @@ export function App() {
               <Route path="/royalties" element={<Royalties />} />
               <Route path="/vendors" element={<Vendors />} />
               <Route path="/fees" element={<Fees />} />
+              <Route path="/collections" element={<Collections />} />
               <Route path="/audits" element={<Audits />} />
               <Route path="/launches" element={<Launches />} />
               <Route path="/renewals" element={<Renewals />} />

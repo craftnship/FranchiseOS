@@ -1,5 +1,4 @@
 import { overdueOrders } from "./purchasing";
-import { overdueInstalments } from "./funding";
 import { auditReminders } from "./audits";
 import { launchReminders } from "./launch";
 import { Mailer, TenantContext } from "../common/context";
@@ -11,6 +10,7 @@ import { brandingOf, DEFAULT_COLOR } from "../common/branding";
 import { expireLicences, renewDays } from "./licences";
 import { derivedDates, openingGap, rentSchedule } from "./leases";
 import { duePeriods, nextPeriod, periodLabel, royaltySettings } from "./royalties";
+import { runLadder } from "./collections";
 
 // Notifications (spec §23): an in-app inbox per user, copied by email when a mailer is configured.
 // Events come from the activity log (notifyFromActivity), so every path that records an action,
@@ -55,7 +55,7 @@ export async function usersInRoles(store: Store, tenantId: string, roles: string
 }
 
 /** Portal users of a franchisee, so the franchisee hears about their own store. */
-async function portalUsers(store: Store, tenantId: string, franchiseeId: unknown): Promise<string[]> {
+export async function portalUsers(store: Store, tenantId: string, franchiseeId: unknown): Promise<string[]> {
   if (!franchiseeId) return [];
   return (await store.findMany("users", { tenant_id: tenantId, franchisee_id: String(franchiseeId), status: "ACTIVE" })).map((u) => String(u.ROWID));
 }
@@ -628,7 +628,7 @@ export async function leaseNotices(store: Store, ctx: TenantContext, lease: Row,
 export async function sendReminders(store: Store, ctx: TenantContext, now: Date) {
   const repo = new TenantRepo(store, ctx.tenantId);
   const today = day(now);
-  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, launch: 0, renewals: 0 };
+  const out = { approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, collections: 0, funding: 0, audits: 0, launch: 0, renewals: 0 };
   await expireLicences(store, ctx, today);
 
   for (const instance of await repo.findMany("approval_instances", { status: "PENDING" })) {
@@ -746,17 +746,10 @@ export async function sendReminders(store: Store, ctx: TenantContext, now: Date)
   }
 
   // Fee instalments past their due date (the signing invoice is chased per agreement above).
-  const signed = new Map((await repo.findMany("agreements", { status: "SIGNED" })).map((a) => [String(a.ROWID), a]));
-  for (const f of overdueInstalments(await repo.findMany("fee_instalments", { status: "INVOICED" }), signed, today)) {
-    const project = projectsById.get(String(f.project_id));
-    if (!project) continue;
-    const due = String(f.invoice_due_date).slice(0, 10);
-    out.fees += await deliver(store, ctx, {
-      kind: "fee.instalment_overdue", entityType: "project", entityId: String(f.project_id), roles: ["FINANCE_MANAGER"], userIds: await portalUsers(store, ctx.tenantId, f.franchisee_id),
-      title: `${project.project_code}: ${f.kind === "DEPOSIT" ? "security deposit" : `fee instalment “${f.label}”`} is overdue`, body: `${inr(toNum(f.invoice_balance))} on ${f.invoice_number ?? "the invoice"} was due ${nice(due)}.`,
-      link: linkTo("project", String(f.project_id)), dedupe: `fee-inst-overdue:${f.ROWID}:${due}`,
-    }, now);
-  }
+  // Unpaid fees, instalments and royalty invoices are chased on the tenant's ladder (collections.ts); each step is delivered once.
+  const chased = await runLadder(store, ctx, today, now);
+  out.fees += chased.reminders + chased.broken;
+  out.collections += chased.escalations;
 
   // Corrective actions past their date, and opened stores past their audit date with nothing booked.
   const due = await auditReminders(store, ctx, today);
@@ -860,7 +853,7 @@ async function salesReminders(store: Store, ctx: TenantContext, repo: TenantRepo
 
 /** job_reminders (daily): sendReminders for every active tenant; a failing tenant is logged and skipped. */
 export async function runReminderJob(store: Store, opts: { now: Date; requestId: string; mailer?: Mailer }) {
-  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, funding: 0, audits: 0, launch: 0, renewals: 0, failed: 0 };
+  const total = { tenants: 0, approvals: 0, tasks: 0, openings: 0, agreements: 0, reservations: 0, licences: 0, leases: 0, sales: 0, deliveries: 0, fees: 0, collections: 0, funding: 0, audits: 0, launch: 0, renewals: 0, failed: 0 };
   for (const tenant of await store.findMany("tenants", { status: "ACTIVE" })) {
     const tenantId = String(tenant.ROWID);
     const ctx: TenantContext = { tenantId, userId: "SYSTEM:reminders", roles: ["SYSTEM"], zohoDc: String(tenant.zoho_dc), requestId: opts.requestId, correlationId: opts.requestId, mailer: opts.mailer };

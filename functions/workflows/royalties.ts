@@ -191,7 +191,7 @@ export async function refreshReport(store: Store, ctx: TenantContext, books: Zoh
   const inv = await books.getInvoice(String(report.zoho_books_invoice_id));
   const paid = inv.status === "paid" || toNum(inv.balance) <= 0;
   const patch: Row = { invoice_number: inv.number, invoice_status: inv.status, invoice_total: inv.total, invoice_balance: inv.balance, invoice_due_date: inv.due_date };
-  if (paid) patch.status = "PAID";
+  if (paid) Object.assign(patch, { status: "PAID", paid_on: (inv.last_payment_date ?? new Date().toISOString()).slice(0, 10) });
   const row = await new TenantRepo(store, ctx.tenantId).update("sales_reports", String(report.ROWID), patch);
   if (paid) await logActivity(store, ctx, { entityType: "sales_report", entityId: String(report.ROWID), action: "royalty:paid", metadata: { project_id: String(report.project_id), period: report.period, invoice_number: inv.number, paid_on: inv.last_payment_date ?? null } });
   return row;

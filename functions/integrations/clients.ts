@@ -60,7 +60,11 @@ export interface ZohoBooksClient {
   listOrganizations?(): Promise<Array<{ id: string; name: string }>>;
   /** Sales per day from invoices and credit notes between two dates (inclusive), optionally for one location. */
   dailySales?(from: string, to: string, locationId?: string | null): Promise<BooksDay[]>;
+  /** Records a payment the brand received outside Books (NEFT, UPI, a cheque) against one or more invoices. Needs ZohoBooks.customerpayments.CREATE. */
+  recordPayment?(data: BooksPaymentInput): Promise<{ id: string; number?: string }>;
 }
+
+export interface BooksPaymentInput { customer_id: string; payment_mode: string; amount: number; date: string; reference_number?: string; description?: string; invoices: Array<{ invoice_id: string; amount_applied: number }> }
 
 export interface BooksDay { day: string; gross_sales: number; discounts: number; returns: number; tax: number; transactions: number }
 

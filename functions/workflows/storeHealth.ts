@@ -2,13 +2,14 @@ import { logActivity } from "../common/audit";
 import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { Row, Store, TenantRepo } from "../common/store";
-import { round, toNum, toNumOrNull } from "../common/values";
+import { round, toBool, toNum, toNumOrNull } from "../common/values";
 import { HealthBand, HealthInputs, HealthResult, HealthSettings, healthSettings, scoreHealth } from "../scoring/health";
 import { auditSettings, nextDue } from "./audits";
 import { addDays } from "./launch";
 import { deliver, usersInRoles } from "./notifications";
 import { feedStatus, posSettings } from "./posSales";
 import { daysLate, owedRows, projectOfOwed } from "./receivables";
+import { paymentBehaviour } from "./collections";
 import { duePeriods, nextPeriod, periodOf, prevPeriod, ratesFrom, royaltySettings, tradedFullMonth } from "./royalties";
 
 // Franchisee health (docs/health-score.md): gathers each trading store's inputs from what FranchiseOS
@@ -35,6 +36,7 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
     allRows(repo, "franchise_applications"), allRows(repo, "feasibility_models"), allRows(repo, "sales_reports"), allRows(repo, "agreements"),
     allRows(repo, "fee_instalments"), allRows(repo, "audits", { status: "COMPLETED" }), allRows(repo, "corrective_actions"), allRows(repo, "licences"),
   ]);
+  const escalated = new Set((await allRows(repo, "collections", { status: "OPEN" })).concat(await allRows(repo, "collections", { status: "PROMISED" })).filter((c) => toBool(c.escalated)).map((c) => String(c.project_id)));
   const settings = healthSettingsFor(tenant);
   const audit = auditSettings(tenant);
   const dueDay = royaltySettings(tenant).report_due_day;
@@ -65,10 +67,12 @@ export async function computeNetworkHealth(store: Store, ctx: Pick<TenantContext
     const rates = ratesFrom(p, model, tenant);
     const monthly = avg !== null && rates.royalty_pct !== null ? avg * (rates.royalty_pct + (rates.marketing_fund_pct ?? 0)) / 100 : null;
     const overdueHere = owedHere.filter((o) => daysLate(o.due, today) > 0);
+    const behaviour = paymentBehaviour(agreements, instalments, reports, today, { days: 180, projectId: pid, projectOf: ownerOf });
     const payments = owedHere.length ? {
       owed: round(owedHere.reduce((a, o) => a + o.amount, 0)), overdue: round(overdueHere.reduce((a, o) => a + o.amount, 0)),
       oldest_days: Math.max(0, ...overdueHere.map((o) => daysLate(o.due, today))), monthly_royalty: monthly === null ? null : round(monthly),
-    } : { owed: 0, overdue: 0, oldest_days: 0, monthly_royalty: monthly === null ? null : round(monthly) };
+      days_to_pay: behaviour.days_to_pay, escalated: escalated.has(pid),
+    } : { owed: 0, overdue: 0, oldest_days: 0, monthly_royalty: monthly === null ? null : round(monthly), days_to_pay: behaviour.days_to_pay, escalated: false };
 
     // Compliance: the latest audit, what is open against it, licences and the next audit.
     const done = audits.filter((a) => String(a.project_id) === pid).sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));

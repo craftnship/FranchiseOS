@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { Row } from "../../common/store";
-import { round, toNum, toNumOrNull } from "../../common/values";
+import { round, toBool, toNum, toNumOrNull } from "../../common/values";
 import { duePeriods, ratesFrom, tradedFullMonth, periodLabel, periodOf, prevPeriod } from "../../workflows/royalties";
 import { addDays } from "../../workflows/launch";
 import { AGE_BUCKETS, bucketOf, daysBetween, owedRows, projectOfOwed as ownerOfOwed } from "../../workflows/receivables";
 import { auditSettings, nextDue } from "../../workflows/audits";
 import { feedStatus, posSettings } from "../../workflows/posSales";
+import { OPEN_COLLECTION, paymentBehaviour } from "../../workflows/collections";
 import { parse, Router } from "../router";
 import { fetchAll } from "./shared";
 import { allowed } from "../../common/rbac";
@@ -123,6 +124,11 @@ export function ownerRoutes(r: Router): void {
     const projectOfOwed = ownerOfOwed(projects);
     const ageing = AGE_BUCKETS.map(([key, label]) => ({ key, label, amount: sum(owed.filter((o) => bucketOf(o.due, today) === key), (o) => o.amount) }));
     const overdueOwed = owed.filter((o) => bucketOf(o.due, today) !== "current");
+    // How the network pays (docs/collections.md): the last 90 days' invoices, and the worklist's open items.
+    const behaviour = finance ? paymentBehaviour(agreements, instalments, reports, today) : null;
+    const chased = finance ? (await fetchAll(call.repo, "collections")).filter((c) => OPEN_COLLECTION.includes(String(c.status))) : [];
+    const chasedBySource = new Map(chased.map((c) => [`${c.kind}:${c.source_id}`, c]));
+    const chaseOf = (o: { kind: string; row: Row }) => chasedBySource.get(`${o.kind === "royalty" ? "ROYALTY" : o.row.agreement_code ? "FEE" : "INSTALMENT"}:${o.row.ROWID}`) ?? null;
 
     // Store league: every opened store on its last three reported months against plan.
     const settings = auditSettings(tenant);
@@ -146,6 +152,7 @@ export function ownerRoutes(r: Router): void {
         audit_score: audit ? toNumOrNull(audit.score) : null, audit_rating: audit?.rating ?? null, audit_id: audit ? String(audit.ROWID) : null,
         open_actions: openActions.filter((a) => String(a.project_id) === pid).length,
         unpaid: finance ? sum(owed.filter((o) => projectOfOwed(o.row) === pid), (o) => o.amount) : null,
+        days_to_pay: finance ? paymentBehaviour(agreements, instalments, reports, today, { days: 180, projectId: pid, projectOf: projectOfOwed }).days_to_pay : null,
         health_score: toNumOrNull(p.health_score), health_band: (p.health_band as string | null) ?? null,
       };
     }).sort((a, b) => (b.avg_net_sales ?? -1) - (a.avg_net_sales ?? -1) || String(a.project_code).localeCompare(String(b.project_code)));
@@ -196,6 +203,12 @@ export function ownerRoutes(r: Router): void {
       const who = pid ? place(pid).name : String(o.row.agreement_code ?? "Agreement");
       const label = String(o.row.label ?? "Signing fee");
       const what = o.kind === "royalty" ? `${periodLabel(String(o.row.period))} royalty` : label.charAt(0).toLowerCase() + label.slice(1);
+      const c = chaseOf(o);
+      if (c && (toBool(c.escalated) || toBool(c.promise_broken) || c.status === "DISPUTED")) {
+        const state = c.status === "DISPUTED" ? `disputed: ${String(c.dispute_reason ?? "").slice(0, 80)}` : toBool(c.promise_broken) ? `promised for ${day(c.promise_date)}, not paid` : "escalated to the director";
+        add({ kind: "Collection", tone: c.status === "DISPUTED" ? "warn" : "bad", title: `${who} ${what} ${daysBetween(o.due!, today)} days late, ${c.status === "DISPUTED" ? "disputed" : toBool(c.promise_broken) ? "promise missed" : "escalated"}`, detail: `₹${Math.round(o.amount).toLocaleString("en-IN")} unpaid, ${state}`, href: "/collections", date: o.due });
+        continue;
+      }
       add({ kind: o.kind === "royalty" ? "Royalty" : "Fee", tone: "bad", title: `${who} ${what} overdue`, detail: `₹${Math.round(o.amount).toLocaleString("en-IN")} unpaid, ${daysBetween(o.due!, today)} days past due`, href: o.kind === "royalty" ? "/royalties" : "/fees?overdue=true", date: o.due });
     }
     // Audit actions that need someone, one line per store when a store has several.
@@ -239,7 +252,14 @@ export function ownerRoutes(r: Router): void {
         net_sales_change_pct: change(now.net_sales, before.net_sales), reporting_pct: pct(now.reports, now.due), stores_trading: opened.length, pos: posFeed,
         series: series.map(({ period, label, net_sales }) => ({ period, label, net_sales })),
       },
-      receivables: !finance ? null : { total: sum(owed, (o) => o.amount), overdue: sum(overdueOwed, (o) => o.amount), fees: sum(owed.filter((o) => o.kind === "fee"), (o) => o.amount), royalty: sum(owed.filter((o) => o.kind === "royalty"), (o) => o.amount), ageing },
+      receivables: !finance ? null : {
+        total: sum(owed, (o) => o.amount), overdue: sum(overdueOwed, (o) => o.amount), fees: sum(owed.filter((o) => o.kind === "fee"), (o) => o.amount), royalty: sum(owed.filter((o) => o.kind === "royalty"), (o) => o.amount), ageing,
+        collections: {
+          rate_pct: behaviour!.rate_pct, billed_90d: behaviour!.billed, collected_90d: behaviour!.collected, days_to_pay: behaviour!.days_to_pay,
+          open: chased.length, escalated: chased.filter((c) => toBool(c.escalated)).length, broken_promises: chased.filter((c) => toBool(c.promise_broken)).length,
+          promised: chased.filter((c) => c.status === "PROMISED").length, disputed: chased.filter((c) => c.status === "DISPUTED").length,
+        },
+      },
       stores, compliance,
       attention: { items, counts: { bad: items.filter((i) => i.tone === "bad").length, warn: items.filter((i) => i.tone === "warn").length, info: items.filter((i) => i.tone === "info").length } },
     };

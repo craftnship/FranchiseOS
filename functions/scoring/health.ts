@@ -19,8 +19,12 @@ export const DEFAULT_HEALTH: HealthSettings = {
 export interface HealthInputs {
   /** Average of the last three full months against plan, and how many of those months were under plan. */
   sales: { vs_plan_pct: number; months: number; months_under: number } | null;
-  /** What the store owes: oldest overdue age (0 when nothing is overdue yet) and a month's royalty when known. */
-  payments: { owed: number; overdue: number; oldest_days: number; monthly_royalty: number | null } | null;
+  /**
+   * What the store owes: oldest overdue age (0 when nothing is overdue yet) and a month's royalty when known.
+   * `days_to_pay`: how long the store took to settle recent invoices; `escalated`: an invoice reached the
+   * ladder's flagged step (docs/collections.md).
+   */
+  payments: { owed: number; overdue: number; oldest_days: number; monthly_royalty: number | null; days_to_pay?: number | null; escalated?: boolean } | null;
   compliance: { audit_score: number | null; critical_open: number; overdue_actions: number; expired_licences: number; audit_overdue: boolean } | null;
   /** Months due and how they were reported; `feed` when the store's POS sales arrive daily (docs/pos-sales.md). */
   reporting: { due: number; on_time: number; late: number; feed?: FeedInput } | null;
@@ -53,11 +57,17 @@ export function salesScore(s: NonNullable<HealthInputs["sales"]>): number {
   return clamp(interp(SALES_CURVE, s.vs_plan_pct) - 5 * Math.max(0, s.months_under - 1));
 }
 
+/** Average days to pay beyond which a store counts as a slow payer, even with nothing owed today. */
+export const SLOW_PAYER_DAYS = 30;
+
 export function paymentsScore(p: NonNullable<HealthInputs["payments"]>): number {
-  if (p.owed <= 0) return 100;
+  const slow = p.days_to_pay != null && p.days_to_pay > SLOW_PAYER_DAYS ? 10 : 0;
+  if (p.owed <= 0) return clamp(100 - slow);
   const base = p.overdue <= 0 ? 90 : p.oldest_days <= 30 ? 70 : p.oldest_days <= 60 ? 45 : p.oldest_days <= 90 ? 25 : 5;
   const ratio = p.monthly_royalty && p.monthly_royalty > 0 ? p.overdue / p.monthly_royalty : 0;
-  return clamp(base - (ratio > 2 ? 15 : ratio > 1 ? 5 : 0));
+  const score = clamp(base - (ratio > 2 ? 15 : ratio > 1 ? 5 : 0) - slow);
+  // An invoice escalated to the director holds the part at 25 whatever the amount.
+  return p.escalated ? Math.min(score, 25) : score;
 }
 
 export function complianceScore(c: NonNullable<HealthInputs["compliance"]>): number | null {
@@ -94,9 +104,11 @@ function describe(part: HealthPart, inputs: HealthInputs, score: number | null):
     }
     case "payments": {
       const p = inputs.payments;
-      if (!p || p.owed <= 0) return { text: "Nothing owed", money: null };
-      if (p.overdue <= 0) return { text: "Invoices owed, none overdue yet", money: `${inr(p.owed)} owed, none overdue yet` };
-      return { text: `Payments overdue, oldest ${p.oldest_days} days`, money: `${inr(p.overdue)} overdue, oldest ${p.oldest_days} days` };
+      const slow = p?.days_to_pay != null && p.days_to_pay > SLOW_PAYER_DAYS ? `, pays in ${p.days_to_pay} days on average` : "";
+      if (!p || p.owed <= 0) return { text: `Nothing owed${slow}`, money: null };
+      if (p.overdue <= 0) return { text: `Invoices owed, none overdue yet${slow}`, money: `${inr(p.owed)} owed, none overdue yet` };
+      if (p.escalated) return { text: `Payment escalated, ${p.oldest_days} days overdue${slow}`, money: `${inr(p.overdue)} overdue, escalated to the director` };
+      return { text: `Payments overdue, oldest ${p.oldest_days} days${slow}`, money: `${inr(p.overdue)} overdue, oldest ${p.oldest_days} days` };
     }
     case "compliance": {
       const c = inputs.compliance;

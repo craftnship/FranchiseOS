@@ -1,4 +1,4 @@
-import { BooksBill, BooksDay, BooksInvoiceState, ZohoBooksClient } from "./clients";
+import { BooksBill, BooksDay, BooksInvoiceState, BooksPaymentInput, ZohoBooksClient } from "./clients";
 import { ProviderError } from "./retry";
 import { ZohoHttp } from "./zohoHttp";
 
@@ -7,7 +7,7 @@ import { ZohoHttp } from "./zohoHttp";
 interface BooksInvoice { invoice_id?: string; invoice_number?: string; reference_number?: string; status?: string; total?: number; balance?: number; due_date?: string; last_payment_date?: string }
 interface BooksBillRow { bill_id?: string; bill_number?: string; reference_number?: string; vendor_name?: string; date?: string; status?: string; total?: number; balance?: number }
 interface BooksSaleRow { invoice_id?: string; creditnote_id?: string; date?: string; status?: string; total?: number; sub_total?: number; tax_total?: number; discount_total?: number; discount?: number }
-interface BooksRes { bills?: BooksBillRow[]; organizations?: Array<{ organization_id?: string; name?: string }>; creditnotes?: BooksSaleRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
+interface BooksRes { payment?: { payment_id?: string; payment_number?: string }; bills?: BooksBillRow[]; organizations?: Array<{ organization_id?: string; name?: string }>; creditnotes?: BooksSaleRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
 
 function check(res: BooksRes | undefined, what: string): BooksRes {
   if (!res || (res.code !== undefined && res.code !== 0)) throw new ProviderError(`Books ${what} failed: ${res?.code ?? "no response"} ${res?.message ?? ""}`.trim(), 400, false);
@@ -102,6 +102,13 @@ export class HttpBooksClient implements ZohoBooksClient {
       }
     }
     return [...days.values()].map((d) => ({ ...d, gross_sales: round2(d.gross_sales), discounts: round2(d.discounts), returns: round2(d.returns), tax: round2(d.tax) })).sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  /** Books applies the payment to the invoices named; the invoice balance then reads back lower on the next getInvoice. */
+  async recordPayment(data: BooksPaymentInput): Promise<{ id: string; number?: string }> {
+    const p = check(await this.http.request<BooksRes>("POST", this.url("/customerpayments"), data), "payment create").payment;
+    if (!p?.payment_id) throw new ProviderError("Books payment create returned no id", 502);
+    return { id: String(p.payment_id), number: p.payment_number ? String(p.payment_number) : undefined };
   }
 
   async listBills(text: string): Promise<BooksBill[]> {

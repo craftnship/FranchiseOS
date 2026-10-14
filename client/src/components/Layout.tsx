@@ -9,7 +9,7 @@ type NavItem = [to: string, text: string, icon: string, permission?: string];
 const STAFF_NAV: [string, NavItem[]][] = [
   ["Overview", [["/", "Dashboard", "dashboard"], ["/analytics", "Analytics", "pulse", "dashboard.view"], ["/messages", "Messages", "chat", "dashboard.view"]]],
   ["Expansion", [["/applications", "Applications", "applications"], ["/approvals", "Approvals", "check"], ["/franchisees", "Franchisees", "franchisees"], ["/territories", "Territories", "territories"], ["/sites", "Sites", "sites"]]],
-  ["Contracts", [["/agreements", "Agreements", "agreements"], ["/fees", "Franchise fees", "bank", "finance.view"], ["/renewals", "Renewals", "sync", "dashboard.view"]]],
+  ["Contracts", [["/agreements", "Agreements", "agreements"], ["/fees", "Franchise fees", "bank", "finance.view"], ["/collections", "Collections", "money", "finance.view"], ["/renewals", "Renewals", "sync", "dashboard.view"]]],
   ["Operations", [["/projects", "Opening projects", "projects"], ["/launches", "New stores", "flag", "dashboard.view"], ["/royalties", "Royalties", "money", "dashboard.view"], ["/vendors", "Vendors", "box", "dashboard.view"], ["/audits", "Store audits", "audit", "dashboard.view"], ["/documents", "Brand documents", "folder", "dashboard.view"]]],
   ["Admin", [["/admin/users", "Users and roles", "franchisees", "user.admin"], ["/admin/integrations", "Integration health", "pulse", "integration.admin"], ["/admin/activity", "Activity log", "history", "audit.view"], ["/admin/settings", "Settings", "settings", "settings.manage"]]],
 ];

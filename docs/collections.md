@@ -4,11 +4,35 @@ Royalty, fee and instalment invoices that get paid without anyone chasing them. 
 
 Everything stays inside Zoho: Zoho Books holds the invoices and payments as it does today, and Zoho Payments (the brand's own account, in INR) takes the money. Nothing here changes a franchisee's Books.
 
+## Decisions (2026-10-14)
+
+- **No late fee.** The agreement template does not provide for one, so the ladder reminds and escalates without charging. If a brand wants one later it is a clause in the template plus one setting.
+- **Zoho Payments is not activated on the brand's Books organisation.** Pay now links and UPI AutoPay therefore wait (phase 2). Activation is the brand's step: Books → Settings → Online Payments → Zoho Payments, with business KYC (PAN, GSTIN, bank account) and Zoho's verification, which takes days. Until then the invoice carries the bank details Books prints on it, and finance records what arrives.
+
+## Phase 1, built 2026-10-14
+
+What runs now, with only the brand's Books:
+
+1. **The reminder ladder** (`functions/workflows/collections.ts`, run inside the daily `reminders` step). Every unpaid fee, instalment and royalty invoice gets a `collections` row. Each day the row moves to the ladder step its age has reached and the people on that step hear once, by email and inbox: by default the franchisee 3 days before due and on the due day, the franchisee and the franchise manager at 7 days late, the franchisee and finance at 15, the director and finance at 30 (flagged). An invoice that is already late when it first appears goes straight to the step its age has reached, not through every earlier one. The old daily "instalment overdue" reminder is gone; the ladder replaces it for every kind of invoice.
+2. **The worklist** (Contracts → Collections, `finance.view`): every open item with store, what it is for, the Books invoice, the amount, its age and step, and the last thing done about it. Filters: open, overdue, escalated, promised, disputed, paid. Actions (`collections.manage`, super admins until a role is given it): **Record payment** (below), **Promise** (a date and a note; the ladder waits until that day, and finance hears once if it passes unpaid), **Note** (a call, a meeting), **Dispute** (pauses reminders with a reason) and **Resume**, **Remind now** (today's reminder to the franchisee, whatever the ladder says). Everything lands in the activity log (`collection:promise`, `collection:note`, `collection:disputed`, `collection:resumed`, `collection:reminded`, `collection:payment`).
+3. **Recording offline payments.** Most franchisees pay by NEFT or RTGS. Finance enters the amount, date, mode and UTR; FranchiseOS records a customer payment in Zoho Books against the invoice (`POST /customerpayments`, needs the `ZohoBooks.customerpayments.CREATE` scope on the brand's token), re-reads the invoice, and the fee, instalment or report closes exactly as it would from the nightly sync. Books stays the ledger.
+4. **Payment behaviour** (`paymentBehaviour`): over the last 90 days, what was billed and what of it is collected (collection rate), and the average days from invoice to payment across the three sources, with `sales_reports.paid_on` now kept so royalty invoices count. The owner dashboard's Receivables panel shows both plus escalated, missed-promise and disputed counts; the stores table has days to pay per store (over 180 days).
+5. **Health score, payments part:** an invoice on a flagged step caps the part at 25 ("Payment escalated, 55 days overdue"); a store that takes more than 30 days to pay on average loses 10 points even with nothing owed ("Nothing owed, pays in 41 days on average").
+6. **Settings → Collections** (`settings.manage`): the ladder, editable per step (days from due, franchisee, roles, flag), saved as `settings_json.collections.ladder`.
+
+Tables: **`collections`** (`collection_key` unique = `<KIND>:<source ROWID>`, `kind` FEE | INSTALMENT | ROYALTY, `source_id`, `project_id`, `franchisee_id`, `invoice_number`, `zoho_books_invoice_id`, `period`, `label`, `amount` (the balance), `total`, `due_date`, `invoiced_on`, `status` OPEN | PROMISED | DISPUTED | PAID | CLOSED, `step`, `step_sent_on`, `reminders_sent`, `escalated`, `promise_date`, `promise_note`, `promised_at`, `promise_broken`, `dispute_reason`, `disputed_at`, `last_contact_at`, `last_contact_note`, `paid_on`, `days_to_pay`, `closed_on`) and the new column `sales_reports.paid_on` (date).
+
+API: `GET /collections?status=` (finance.view); `POST /collections/:id/promise|note|dispute|resume|remind|payment` (collections.manage); `GET|PUT /settings/collections` (settings.manage). Owner dashboard: `receivables.collections { rate_pct, billed_90d, collected_90d, days_to_pay, open, escalated, broken_promises, promised, disputed }`, per store `days_to_pay`, attention items of kind "Collection".
+
+Tests: `tests/unit/collections.test.ts` (the ladder step by step and the jump for an already-late invoice; a promise holding the ladder and being broken; dispute and resume; remind now; a bank transfer recorded in Books closing the report and measuring days to pay; an item paid in Books closing on its own; ladder settings; the health scoring; the behaviour window).
+
+Phase 2 (Pay now, autopay, webhooks) is the design below; it slots onto these rows without rework.
+
 ## What it adds
 
 1. **Pay online from every invoice.** Every invoice FranchiseOS raises carries Zoho Payments, so the invoice email from Books and the invoice's own page have Pay now with UPI, card and net banking. The portal shows a Pay button on each open invoice that opens that page.
 2. **Autopay.** A franchisee sets up a UPI AutoPay mandate once, from the portal. On the due day the system collects the invoice on the mandate and Books records the payment. See the limits below before promising "silent" debits: above ₹15,000 the franchisee confirms each debit with their UPI PIN, so for most royalty invoices autopay means a request that lands in their UPI app on the due day, approved with one tap, rather than money that moves on its own.
-3. **A dunning ladder** the tenant configures: a reminder before due, one on the due day, then escalations at 7, 15 and 30 days late to the franchise manager, finance and the director, with a late fee where the agreement provides for one. Email and in-app now; Cliq or WhatsApp later.
+3. **A dunning ladder** the tenant configures: a reminder before due, one on the due day, then escalations at 7, 15 and 30 days late to the franchise manager, finance and the director. Email and in-app now; Cliq or WhatsApp later.
 4. **Payments arrive by themselves.** A Books payment webhook tells FranchiseOS the moment a payment is recorded, whatever the channel (gateway, autopay, or a bank transfer finance typed in), and the invoice, report or instalment is marked paid the same minute. The nightly sync stays as the safety net.
 5. **Owner dashboard:** collection rate, average days to pay per store, autopay coverage ("3 of 5 stores on autopay"), and the overdue line that falls once autopay starts. A store on autopay with nothing overdue scores full marks on the payment part of the health score.
 
@@ -49,11 +73,10 @@ From the Zoho Payments India help and API docs (links at the end):
   | −3 | franchisee | "Invoice ROY-… for ₹… is due on 7 Nov" with Pay now; skipped when an active mandate will collect it |
   | 0 | franchisee | due today |
   | 7 | franchisee, FRANCHISE_MANAGER | 7 days late |
-  | 15 | franchisee, FINANCE_MANAGER | 15 days late; late fee raised when `collections.late_fee` is set |
+  | 15 | franchisee, FINANCE_MANAGER | 15 days late |
   | 30 | FRANCHISE_DIRECTOR, FINANCE_MANAGER | escalated; the store is flagged on the dashboard and the health reason says so |
 
 - The reminders job sends each step once per invoice (`dedupe` `dun:<invoice>:<step>`), via the existing `deliver`, so email and inbox work as they do today. It replaces the daily "fee overdue" and "instalment overdue" reminders, which stop (one ladder for every kind of invoice).
-- **Late fee:** `collections.late_fee` is `{ pct_per_month, min_days, min_amount }` or absent. When set and the step says so, FranchiseOS raises a separate Books invoice "Late fee on <invoice number>" (reference `LATE-<invoice number>`) at the agreement's rate, pro rata per month late, and tells finance; `fee.manage` can waive it (void in Books, noted on the row). Nothing is added to an invoice already sent.
 - The ladder never runs on a DRAFT or VOID invoice, or on an invoice under ₹100.
 
 ### Payments arrive
@@ -70,7 +93,7 @@ From the Zoho Payments India help and API docs (links at the end):
 
 ### Settings
 
-Settings → Collections (`settings.manage`): online payments on/off, autopay on/off (shown only when the Zoho Payments account id is configured), the ladder (editable days and roles), the late fee, and who is told when a mandate pauses. Readable through `GET /settings/collections`, written with `PUT`.
+Settings → Collections (`settings.manage`): online payments on/off, autopay on/off (shown only when the Zoho Payments account id is configured), the ladder (editable days and roles), and who is told when a mandate pauses. Readable through `GET /settings/collections`, written with `PUT`.
 
 ### Permissions
 
@@ -97,7 +120,6 @@ Settings → Collections (`settings.manage`): online payments on/off, autopay on
 
 1. **Pay now and payments arriving** (no Zoho Payments API yet): `invoice_url` and `payment_options` on invoices, the portal Pay button, the Books payment webhook, `invoice_collections` and the dunning ladder, the Collections tile and attention items, health changes for step 30. Demo-able with the brand's Books alone.
 2. **Autopay**: `payment_mandates`, the portal widget, the `collections` job step, the Zoho Payments webhook, autopay coverage and the health bonus.
-3. **Late fees**, once the agreement template says what the rate is.
 
 ## Tests
 
@@ -109,9 +131,8 @@ With Zoho Payments in test mode on the brand's account: switch on online payment
 
 ## To confirm on the Zoho side
 
-1. Is Zoho Payments activated on the brand's Books organisation, and which methods are live (UPI, cards, net banking)? UPI AutoPay is "on request": has it been requested?
+1. When Zoho Payments is activated on the brand's Books organisation, which methods are live (UPI, cards, net banking)? UPI AutoPay is "on request": ask for it at activation.
 2. The NPCI per-execution cap for this business category, and whether the brand wants invoices above it split or sent on Pay now.
-3. Does the franchise agreement template carry a late fee, and at what rate?
 
 ## Sources
 

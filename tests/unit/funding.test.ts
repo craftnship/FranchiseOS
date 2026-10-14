@@ -97,10 +97,12 @@ describe("franchise fee schedule", () => {
     expect(await s.inbox("fin")).toEqual(["PROJ-000001 paid the security deposit (₹1,00,000)"]);
     expect(await s.job("2026-10-22T00:30:00Z")).toMatchObject({ instalments_paid: 0, instalments_raised: 0 });
 
-    // Overdue: the fit-out instalment is chased; the signing invoice is chased per agreement instead.
+    // Overdue, on the collections ladder (both invoices read as due 25 Oct from the fake Books): the franchisee is
+    // reminded of each; staff join at the later steps.
     const rem = await runReminderJob(s.store, { now: new Date("2026-10-27T03:00:00Z"), requestId: "R" });
-    expect(rem.fees).toBe(2);
-    expect((await s.inbox("fin"))[0]).toBe("PROJ-000001: fee instalment “At fit-out” is overdue");
+    expect(rem).toMatchObject({ fees: 2, collections: 0 });
+    expect((await s.inbox("pepper")).slice(0, 2).sort()).toEqual(["₹1,50,000 for at fit-out is 2 days overdue", "₹2,36,000 for the franchise fee is 2 days overdue"]);
+    expect((await s.inbox("fin"))[0]).toBe("PROJ-000001 paid the security deposit (₹1,00,000)");
 
     // The deposit is refunded later; a scheduled instalment can be waived, not an invoiced one.
     const after = (await s.call("tony", "GET", `${s.base}/funding`, undefined, "2026-10-27T06:00:00Z")).data;

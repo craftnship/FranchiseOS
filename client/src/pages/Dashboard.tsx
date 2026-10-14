@@ -40,7 +40,7 @@ function Headline({ title, value, to, children, spark }: { title: string; value:
   );
 }
 
-const KIND_ICON: Record<string, string> = { POS: "store", Approval: "check", "Sales report": "history", Royalty: "money", Fee: "money", "Audit action": "audit", Audit: "audit", Licence: "agreements", "Purchase order": "box", Renewal: "sync", Launch: "flag" };
+const KIND_ICON: Record<string, string> = { POS: "store", Collection: "bank", Approval: "check", "Sales report": "history", Royalty: "money", Fee: "money", "Audit action": "audit", Audit: "audit", Licence: "agreements", "Purchase order": "box", Renewal: "sync", Launch: "flag" };
 
 export function Dashboard() {
   const [params, setParams] = useSearchParams();
@@ -144,7 +144,7 @@ export function Dashboard() {
           }}</Loaded>
         </Panel>
 
-        {o?.finance !== false && <Panel title="Receivables ageing" action={<Link to="/fees?overdue=true">Overdue fees</Link>}>
+        {o?.finance !== false && <Panel title="Receivables ageing" action={<Link to="/collections?status=overdue">Collections</Link>}>
           <Loaded load={owner}>{(d) => {
             const rc = d.receivables, max = Math.max(1, ...rc.ageing.map((b: Row) => Number(b.amount)));
             return (
@@ -161,7 +161,10 @@ export function Dashboard() {
                 <dl className="mini-facts">
                   <div><dt>Total owed</dt><dd>{inr(rc.total)}</dd></div>
                   <div><dt>Overdue</dt><dd className={rc.overdue ? "bad-text" : ""}>{inr(rc.overdue)}</dd></div>
+                  {rc.collections && <div><dt>Collected, 90 days</dt><dd>{rc.collections.rate_pct === null ? "—" : `${rc.collections.rate_pct}%`}</dd></div>}
+                  {rc.collections && <div><dt>Days to pay</dt><dd>{rc.collections.days_to_pay === null ? "—" : rc.collections.days_to_pay}</dd></div>}
                 </dl>
+                {rc.collections && (rc.collections.escalated || rc.collections.broken_promises || rc.collections.disputed) ? <p className="warn-text small" style={{ margin: ".5rem 0 0" }}>{[rc.collections.escalated && `${rc.collections.escalated} escalated`, rc.collections.broken_promises && `${rc.collections.broken_promises} promise${rc.collections.broken_promises === 1 ? "" : "s"} missed`, rc.collections.disputed && `${rc.collections.disputed} disputed`].filter(Boolean).join(", ")}. <Link to="/collections">Work the list</Link>.</p> : null}
                 <p className="muted small">Unpaid franchise fees, instalments and royalty invoices from Books, by days past their due date.</p>
               </>
             );
@@ -214,7 +217,8 @@ export function Dashboard() {
               { key: "health_score", label: "Health", align: "right" as const, sort: (s: Row) => Number(s.health_score ?? -1), render: (s: Row) => (s.health_score === null ? <span className="muted" title="Not scored yet">—</span> : <span className={`health-chip ${String(s.health_band).toLowerCase()}`} title={label(s.health_band)}>{s.health_score}</span>) },
               { key: "audit_rating", label: "Audit", render: (s: Row) => (s.audit_rating ? <span title={`Score ${s.audit_score}%`}><Pill value={s.audit_rating} /></span> : <span className="muted">Not audited</span>) },
               { key: "unpaid", label: "Unpaid", align: "right" as const, render: (s: Row) => (Number(s.unpaid) ? <span className="bad-text">{inrShort(Number(s.unpaid))}</span> : <span className="muted">—</span>) },
-            ].filter((c) => d.finance || c.key !== "unpaid");
+              { key: "days_to_pay", label: "Days to pay", align: "right" as const, sort: (s: Row) => Number(s.days_to_pay ?? -1), render: (s: Row) => (s.days_to_pay === null || s.days_to_pay === undefined ? <span className="muted">—</span> : <span className={Number(s.days_to_pay) > 30 ? "warn-text" : ""}>{s.days_to_pay}</span>) },
+            ].filter((c) => d.finance || (c.key !== "unpaid" && c.key !== "days_to_pay"));
             return (
               <>
                 {bottom.length > 0 && <div className="table-caption">Top five</div>}

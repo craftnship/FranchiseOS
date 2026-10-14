@@ -673,3 +673,9 @@ details.history ul { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap
 .link-btn { background: none; border: 0; padding: 0; color: var(--accent, #2f5bea); cursor: pointer; font: inherit; text-decoration: underline; }
 ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
 ul.plain .stat-line { gap: .6rem; }
+
+/* Settings → Collections: the ladder as a small editable grid. */
+.plain-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.plain-table th { text-align: left; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
+.plain-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.plain-table input[type="number"] { height: 30px; }
