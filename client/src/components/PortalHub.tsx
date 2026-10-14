@@ -110,11 +110,11 @@ const aboutPath = (a: Row, portal: boolean) => portal
   ? ({ APPLICATION: "/portal/application", AGREEMENT: "/portal/agreement", PROJECT: "/portal" } as Record<string, string>)[String(a.type)] ?? "/portal"
   : ({ APPLICATION: `/applications/${a.id}`, AGREEMENT: `/agreements/${a.id}`, PROJECT: `/projects/${a.id}` } as Record<string, string>)[String(a.type)] ?? "/";
 
-/** Delivery of one of our own messages: read in the portal, or sent by email to a franchisee without a login. */
-const delivery = (m: Row) => (m.read_at ? "Read" : m.emailed_to ? `Emailed to ${m.emailed_to}` : "");
+/** Delivery of one of our own messages: read in the portal, sent by email to a franchisee without a login, or (when it reached nobody) why. */
+const delivery = (m: Row, undelivered?: string) => (m.read_at ? "Read" : m.emailed_to ? `Emailed to ${m.emailed_to}` : undelivered ?? "");
 
 /** A conversation and the box to reply in. `me` is the side reading it; `about` lists the records a message can be about. */
-function Conversation({ messages, me, about, initial, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; about: Row[]; initial?: string; onSend: (b: Row) => Promise<unknown> }) {
+function Conversation({ messages, me, about, initial, undelivered, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; about: Row[]; initial?: string; undelivered?: string; onSend: (b: Row) => Promise<unknown> }) {
   const [textValue, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [context, setContext] = useState(initial ?? "");
@@ -144,7 +144,7 @@ function Conversation({ messages, me, about, initial, onSend }: { messages: Row[
               <p>{m.message_text}</p>
               {m.attachment_ref && <button className="btn ghost sm" onClick={() => openUrl(`/messages/${m.ROWID}/attachment`)}>Attachment</button>}
             </div>
-            <span className="cell-sub">{portal && m.from_side === me ? "You" : m.sender ?? (m.from_side === "BRAND" ? "Brand team" : "Franchisee")} · {time(m.sent_at)}{m.from_side === me && delivery(m) ? ` · ${delivery(m)}` : ""}</span>
+            <span className="cell-sub">{portal && m.from_side === me ? "You" : m.sender ?? (m.from_side === "BRAND" ? "Brand team" : "Franchisee")} · {time(m.sent_at)}{m.from_side === me && delivery(m, undelivered) ? ` · ${delivery(m, undelivered)}` : ""}</span>
           </li>
         ))}
         <div ref={end} />
@@ -240,15 +240,19 @@ export function MessageThread() {
     <Loaded load={load}>{(d) => {
       const f = d.franchisee as Row;
       const noLogin = Number(f.portal_users ?? 0) === 0;
+      // Why a brand message reaches nobody: no login and no email, or no login and no email sender set up.
+      const undelivered = !noLogin ? undefined : !f.email ? "Not emailed: no email on file" : !f.email_enabled ? "Not emailed: email is not set up" : undefined;
       return (
         <>
           <PageHeader title={String(f.display_name ?? f.franchise_code)} crumbs={[["Overview"], ["Messages", "/messages"], [String(f.franchise_code)]]}
             subtitle={f.email ? String(f.email) : undefined}
             actions={<Link className="btn secondary" to={`/applications?franchisee_id=${f.ROWID}`}><Icon name="applications" size={16} />Applications</Link>} />
-          {noLogin && (f.email
-            ? <div className="notice info"><Icon name="alert" />{f.display_name} has no portal login yet, so each message goes to {f.email} by email. They reply to you directly, not here.</div>
-            : <div className="notice warn"><Icon name="alert" />{f.display_name} has no portal login and no email on file, so they will not see these messages. Add their email in CRM, or invite them to the portal from Users.</div>)}
-          <Panel flush><Conversation messages={d.messages as Row[]} me="BRAND" about={d.about as Row[]} initial={params.get("about") ?? ""} onSend={(b) => api("POST", `/franchisees/${id}/messages`, { body: b }).then(load.reload)} /></Panel>
+          {noLogin && (!f.email
+            ? <div className="notice warn"><Icon name="alert" />{f.display_name} has no portal login and no email on file, so they will not see these messages. Add their email in CRM, or invite them to the portal from Users.</div>
+            : !f.email_enabled
+              ? <div className="notice warn"><Icon name="alert" />{f.display_name} has no portal login, and email is not set up, so they will not be told about these messages. Invite them to the portal from Users, or have an administrator set up the email sender.</div>
+              : <div className="notice info"><Icon name="alert" />{f.display_name} has no portal login yet, so each message goes to {f.email} by email. They reply to you directly, not here.</div>)}
+          <Panel flush><Conversation messages={d.messages as Row[]} me="BRAND" about={d.about as Row[]} initial={params.get("about") ?? ""} undelivered={undelivered} onSend={(b) => api("POST", `/franchisees/${id}/messages`, { body: b }).then(load.reload)} /></Panel>
         </>
       );
     }}</Loaded>

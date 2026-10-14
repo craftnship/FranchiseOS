@@ -79,7 +79,7 @@ describe("portal v2", () => {
     expect(list[0]).toMatchObject({ franchisee: "Pepper Potts", unread: 1, last_from: "FRANCHISEE" });
     const conv = (await s.call("ops", "GET", `/franchisees/${s.fr.ROWID}/messages`)).data;
     expect(conv.messages.map((m: any) => [m.from_side, m.sender, m.about])).toEqual([["FRANCHISEE", "pepper", { type: "PROJECT", id: String(s.building.ROWID), code: "PROJ-000002" }]]);
-    expect(conv.franchisee).toMatchObject({ franchise_code: "FR-000001", portal_users: 1 });
+    expect(conv.franchisee).toMatchObject({ franchise_code: "FR-000001", portal_users: 1, email_enabled: false });
     expect(conv.about.map((a: any) => [a.type, a.code])).toEqual([["APPLICATION", "APP-000001"], ["PROJECT", "PROJ-000002"], ["PROJECT", "PROJ-000001"]]);
     expect((await s.call("ops", "GET", "/messages")).data[0].unread).toBe(0);
 
@@ -108,7 +108,7 @@ describe("portal v2", () => {
     const agr = await s.store.insert("agreements", { tenant_id: s.tid, agreement_code: "AGR-000002", tenant_code_key: `${s.tid}:AGR-000002`, application_id: app.ROWID, franchisee_id: nat.ROWID, status: "SENT" });
 
     const thread = (await call("fm", "GET", `/franchisees/${nat.ROWID}/messages`)).data;
-    expect(thread.franchisee).toMatchObject({ display_name: "Natasha Romanoff", email: "nat@x.test", portal_users: 0 });
+    expect(thread.franchisee).toMatchObject({ display_name: "Natasha Romanoff", email: "nat@x.test", portal_users: 0, email_enabled: true });
     expect(thread.messages).toEqual([]);
     expect(thread.about.map((a: any) => [a.type, a.code])).toEqual([["APPLICATION", "APP-000002"], ["AGREEMENT", "AGR-000002"]]);
 

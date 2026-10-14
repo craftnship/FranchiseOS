@@ -3,7 +3,7 @@ import { AppError } from "../../common/errors";
 import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
 import { brandDocuments, conversation, DOC_CATEGORIES, inbox, ownRecords, portalLogins, portalTodo, sendMessage, shareDocument } from "../../workflows/portalHub";
-import { mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
+import { mustGet, settings, signedUrl, storeUpload, uploadSchema } from "./shared";
 import { computeReadiness } from "../../workflows/readiness";
 import { Call, parse, Router } from "../router";
 import { FUNNEL } from "./dashboards";
@@ -116,7 +116,9 @@ export function portalHubRoutes(r: Router): void {
   r.on("GET", "/franchisees/:id/messages", "dashboard.view", async (call) => {
     const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND");
     const portal_users = (await portalLogins(call.repo, String(f.ROWID))).length;
-    return { franchisee: { ROWID: f.ROWID, display_name: f.display_name, franchise_code: f.franchise_code, email: f.email ?? null, portal_users }, ...await conversation(call.store, call.ctx, String(f.ROWID), "BRAND", call.now) };
+    // Whether a message to a franchisee without a portal login can go by email: a sender is configured and the tenant has email on.
+    const email_enabled = !!call.ctx.mailer && settings(await call.store.findOne("tenants", { ROWID: call.ctx.tenantId })).notify_email !== false;
+    return { franchisee: { ROWID: f.ROWID, display_name: f.display_name, franchise_code: f.franchise_code, email: f.email ?? null, portal_users, email_enabled }, ...await conversation(call.store, call.ctx, String(f.ROWID), "BRAND", call.now) };
   });
   r.on("POST", "/franchisees/:id/messages", "dashboard.view", async (call) => {
     const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND"), b = parse(messageSchema, call.body);
