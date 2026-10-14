@@ -11,8 +11,9 @@ Run these on a computer with Node 20+ and the repo cloned.
    The file is gitignored; never commit it.
    - `fos_api` and `fos_webhooks`: `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`
      (a Self Client from api-console.zoho.in; refresh token with scopes
-     `ZohoCRM.modules.leads.ALL,ZohoCRM.modules.accounts.ALL,ZohoCRM.modules.contacts.ALL,ZohoCRM.modules.attachments.ALL,ZohoSign.documents.ALL,ZohoSign.templates.ALL,ZohoBooks.contacts.ALL,ZohoBooks.invoices.ALL,ZohoBooks.bills.READ,ZohoProjects.portals.READ,ZohoProjects.projects.ALL,ZohoProjects.tasklists.ALL,ZohoProjects.tasks.ALL`;
-     the Sign, Books and Projects scopes are needed from Step 5 on; `ZohoBooks.bills.READ` from the capex budget on)
+     `ZohoCRM.modules.leads.ALL,ZohoCRM.modules.accounts.ALL,ZohoCRM.modules.contacts.ALL,ZohoCRM.modules.attachments.ALL,ZohoSign.documents.ALL,ZohoSign.templates.ALL,ZohoBooks.contacts.ALL,ZohoBooks.invoices.ALL,ZohoBooks.bills.READ,ZohoProjects.portals.READ,ZohoProjects.projects.ALL,ZohoProjects.tasklists.ALL,ZohoProjects.tasks.ALL,ZohoBooks.customerpayments.CREATE`;
+     the Sign, Books and Projects scopes are needed from Step 5 on; `ZohoBooks.bills.READ` from the capex budget on;
+     `ZohoBooks.customerpayments.CREATE` from collections on. The Zoho Payments scopes in `docs/collections.md` wait for phase 2.)
    - `fos_webhooks`: `FOS_CRM_WEBHOOK_SECRET`, a long random string (letters and digits)
   - `fos_webhooks` (optional): `FOS_SIGN_WEBHOOK_SECRET`, the secret key set on the Zoho Sign webhook.
     When set, every Sign callback must carry a valid `X-ZS-WEBHOOK-SIGNATURE`.
