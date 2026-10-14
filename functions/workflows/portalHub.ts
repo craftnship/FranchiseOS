@@ -1,6 +1,7 @@
 import { TenantContext } from "../common/context";
 import { logActivity } from "../common/audit";
 import { AppError } from "../common/errors";
+import { log } from "../common/logger";
 import { Row, Store, TenantRepo } from "../common/store";
 import { toBool, toNum } from "../common/values";
 import { renewDays } from "./licences";
@@ -190,8 +191,36 @@ export async function ownRecords(repo: TenantRepo, franchiseeId: string): Promis
 
 export type Side = "FRANCHISEE" | "BRAND";
 
+export type ContextType = "APPLICATION" | "AGREEMENT" | "PROJECT";
+export interface MessageContext { type: ContextType; id: string }
+const CONTEXT: Record<ContextType, { table: string; code: string; noun: string }> = {
+  APPLICATION: { table: "franchise_applications", code: "application_code", noun: "application" },
+  AGREEMENT: { table: "agreements", code: "agreement_code", noun: "agreement" },
+  PROJECT: { table: "franchise_projects", code: "project_code", noun: "store" },
+};
+
+/** The franchisee's records a message can be about: their applications, agreements and stores, newest first within each kind. */
+export async function messageContexts(repo: TenantRepo, franchiseeId: string): Promise<Row[]> {
+  const out: Row[] = [];
+  for (const type of Object.keys(CONTEXT) as ContextType[]) {
+    const { table, code } = CONTEXT[type];
+    const rows = await repo.findMany(table, { franchisee_id: franchiseeId }, { orderBy: "CREATEDTIME", desc: true, limit: 50 });
+    out.push(...rows.map((r) => ({ type, id: String(r.ROWID), code: String(r[code] ?? r.ROWID), status: r.status ?? null })));
+  }
+  return out;
+}
+
+/** A message's context as the reader sees it; a row from before contexts existed carries only its store. */
+const aboutOf = (m: Row, contexts: Row[]): Row | null => {
+  const type = (m.context_type ?? (m.project_id ? "PROJECT" : null)) as ContextType | null;
+  const id = String(m.context_id ?? m.project_id ?? "");
+  if (!type || !id) return null;
+  const known = contexts.find((c) => c.type === type && c.id === id);
+  return { type, id, code: known?.code ?? id };
+};
+
 /** One franchisee's conversation with the brand team, oldest first. Reading marks the other side's messages read. */
-export async function conversation(store: Store, ctx: TenantContext, franchiseeId: string, reader: Side, now: Date): Promise<Row[]> {
+export async function conversation(store: Store, ctx: TenantContext, franchiseeId: string, reader: Side, now: Date): Promise<{ messages: Row[]; about: Row[] }> {
   const repo = new TenantRepo(store, ctx.tenantId);
   const rows = (await repo.findMany("messages", { franchisee_id: franchiseeId }, { limit: 1000 })).sort((a, b) => String(a.sent_at).localeCompare(String(b.sent_at)) || String(a.ROWID).localeCompare(String(b.ROWID), undefined, { numeric: true }));
   const at = now.toISOString();
@@ -201,20 +230,66 @@ export async function conversation(store: Store, ctx: TenantContext, franchiseeI
     const u = await repo.findOne("users", { ROWID: id });
     if (u) people.set(id, String(u.name ?? u.email));
   }
-  return rows.map((m) => ({ ...m, sender: people.get(String(m.sender_user_id)) ?? null }));
+  const about = await messageContexts(repo, franchiseeId);
+  return { messages: rows.map((m) => ({ ...m, sender: people.get(String(m.sender_user_id)) ?? null, about: aboutOf(m, about) })), about };
 }
 
-export async function sendMessage(store: Store, ctx: TenantContext, franchiseeId: string, from: Side, input: { text: string; project_id?: string | null; attachment_ref?: string | null }, now: Date): Promise<Row> {
+/** Active portal logins of a franchisee: who sees a brand message in the portal. */
+export async function portalLogins(repo: TenantRepo, franchiseeId: string): Promise<Row[]> {
+  return repo.findMany("users", { franchisee_id: franchiseeId, status: "ACTIVE" });
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+/**
+ * Sends a message from one side to the other, optionally about one of the franchisee's records (which
+ * must be theirs). A brand message to a franchisee with no portal login yet goes to their email address
+ * instead, when a sender is configured, and the row remembers where it went.
+ */
+export async function sendMessage(store: Store, ctx: TenantContext, franchiseeId: string, from: Side, input: { text: string; context?: MessageContext | null; attachment_ref?: string | null }, now: Date): Promise<Row> {
   const repo = new TenantRepo(store, ctx.tenantId);
   const franchisee = await repo.findOne("franchisees", { ROWID: franchiseeId });
   if (!franchisee) throw new AppError("NOT_FOUND");
-  if (input.project_id) {
-    const p = await repo.findOne("franchise_projects", { ROWID: input.project_id });
-    if (!p || String(p.franchisee_id) !== franchiseeId) throw new AppError("VALIDATION_FAILED", "That store isn't this franchisee's.", { project_id: "not theirs" });
+  let about: Row | null = null;
+  if (input.context) {
+    const def = CONTEXT[input.context.type];
+    const r = def ? await repo.findOne(def.table, { ROWID: input.context.id }) : null;
+    if (!r || String(r.franchisee_id) !== franchiseeId) throw new AppError("VALIDATION_FAILED", `That ${def?.noun ?? "record"} isn't this franchisee's.`, { context: "not theirs" });
+    about = { type: input.context.type, id: String(r.ROWID), code: String(r[def.code] ?? r.ROWID) };
   }
-  const row = await repo.insert("messages", { franchisee_id: franchiseeId, project_id: input.project_id ?? null, from_side: from, sender_user_id: ctx.userId, message_text: input.text, attachment_ref: input.attachment_ref ?? null, sent_at: now.toISOString(), read_at: null });
-  await logActivity(store, ctx, { entityType: "franchisee", entityId: franchiseeId, action: from === "FRANCHISEE" ? "message:from_franchisee" : "message:from_brand", metadata: { message_id: String(row.ROWID), preview: input.text.slice(0, 140) } });
-  return row;
+  const row = await repo.insert("messages", {
+    franchisee_id: franchiseeId, project_id: about?.type === "PROJECT" ? about.id : null, context_type: about?.type ?? null, context_id: about?.id ?? null,
+    from_side: from, sender_user_id: ctx.userId, message_text: input.text, attachment_ref: input.attachment_ref ?? null, sent_at: now.toISOString(), read_at: null, emailed_to: null,
+  });
+  await logActivity(store, ctx, { entityType: "franchisee", entityId: franchiseeId, action: from === "FRANCHISEE" ? "message:from_franchisee" : "message:from_brand", metadata: { message_id: String(row.ROWID), preview: input.text.slice(0, 140), about: about?.code ?? null } });
+  if (from !== "BRAND") return { ...row, about };
+  // No portal login yet (an applicant, or a partner not invited): the message goes by email, if it can.
+  const emailed_to = await emailFallback(store, ctx, repo, franchisee, input.text, about);
+  if (emailed_to) await repo.update("messages", String(row.ROWID), { emailed_to });
+  return { ...row, emailed_to, about };
+}
+
+async function emailFallback(store: Store, ctx: TenantContext, repo: TenantRepo, franchisee: Row, text: string, about: Row | null): Promise<string | null> {
+  if (!ctx.mailer || !franchisee.email) return null;
+  if ((await portalLogins(repo, String(franchisee.ROWID))).length) return null;
+  const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  let settings: Row = {};
+  try { settings = tenant?.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { settings = {}; }
+  if (settings.notify_email === false) return null;
+  const sender = ctx.userId ? await repo.findOne("users", { ROWID: String(ctx.userId) }) : null;
+  const { brandingOf } = await import("../common/branding");
+  const brand = brandingOf(tenant).name;
+  const who = sender ? `${sender.name ?? sender.email}${sender.name && sender.email ? ` (${sender.email})` : ""}` : `the ${brand} team`;
+  const subject = `${brand}: ${about ? `about ${about.code}` : "a message from the franchise team"}`;
+  const plain = `${text}\n\nSent by ${who} from ${brand}${about ? `, about ${about.code}` : ""}. Reply to them directly; this address does not take replies.`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1f2933;max-width:560px"><p style="white-space:pre-wrap;margin:0 0 16px">${escapeHtml(text)}</p><p style="font-size:12px;color:#6b7785;margin:0">Sent by ${escapeHtml(who)} from ${escapeHtml(brand)}${about ? `, about ${escapeHtml(String(about.code))}` : ""}. Reply to them directly; this address does not take replies.</p></div>`;
+  try {
+    await ctx.mailer.send({ to: String(franchisee.email), subject, html, text: plain });
+    return String(franchisee.email);
+  } catch (e) {
+    log("warn", "message.email_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, franchisee_id: String(franchisee.ROWID), error: String((e as Error)?.message ?? e).slice(0, 300) });
+    return null;
+  }
 }
 
 /** Staff inbox: every conversation, newest first, with what's unread from franchisees. */

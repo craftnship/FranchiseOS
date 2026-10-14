@@ -57,6 +57,7 @@ export function ApplicationDetail() {
           <PageHeader title={a.application_code} badges={<Pill value={a.status} />} crumbs={[["Expansion"], ["Applications", "/applications"], [a.application_code]]}
             subtitle={[a.preferred_city, a.preferred_state, label(a.application_type ?? "")].filter(Boolean).join(" · ")}
             actions={<>
+              {can("dashboard.view") && a.franchisee_id && <Link className="btn secondary" to={`/messages/${a.franchisee_id}?about=APPLICATION:${a.ROWID}`}><Icon name="chat" size={16} />Message franchisee</Link>}
               {side.map((t) => <button key={t} className={SIDE[t].danger ? "btn danger-ghost" : "btn secondary"} onClick={() => setOpen(`confirm:${t}`)} disabled={!!act.busy}>{SIDE[t].text}</button>)}
               {canSend && a.status === "AGREEMENT_PENDING" && <button className="btn secondary" onClick={sendAgreement} disabled={!!act.busy}><Icon name="send" size={16} />{act.busy === "agreement" ? "Sending…" : "Resend agreement"}</button>}
             </>} />

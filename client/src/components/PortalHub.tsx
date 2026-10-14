@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { upload } from "./Construction";
@@ -103,34 +103,48 @@ export function PortalDocuments() {
   );
 }
 
-/** A conversation and the box to reply in. `me` is the side reading it. */
-function Conversation({ messages, me, stores, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; stores?: Row[]; onSend: (b: Row) => Promise<unknown> }) {
+const ABOUT_NOUN: Record<string, string> = { APPLICATION: "Application", AGREEMENT: "Agreement", PROJECT: "Store" };
+const aboutKey = (a: Row | null | undefined) => (a ? `${a.type}:${a.id}` : "");
+/** Where a record a message is about opens: staff go to the record, the franchisee to their portal page for it. */
+const aboutPath = (a: Row, portal: boolean) => portal
+  ? ({ APPLICATION: "/portal/application", AGREEMENT: "/portal/agreement", PROJECT: "/portal" } as Record<string, string>)[String(a.type)] ?? "/portal"
+  : ({ APPLICATION: `/applications/${a.id}`, AGREEMENT: `/agreements/${a.id}`, PROJECT: `/projects/${a.id}` } as Record<string, string>)[String(a.type)] ?? "/";
+
+/** Delivery of one of our own messages: read in the portal, or sent by email to a franchisee without a login. */
+const delivery = (m: Row) => (m.read_at ? "Read" : m.emailed_to ? `Emailed to ${m.emailed_to}` : "");
+
+/** A conversation and the box to reply in. `me` is the side reading it; `about` lists the records a message can be about. */
+function Conversation({ messages, me, about, initial, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; about: Row[]; initial?: string; onSend: (b: Row) => Promise<unknown> }) {
   const [textValue, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [store, setStore] = useState("");
+  const [context, setContext] = useState(initial ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const portal = me === "FRANCHISEE";
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [messages.length]);
+  useEffect(() => { if (initial) setContext(initial); }, [initial]);
   const send = async () => {
     if (!textValue.trim()) return;
     setBusy(true); setError(null);
+    const [type, id] = context.split(":");
     try {
-      await onSend({ text: textValue.trim(), ...(store ? { project_id: store } : {}), ...(file ? { attachment: await upload(file) } : {}) });
+      await onSend({ text: textValue.trim(), ...(type && id ? { context: { type, id } } : {}), ...(file ? { attachment: await upload(file) } : {}) });
       setText(""); setFile(null);
     } catch (e) { setError(e as ApiError); } finally { setBusy(false); }
   };
   return (
     <div className="chat">
       <ol className="chat-list">
-        {!messages.length && <li className="state">{me === "FRANCHISEE" ? "Ask the brand team anything. Your franchise manager is told straight away." : "No messages yet."}</li>}
+        {!messages.length && <li className="state">{portal ? "Ask the brand team anything. Your franchise manager is told straight away." : "No messages yet. Write the first one below."}</li>}
         {messages.map((m) => (
           <li key={String(m.ROWID)} className={m.from_side === me ? "mine" : "theirs"}>
             <div className="bubble">
+              {m.about && <Link className="chip static" to={aboutPath(m.about, portal)}>{ABOUT_NOUN[String(m.about.type)] ?? "About"} {m.about.code}</Link>}
               <p>{m.message_text}</p>
               {m.attachment_ref && <button className="btn ghost sm" onClick={() => openUrl(`/messages/${m.ROWID}/attachment`)}>Attachment</button>}
             </div>
-            <span className="cell-sub">{me === "FRANCHISEE" && m.from_side === me ? "You" : m.sender ?? (m.from_side === "BRAND" ? "Brand team" : "Franchisee")} · {time(m.sent_at)}{m.from_side === me && m.read_at ? " · Read" : ""}</span>
+            <span className="cell-sub">{portal && m.from_side === me ? "You" : m.sender ?? (m.from_side === "BRAND" ? "Brand team" : "Franchisee")} · {time(m.sent_at)}{m.from_side === me && delivery(m) ? ` · ${delivery(m)}` : ""}</span>
           </li>
         ))}
         <div ref={end} />
@@ -139,7 +153,10 @@ function Conversation({ messages, me, stores, onSend }: { messages: Row[]; me: "
         <textarea rows={2} placeholder="Write a message" aria-label="Message" value={textValue} onChange={(e) => setText(e.target.value)} maxLength={4000}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }} />
         <div className="chat-tools">
-          {stores && stores.length > 1 && <select aria-label="About store" value={store} onChange={(e) => setStore(e.target.value)}><option value="">About: general</option>{stores.map((s) => <option key={String(s.ROWID)} value={String(s.ROWID)}>{s.project_code}</option>)}</select>}
+          {about.length > 0 && <select aria-label="About" value={context} onChange={(e) => setContext(e.target.value)}>
+            <option value="">About: general</option>
+            {about.map((a) => <option key={aboutKey(a)} value={aboutKey(a)}>{ABOUT_NOUN[String(a.type)]} {a.code}</option>)}
+          </select>}
           <label className="btn ghost sm">{file ? file.name.slice(0, 18) : "Attach"}<input type="file" accept={DOCS} hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
           <button className="btn" disabled={busy || !textValue.trim()}><Icon name="send" size={16} />{busy ? "Sending…" : "Send"}</button>
         </div>
@@ -151,45 +168,90 @@ function Conversation({ messages, me, stores, onSend }: { messages: Row[]; me: "
 
 /** Portal: the franchisee's conversation with the brand team. */
 export function PortalMessages() {
-  const load = useLoad(() => api<Row[]>("GET", "/portal/messages"), []);
-  const stores = useLoad(() => api<Row[]>("GET", "/projects"), []);
+  const load = useLoad(() => api<Row>("GET", "/portal/messages"), []);
   return (
     <>
       <PageHeader title="Messages" subtitle="Talk to the brand team. Replies come back here, and you are told when one arrives." />
-      <Panel flush><Loaded load={load}>{(m) => <Conversation messages={m} me="FRANCHISEE" stores={(stores.data ?? []) as Row[]} onSend={(b) => api("POST", "/portal/messages", { body: b }).then(load.reload)} />}</Loaded></Panel>
+      <Panel flush><Loaded load={load}>{(d) => <Conversation messages={d.messages as Row[]} me="FRANCHISEE" about={d.about as Row[]} onSend={(b) => api("POST", "/portal/messages", { body: b }).then(load.reload)} />}</Loaded></Panel>
     </>
+  );
+}
+
+/** Staff: pick a franchisee to write to, applicants included. The conversation starts with the first message. */
+function NewMessageDialog({ onClose }: { onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const load = useLoad(() => api<Row[]>("GET", "/franchisees", { query: { limit: "200" } }), []);
+  const term = q.trim().toLowerCase();
+  const rows = (load.data ?? []).filter((f) => !term || ["display_name", "legal_name", "franchise_code", "email"].some((k) => String(f[k] ?? "").toLowerCase().includes(term))).slice(0, 12);
+  return (
+    <Dialog title="New message" subtitle="Who is it for? The conversation opens next, with your message as the first one." onClose={onClose}>
+      <div style={{ display: "grid", gap: ".6rem" }}>
+        <label className="filter-input"><Icon name="search" size={16} /><input type="search" autoFocus placeholder="Name, code or email" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        <Loaded load={load}>{() => (
+          <ul className="todo-list">
+            {!rows.length && <li className="state">No franchisee matches.</li>}
+            {rows.map((f) => (
+              <li key={String(f.ROWID)}>
+                <Link to={`/messages/${f.ROWID}`} onClick={onClose}>
+                  <span className="todo-main"><strong>{f.display_name}</strong><span className="cell-sub">{[f.franchise_code, f.email, f.status ? String(f.status).toLowerCase() : null].filter(Boolean).join(" · ")}</span></span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}</Loaded>
+      </div>
+    </Dialog>
   );
 }
 
 /** Staff: every franchisee conversation, newest first. */
 export function MessagesInbox() {
   const load = useLoad(() => api<Row[]>("GET", "/messages"), []);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [compose, setCompose] = useState(false);
   return (
     <>
-      <PageHeader title="Messages" crumbs={[["Overview"], ["Messages"]]} subtitle="Conversations with franchisees. A new message goes to the franchisee's application owner, or franchise managers." />
-      <Panel flush><Loaded load={load}>{(rows) => (
-        <DataTable rows={rows} href={(r) => `/messages/${r.franchisee_id}`} searchKeys={["franchisee", "preview"]} empty="No conversations yet." columns={[
+      <PageHeader title="Messages" crumbs={[["Overview"], ["Messages"]]} subtitle="Conversations with franchisees. A new message goes to the franchisee's application owner, or franchise managers."
+        actions={<button className="btn" onClick={() => setCompose(true)}><Icon name="chat" size={16} />New message</button>} />
+      <Panel flush><Loaded load={load}>{(all) => {
+        const rows = unreadOnly ? all.filter((r) => Number(r.unread) > 0) : all;
+        return (
+        <DataTable rows={rows} href={(r) => `/messages/${r.franchisee_id}`} searchKeys={["franchisee", "preview"]} empty={unreadOnly ? "Nothing unread." : "No conversations yet. Start one with New message."}
+          toolbar={<div className="chips">{[["All", false], ["Unread", true]].map(([text, on]) => <button key={String(text)} className={`chip ${unreadOnly === on ? "on" : ""}`} onClick={() => setUnreadOnly(on as boolean)}>{text}</button>)}</div>}
+          columns={[
           { key: "franchisee", label: "Franchisee", render: (r) => <><Link to={`/messages/${r.franchisee_id}`}>{String(r.franchisee)}</Link><span className="cell-sub">{String(r.franchise_code ?? "")}</span></> },
           { key: "preview", label: "Last message", render: (r) => <span style={{ display: "block", maxWidth: "36rem" }}>{r.last_from === "BRAND" ? <span className="muted">You: </span> : null}{r.preview}</span> },
           { key: "last_at", label: "When", render: (r) => time(r.last_at) },
           { key: "unread", label: "Unread", align: "right", render: (r) => r.unread ? <Pill value={`${r.unread} new`} tone="warn" /> : <span className="muted">—</span> },
         ]} />
-      )}</Loaded></Panel>
+        );
+      }}</Loaded></Panel>
+      {compose && <NewMessageDialog onClose={() => setCompose(false)} />}
     </>
   );
 }
 
-/** Staff: one franchisee's conversation. */
+/** Staff: one franchisee's conversation. `?about=TYPE:ID` preselects the record a message is about. */
 export function MessageThread() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const load = useLoad(() => api<Row>("GET", `/franchisees/${id}/messages`), [id]);
   return (
-    <Loaded load={load}>{(d) => (
-      <>
-        <PageHeader title={String(d.franchisee.display_name ?? d.franchisee.franchise_code)} crumbs={[["Overview"], ["Messages", "/messages"], [String(d.franchisee.franchise_code)]]} />
-        <Panel flush><Conversation messages={d.messages as Row[]} me="BRAND" onSend={(b) => api("POST", `/franchisees/${id}/messages`, { body: b }).then(load.reload)} /></Panel>
-      </>
-    )}</Loaded>
+    <Loaded load={load}>{(d) => {
+      const f = d.franchisee as Row;
+      const noLogin = Number(f.portal_users ?? 0) === 0;
+      return (
+        <>
+          <PageHeader title={String(f.display_name ?? f.franchise_code)} crumbs={[["Overview"], ["Messages", "/messages"], [String(f.franchise_code)]]}
+            subtitle={f.email ? String(f.email) : undefined}
+            actions={<Link className="btn secondary" to={`/applications?franchisee_id=${f.ROWID}`}><Icon name="applications" size={16} />Applications</Link>} />
+          {noLogin && (f.email
+            ? <div className="notice info"><Icon name="alert" />{f.display_name} has no portal login yet, so each message goes to {f.email} by email. They reply to you directly, not here.</div>
+            : <div className="notice warn"><Icon name="alert" />{f.display_name} has no portal login and no email on file, so they will not see these messages. Add their email in CRM, or invite them to the portal from Users.</div>)}
+          <Panel flush><Conversation messages={d.messages as Row[]} me="BRAND" about={d.about as Row[]} initial={params.get("about") ?? ""} onSend={(b) => api("POST", `/franchisees/${id}/messages`, { body: b }).then(load.reload)} /></Panel>
+        </>
+      );
+    }}</Loaded>
   );
 }
 

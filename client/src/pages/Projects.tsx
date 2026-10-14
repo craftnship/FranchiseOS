@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row } from "../api";
 import { useAction, useFranchiseeNames, useLoad } from "../hooks";
 import { ConfirmDialog, Dialog, Field, Form, FormError } from "../components/forms";
@@ -111,6 +111,7 @@ export function ProjectDetail() {
             crumbs={[["Operations"], ["Opening projects", "/projects"], [p.project_code]]}
             subtitle={p.zoho_project_id ? "Linked to Zoho Projects" : "Not linked to Zoho Projects"}
             actions={<>
+              {can("dashboard.view") && p.franchisee_id && <Link className="btn secondary" to={`/messages/${p.franchisee_id}?about=PROJECT:${p.ROWID}`}><Icon name="chat" size={16} />Message franchisee</Link>}
               {can("project.write") && p.zoho_project_id && <button className="btn secondary" onClick={() => act.run("sync", () => api<Row>("POST", `/projects/${id}/sync`), (r) => r.sync ? `Synced from Zoho Projects: ${r.sync.updated} task${r.sync.updated === 1 ? "" : "s"} changed.` : "Readiness refreshed.")} disabled={!!act.busy}><Icon name="sync" size={16} />{act.busy === "sync" ? "Syncing…" : "Sync from Zoho Projects"}</button>}
               {(p.allowed_transitions as string[]).filter((t) => TRANSITION_LABEL[t]).map((t) => (
                 <button key={t} className={t === "close" ? "btn secondary" : "btn"} disabled={!!act.busy} onClick={() => (t === "open" ? setOpening(true) : transition(t))}>

@@ -78,18 +78,60 @@ describe("portal v2", () => {
     const list = (await s.call("ops", "GET", "/messages")).data;
     expect(list[0]).toMatchObject({ franchisee: "Pepper Potts", unread: 1, last_from: "FRANCHISEE" });
     const conv = (await s.call("ops", "GET", `/franchisees/${s.fr.ROWID}/messages`)).data;
-    expect(conv.messages.map((m: any) => [m.from_side, m.sender])).toEqual([["FRANCHISEE", "pepper"]]);
+    expect(conv.messages.map((m: any) => [m.from_side, m.sender, m.about])).toEqual([["FRANCHISEE", "pepper", { type: "PROJECT", id: String(s.building.ROWID), code: "PROJ-000002" }]]);
+    expect(conv.franchisee).toMatchObject({ franchise_code: "FR-000001", portal_users: 1 });
+    expect(conv.about.map((a: any) => [a.type, a.code])).toEqual([["APPLICATION", "APP-000001"], ["PROJECT", "PROJ-000002"], ["PROJECT", "PROJ-000001"]]);
     expect((await s.call("ops", "GET", "/messages")).data[0].unread).toBe(0);
 
     await s.call("ops", "POST", `/franchisees/${s.fr.ROWID}/messages`, { text: "Yes, I'll move it and the launch plan." });
     expect(await s.inbox("pepper")).toEqual(["New message from the brand team"]);
     expect((await s.call("pepper", "GET", "/portal/todo")).data.items.map((i: any) => i.title)).toContain("1 new message from the brand team");
     const mine = (await s.call("pepper", "GET", "/portal/messages")).data;
-    expect(mine.map((m: any) => m.message_text)).toEqual(["Can we move the grand opening a week?", "Yes, I'll move it and the launch plan."]);
+    expect(mine.messages.map((m: any) => [m.message_text, m.emailed_to ?? null])).toEqual([["Can we move the grand opening a week?", null], ["Yes, I'll move it and the launch plan.", null]]);
     expect((await s.call("pepper", "GET", "/portal/todo")).data.items.map((i: any) => i.title)).not.toContain("1 new message from the brand team");
     // The other franchisee sees none of it, and can't reach Pepper's conversation.
-    expect((await s.call("happy", "GET", "/portal/messages")).data).toEqual([]);
+    expect((await s.call("happy", "GET", "/portal/messages")).data.messages).toEqual([]);
     expect((await s.call("happy", "GET", `/franchisees/${s.fr.ROWID}/messages`)).error?.code).toBe("ACCESS_DENIED");
+  });
+
+  it("lets staff start a conversation about an application or agreement, and emails a franchisee who has no portal login", async () => {
+    const s = await setup();
+    const sent: { to: string; subject: string; text: string }[] = [];
+    const mailer = { send: async (m: { to: string; subject: string; text: string }) => { sent.push({ to: m.to, subject: m.subject, text: m.text }); } };
+    const call = async (ext: string, method: string, path: string, body?: unknown) => {
+      const res = await router.handle({ method, path: `/api/v1${path}`, body, identity: { externalUserId: ext, email: `${ext}@x.test` } }, { store: s.store, files: new MemoryFileStorage(), now: () => new Date(NOW), mailer });
+      return res.body as { success: boolean; data?: any; error?: { code: string; fields?: Record<string, string> } };
+    };
+    // An applicant with an email address and no portal login yet.
+    const nat = await s.store.insert("franchisees", { tenant_id: s.tid, franchise_code: "FR-000003", tenant_code_key: `${s.tid}:FR-000003`, display_name: "Natasha Romanoff", email: "nat@x.test", status: "PROSPECT" });
+    const app = await s.store.insert("franchise_applications", { tenant_id: s.tid, application_code: "APP-000002", tenant_code_key: `${s.tid}:APP-000002`, franchisee_id: nat.ROWID, status: "UNDER_REVIEW" });
+    const agr = await s.store.insert("agreements", { tenant_id: s.tid, agreement_code: "AGR-000002", tenant_code_key: `${s.tid}:AGR-000002`, application_id: app.ROWID, franchisee_id: nat.ROWID, status: "SENT" });
+
+    const thread = (await call("fm", "GET", `/franchisees/${nat.ROWID}/messages`)).data;
+    expect(thread.franchisee).toMatchObject({ display_name: "Natasha Romanoff", email: "nat@x.test", portal_users: 0 });
+    expect(thread.messages).toEqual([]);
+    expect(thread.about.map((a: any) => [a.type, a.code])).toEqual([["APPLICATION", "APP-000002"], ["AGREEMENT", "AGR-000002"]]);
+
+    const first = (await call("fm", "POST", `/franchisees/${nat.ROWID}/messages`, { text: "Your bank statement is missing the last page.", context: { type: "APPLICATION", id: String(app.ROWID) } })).data;
+    expect(first).toMatchObject({ from_side: "BRAND", context_type: "APPLICATION", context_id: String(app.ROWID), project_id: null, emailed_to: "nat@x.test", about: { type: "APPLICATION", code: "APP-000002" } });
+    expect(sent).toEqual([{ to: "nat@x.test", subject: "FranchiseOS: about APP-000002", text: expect.stringContaining("Your bank statement is missing the last page.") }]);
+    expect(sent[0].text).toContain("Sent by fm (fm@x.test)");
+    expect((await s.store.findOne("messages", { ROWID: String(first.ROWID) }))?.emailed_to).toBe("nat@x.test");
+
+    const second = (await call("fm", "POST", `/franchisees/${nat.ROWID}/messages`, { text: "Please sign by Friday.", context: { type: "AGREEMENT", id: String(agr.ROWID) } })).data;
+    expect(second.about).toEqual({ type: "AGREEMENT", id: String(agr.ROWID), code: "AGR-000002" });
+    expect(sent).toHaveLength(2);
+    // Another franchisee's application can't be the subject.
+    const wrong = await call("fm", "POST", `/franchisees/${nat.ROWID}/messages`, { text: "x", context: { type: "APPLICATION", id: String((await s.store.findOne("franchise_applications", { application_code: "APP-000001" }))!.ROWID) } });
+    expect([wrong.error?.code, wrong.error?.fields]).toEqual(["VALIDATION_FAILED", { context: "not theirs" }]);
+    // Pepper has a portal login: her message is not emailed, she is told in the portal.
+    const toPepper = (await call("fm", "POST", `/franchisees/${s.fr.ROWID}/messages`, { text: "Hello Pepper" })).data;
+    expect(toPepper.emailed_to).toBeNull();
+    expect(sent.slice(2)).toEqual([{ to: "pepper@x.test", subject: "New message from the brand team", text: expect.stringContaining("Hello Pepper") }]);
+    expect(await s.inbox("pepper")).toEqual(["New message from the brand team"]);
+    // The inbox now lists both conversations, the applicant's first message included.
+    const list = (await call("ops", "GET", "/messages")).data;
+    expect(list.map((r: any) => [r.franchisee, r.last_from, r.total]).sort()).toEqual([["Natasha Romanoff", "BRAND", 2], ["Pepper Potts", "BRAND", 1]]);
   });
 
   it("shares brand documents with everyone or one franchisee", async () => {

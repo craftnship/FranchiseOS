@@ -125,6 +125,7 @@ export function AgreementDetail() {
         <PageHeader title={g.agreement_code} badges={<Pill value={g.status} />} crumbs={[["Contracts"], ["Agreements", "/agreements"], [g.agreement_code]]}
           actions={<>
             {can("agreement.write") && g.status === "SIGNED" && <button className="btn secondary" onClick={onboard} disabled={busy}><Icon name="sync" size={16} />{busy ? "Syncing…" : "Re-run onboarding sync"}</button>}
+            {can("dashboard.view") && g.franchisee_id && <Link className="btn secondary" to={`/messages/${g.franchisee_id}?about=AGREEMENT:${g.ROWID}`}><Icon name="chat" size={16} />Message franchisee</Link>}
             <Link className="btn secondary" to={`/applications/${g.application_id}`}><Icon name="applications" size={16} />Open application</Link>
           </>} />
         {notice && <div className="notice ok"><Icon name="check" />{notice}</div>}

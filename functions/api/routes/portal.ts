@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AppError } from "../../common/errors";
 import { authorize, isPortalUser } from "../../common/rbac";
 import { Row } from "../../common/store";
-import { brandDocuments, conversation, DOC_CATEGORIES, inbox, ownRecords, portalTodo, sendMessage, shareDocument } from "../../workflows/portalHub";
+import { brandDocuments, conversation, DOC_CATEGORIES, inbox, ownRecords, portalLogins, portalTodo, sendMessage, shareDocument } from "../../workflows/portalHub";
 import { mustGet, signedUrl, storeUpload, uploadSchema } from "./shared";
 import { computeReadiness } from "../../workflows/readiness";
 import { Call, parse, Router } from "../router";
@@ -70,7 +70,10 @@ export function portalRoutes(r: Router): void {
 }
 
 const text = (max: number) => z.string().trim().max(max);
-const messageSchema = z.object({ text: text(4000).min(1), project_id: z.string().min(1).nullish(), attachment: uploadSchema.optional() }).strict();
+const contextSchema = z.object({ type: z.enum(["APPLICATION", "AGREEMENT", "PROJECT"]), id: z.string().min(1) }).strict();
+// project_id is the older shape of "about this store"; context covers applications and agreements too.
+const messageSchema = z.object({ text: text(4000).min(1), context: contextSchema.nullish(), project_id: z.string().min(1).nullish(), attachment: uploadSchema.optional() }).strict();
+const contextOf = (b: z.infer<typeof messageSchema>) => b.context ?? (b.project_id ? { type: "PROJECT" as const, id: b.project_id } : null);
 const documentSchema = z.object({ title: text(160).min(2), category: z.enum(DOC_CATEGORIES), notes: text(1000).nullish(), franchisee_id: z.string().min(1).nullish(), file: uploadSchema }).strict();
 const today = (call: Call) => call.now.toISOString().slice(0, 10);
 const mine = (call: Call): string => {
@@ -107,17 +110,18 @@ export function portalHubRoutes(r: Router): void {
   r.on("POST", "/portal/messages", "portal.view", async (call) => {
     const fid = mine(call), b = parse(messageSchema, call.body);
     const attachment_ref = b.attachment ? await storeUpload(call, `messages/${fid}`, b.attachment) : null;
-    return sendMessage(call.store, call.ctx, fid, "FRANCHISEE", { text: b.text, project_id: b.project_id ?? null, attachment_ref }, call.now);
+    return sendMessage(call.store, call.ctx, fid, "FRANCHISEE", { text: b.text, context: contextOf(b), attachment_ref }, call.now);
   }, 201);
   r.on("GET", "/messages", "dashboard.view", async (call) => inbox(call.store, call.ctx));
   r.on("GET", "/franchisees/:id/messages", "dashboard.view", async (call) => {
     const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND");
-    return { franchisee: { ROWID: f.ROWID, display_name: f.display_name, franchise_code: f.franchise_code }, messages: await conversation(call.store, call.ctx, String(f.ROWID), "BRAND", call.now) };
+    const portal_users = (await portalLogins(call.repo, String(f.ROWID))).length;
+    return { franchisee: { ROWID: f.ROWID, display_name: f.display_name, franchise_code: f.franchise_code, email: f.email ?? null, portal_users }, ...await conversation(call.store, call.ctx, String(f.ROWID), "BRAND", call.now) };
   });
   r.on("POST", "/franchisees/:id/messages", "dashboard.view", async (call) => {
     const f = await mustGet(call.repo, "franchisees", call.params.id, "NOT_FOUND"), b = parse(messageSchema, call.body);
     const attachment_ref = b.attachment ? await storeUpload(call, `messages/${f.ROWID}`, b.attachment) : null;
-    return sendMessage(call.store, call.ctx, String(f.ROWID), "BRAND", { text: b.text, project_id: b.project_id ?? null, attachment_ref }, call.now);
+    return sendMessage(call.store, call.ctx, String(f.ROWID), "BRAND", { text: b.text, context: contextOf(b), attachment_ref }, call.now);
   }, 201);
   r.on("GET", "/messages/:msgId/attachment", null, async (call) => {
     const m = await mustGet(call.repo, "messages", call.params.msgId, "NOT_FOUND");

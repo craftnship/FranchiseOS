@@ -29,6 +29,7 @@ export function Franchisees() {
             { key: "CREATEDTIME", label: "Since", render: (f) => date(f.CREATEDTIME) },
             { key: "_apps", label: "", render: (f) => <span className="panel-actions">
               <Link to={`/applications?franchisee_id=${f.ROWID}`}>Applications</Link>
+              {can("dashboard.view") && <Link to={`/messages/${f.ROWID}`} onClick={(e) => e.stopPropagation()}><Icon name="chat" size={14} />Message</Link>}
               {can("application.review") && (f.zoho_lead_id || f.zoho_account_id) && <button className="btn ghost sm" disabled={act.busy === `c${f.ROWID}`} onClick={(e) => { e.stopPropagation(); pull(f); }}><Icon name="sync" size={14} />{act.busy === `c${f.ROWID}` ? "Checking…" : "Refresh from CRM"}</button>}
             </span> },
           ]} />
