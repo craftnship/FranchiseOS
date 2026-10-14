@@ -7,6 +7,7 @@ import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
 import { ZohoBooksClient } from "../integrations/clients";
 import { onboardingSettings } from "./agreements";
+import { adoptInvoice, booksRef } from "./booksInvoices";
 import { feedStatus, posByPeriod, posSettings, variancePct } from "./posSales";
 
 // Royalties (plan Phase 2 "Operations"): an opened store reports its monthly sales; finance approves
@@ -132,7 +133,7 @@ export async function booksCustomerFor(repo: TenantRepo, books: ZohoBooksClient,
   return repo.update("franchisees", String(franchisee.ROWID), { zoho_books_customer_id: ref.id });
 }
 
-export const invoiceRef = (project: Row, period: string) => `ROY-${project.project_code}-${period.replace("-", "")}`;
+export const invoiceRef = (tenant: Row | null, project: Row, period: string) => booksRef(tenant, "ROY", String(project.project_code), period.replace("-", ""));
 
 /**
  * Approves a submitted report: works out royalty and marketing fund at the store's rates and raises
@@ -148,8 +149,9 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
   const net = toNum(report.net_sales);
   const royalty = round2(net * rates.royalty_pct / 100);
   const marketing = round2(net * (rates.marketing_fund_pct ?? 0) / 100);
-  const settings = onboardingSettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
-  const ref = invoiceRef(project, String(report.period));
+  const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  const settings = onboardingSettings(tenant);
+  const ref = invoiceRef(tenant, project, String(report.period));
   const label = periodLabel(String(report.period));
   const tax = settings.books_tax_id ? { tax_id: settings.books_tax_id } : {};
   const lines = [
@@ -158,7 +160,7 @@ export async function approveReport(store: Store, ctx: TenantContext, books: Zoh
   ];
   // One approval at a time per report: a second click, or the job, waits for this one (idempotency.ts).
   return claim(store, ctx.tenantId, "royalty_invoice", String(report.ROWID), async () => {
-  const found = await books.findInvoice(ref);
+  const found = adoptInvoice(await books.findInvoice(ref), { customer_id: String(franchisee.zoho_books_customer_id), total: round2(royalty + marketing), taxed: !!settings.books_tax_id, ref });
   const invoice = found ?? (royalty + marketing > 0 ? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: lines }) : null);
   let state: Row = {};
   if (invoice) {

@@ -33,15 +33,15 @@ async function setup(opts: { legacy?: boolean } = {}) {
   });
   const project = await store.insert("franchise_projects", { tenant_id: tid, project_code: "PROJ-000001", tenant_code_key: `${tid}:PROJ-000001`, application_id: app.ROWID, franchisee_id: fr.ROWID, site_id: "1", status: "IN_PROGRESS", target_opening_date: "2026-12-15" });
   const fitout = await store.insert("opening_checklists", { tenant_id: tid, project_id: project.ROWID, task_code: "FITOUT", item: "Complete fit-out", category: "CONSTRUCTION", weight: 3, mandatory: true, status: "OPEN", due_date: "2026-11-01" });
-  const invoices = new Map<string, { id: string; ref: string; lines: any[]; status: string; total: number; balance: number }>();
-  invoices.set("INV-SIGN", { id: "INV-SIGN", ref: "AGR-000001", lines: [], status: "sent", total: 236000, balance: 236000 });
+  const invoices = new Map<string, { id: string; ref: string; lines: any[]; status: string; total: number; balance: number; customer_id?: string }>();
+  invoices.set("INV-SIGN", { id: "INV-SIGN", ref: "FEE-STARK-AGR-000001", lines: [], status: "sent", total: 236000, balance: 236000, customer_id: "CUST-1" });
   const books = {
     findCustomer: async () => null, createCustomer: async () => ({ id: "CUST-NEW" }),
-    findInvoice: async (ref: string) => { const i = [...invoices.values()].find((x) => x.ref === ref); return i ? { id: i.id } : null; },
+    findInvoice: async (ref: string) => { const i = [...invoices.values()].find((x) => x.ref === ref); return i ? { id: i.id, customer_id: i.customer_id, total: i.total, status: i.status } : null; },
     createInvoice: async (d: any) => {
       const id = `INV-${invoices.size + 1}`;
       const total = d.line_items.reduce((a: number, l: any) => a + l.rate * l.quantity, 0);
-      invoices.set(id, { id, ref: d.reference_number, lines: d.line_items, status: "draft", total, balance: total });
+      invoices.set(id, { id, ref: d.reference_number, lines: d.line_items, status: "draft", total, balance: total, customer_id: d.customer_id });
       return { id };
     },
     sendInvoice: async (id: string) => { invoices.get(id)!.status = "sent"; },
@@ -81,7 +81,7 @@ describe("franchise fee schedule", () => {
 
     // The daily job raises the deposit (due on signing) without tax, and leaves the rest.
     expect(await s.job("2026-10-12T00:30:00Z")).toMatchObject({ instalments_raised: 1 });
-    const deposit = [...s.invoices.values()].find((i) => i.ref === "FEE-AGR-000001-4")!;
+    const deposit = [...s.invoices.values()].find((i) => i.ref === "FEE-STARK-AGR-000001-4")!;
     expect(deposit.lines).toEqual([expect.objectContaining({ name: "Security deposit", rate: 100000 })]);
     expect(deposit.lines[0].tax_id).toBeUndefined();
     expect(await s.inbox("pepper")).toEqual(["Security deposit invoiced for ₹1,00,000 (INV/INV-2)"]);
@@ -89,7 +89,7 @@ describe("franchise fee schedule", () => {
     // Fit-out done: the next run raises that instalment.
     await s.store.update("opening_checklists", String(s.fitout.ROWID), { status: "COMPLETED" });
     expect(await s.job("2026-10-13T00:30:00Z")).toMatchObject({ instalments_raised: 1 });
-    expect([...s.invoices.values()].map((i) => i.ref)).toEqual(["AGR-000001", "FEE-AGR-000001-4", "FEE-AGR-000001-2"]);
+    expect([...s.invoices.values()].map((i) => i.ref)).toEqual(["FEE-STARK-AGR-000001", "FEE-STARK-AGR-000001-4", "FEE-STARK-AGR-000001-2"]);
 
     // Paid in Books: finance hears about it once.
     s.invoices.get("INV-2")!.balance = 0;
@@ -126,7 +126,7 @@ describe("franchise fee schedule", () => {
     const edited = (await s.call("tony", "PATCH", `${s.base}/fees/${added.ROWID}`, { action: "edit", kind: "FEE", label: "Training fee", amount: 60000, raise_on: "DATE", due_on: "2026-10-01" })).data;
     expect(edited).toMatchObject({ amount: 60000, due_on: "2026-10-01" });
     expect((await s.call("tony", "GET", `${s.base}/funding`)).data.instalments[4]).toMatchObject({ due_now: true });
-    expect((await s.call("tony", "PATCH", `${s.base}/fees/${added.ROWID}`, { action: "raise" })).data).toMatchObject({ status: "INVOICED", invoice_ref: "FEE-AGR-000001-5", invoice_number: "INV/INV-2" });
+    expect((await s.call("tony", "PATCH", `${s.base}/fees/${added.ROWID}`, { action: "raise" })).data).toMatchObject({ status: "INVOICED", invoice_ref: "FEE-STARK-AGR-000001-5", invoice_number: "INV/INV-2" });
     expect((await s.call("tony", "PATCH", `${s.base}/fees/${added.ROWID}`, { action: "edit", kind: "FEE", label: "x1", amount: 1, raise_on: "SIGNING" })).error?.code).toBe("INVALID_TRANSITION");
   });
 

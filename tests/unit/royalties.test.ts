@@ -22,17 +22,17 @@ async function setup(opts: { feasibilityRoyalty?: number } = {}) {
   const app = await store.insert("franchise_applications", { tenant_id: tid, application_code: "APP-000001", tenant_code_key: `${tid}:APP-000001`, franchisee_id: fr.ROWID, status: "ACTIVE" });
   await store.insert("feasibility_models", { tenant_id: tid, application_id: app.ROWID, site_id: "1", status: "CALCULATED", royalty_pct: opts.feasibilityRoyalty ?? 6, marketing_fund_pct: 2 });
   const project = await store.insert("franchise_projects", { tenant_id: tid, project_code: "PROJ-000001", tenant_code_key: `${tid}:PROJ-000001`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "OPENED", actual_opening_date: "2026-08-20" });
-  const invoices = new Map<string, { id: string; ref: string; lines: any[]; status: string; total: number; balance: number }>();
+  const invoices = new Map<string, { id: string; ref: string; lines: any[]; status: string; total: number; balance: number; customer_id?: string }>();
   const sent: string[][] = [];
   const customers: string[] = [];
   const books = {
     findCustomer: async () => null,
     createCustomer: async (d: any) => { customers.push(d.contact_name); return { id: `CUST-NEW-${customers.length}` }; },
-    findInvoice: async (ref: string) => { const i = [...invoices.values()].find((x) => x.ref === ref); return i ? { id: i.id } : null; },
+    findInvoice: async (ref: string) => { const i = [...invoices.values()].find((x) => x.ref === ref); return i ? { id: i.id, customer_id: i.customer_id, total: i.total, status: i.status } : null; },
     createInvoice: async (d: any) => {
       const id = `INV-${invoices.size + 1}`;
       const total = d.line_items.reduce((a: number, l: any) => a + l.rate * l.quantity, 0);
-      invoices.set(id, { id, ref: d.reference_number, lines: d.line_items, status: "draft", total, balance: total });
+      invoices.set(id, { id, ref: d.reference_number, lines: d.line_items, status: "draft", total, balance: total, customer_id: d.customer_id });
       return { id };
     },
     sendInvoice: async (id: string, to: string[]) => { sent.push(to); invoices.get(id)!.status = "sent"; },
@@ -100,7 +100,7 @@ describe("monthly sales and royalties", () => {
     const ok = await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`);
     expect(ok.data).toMatchObject({ status: "INVOICED", royalty_amount: 66_000, marketing_amount: 22_000, invoice_number: "INV/INV-1", invoice_status: "sent", invoice_balance: 88_000 });
     const inv = s.invoices.get("INV-1")!;
-    expect(inv.ref).toBe("ROY-PROJ-000001-202609");
+    expect(inv.ref).toBe("ROY-STARK-PROJ-000001-202609");
     expect(inv.lines.map((l) => [l.name, l.rate])).toEqual([["Royalty", 66_000], ["Marketing fund", 22_000]]);
     expect(s.sent).toEqual([["pepper@x.test"]]);
     expect(await s.inbox("pepper")).toContain("Royalty invoice for Sep 2026: ₹88,000");
@@ -113,6 +113,23 @@ describe("monthly sales and royalties", () => {
     const l = (await s.call("tony", "GET", `${s.base}/royalties`)).data;
     expect(l.months[0].report).toMatchObject({ status: "PAID" });
     expect(l.totals).toMatchObject({ royalty: 66_000, marketing: 22_000, outstanding: 0, missing: 1 });
+  });
+
+  it("never attaches another customer's invoice that carries the same reference", async () => {
+    const s = await setup();
+    // An older pilot on the same Books organisation left an invoice with this reference (seen live on 2026-10-14).
+    s.invoices.set("INV-OLD", { id: "INV-OLD", ref: "ROY-STARK-PROJ-000001-202609", lines: [], status: "sent", total: 30_000, balance: 30_000, customer_id: "CUST-ARUN" });
+    const rep = (await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-09", gross_sales: 1_250_000, net_sales: 1_100_000 })).data;
+    const res = await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`);
+    expect(res.error).toMatchObject({ code: "INVOICE_CONFLICT", fields: { reference: "another customer's invoice" } });
+    const after = (await s.store.findOne("sales_reports", { ROWID: String(rep.ROWID) }))!;
+    expect([after.status, after.zoho_books_invoice_id ?? null]).toEqual(["SUBMITTED", null]);
+    expect(s.invoices.size).toBe(1);
+    // Ours but for a different amount: also refused. Voided: ignored, and a fresh invoice is raised.
+    s.invoices.get("INV-OLD")!.customer_id = "CUST-1";
+    expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).error).toMatchObject({ code: "INVOICE_CONFLICT", fields: { reference: "different amount" } });
+    s.invoices.get("INV-OLD")!.status = "void";
+    expect((await s.call("tony", "POST", `${s.base}/sales/${rep.ROWID}/approve`)).data).toMatchObject({ status: "INVOICED", invoice_number: "INV/INV-2", invoice_balance: 88_000 });
   });
 
   it("returns a report with a note, and needs a rate before approving", async () => {

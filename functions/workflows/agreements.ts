@@ -15,6 +15,7 @@ import { DEFAULTS } from "../../database/seed/defaults";
 import { buildLocalProject, buildOpeningProject, TemplateTask } from "./projectCreation";
 import { ensureLicences } from "./licences";
 import { allocateTerritory } from "./territoryReservation";
+import { adoptInvoice, booksRef } from "./booksInvoices";
 import { transitionEntity, TransitionDeps } from "./transition";
 
 // Agreement and onboarding (plan Step 5, FOS-045..056). Sending creates the agreement and its Zoho
@@ -363,8 +364,9 @@ export async function onboardSignedAgreement(
         agreement = await repo.update("agreements", args.agreementId, { zoho_books_invoice_id: invoiceId });
         return;
       }
-      const ref = await books.findInvoice(code) ?? await books.createInvoice({
-        customer_id: String(franchisee.zoho_books_customer_id), reference_number: code, date: dateOnly(now), payment_terms: settings.books_payment_terms,
+      const reference = booksRef(tenant, "FEE", code);
+      const ref = adoptInvoice(await books.findInvoice(reference), { customer_id: String(franchisee.zoho_books_customer_id), total: onSigning, taxed: !!settings.books_tax_id, ref: reference }) ?? await books.createInvoice({
+        customer_id: String(franchisee.zoho_books_customer_id), reference_number: reference, date: dateOnly(now), payment_terms: settings.books_payment_terms,
         line_items: [{ name: "Franchise fee", description: `${onSigning < settings.franchise_fee ? "Franchise fee on signing" : "Initial franchise fee"}, agreement ${code}`, rate: onSigning, quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) }],
       });
       invoiceId = ref.id;

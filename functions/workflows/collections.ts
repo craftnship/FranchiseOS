@@ -287,6 +287,12 @@ export async function recordCollectionPayment(store: Store, ctx: TenantContext, 
   const src = await collectionSources(repo);
   const source = sourceOf(src, row);
   if (!source) throw new AppError("NOT_FOUND", "The invoice this item was raised for is gone.");
+  // The invoice as Books has it: it must be this franchisee's, and the amount must still be open there.
+  const inv = await books.getInvoice(String(row.zoho_books_invoice_id));
+  if (inv.customer_id && String(inv.customer_id) !== String(franchisee.zoho_books_customer_id)) {
+    throw new AppError("INVOICE_CONFLICT", `Invoice ${inv.number || row.invoice_number} in Zoho Books belongs to another customer. Fix the link before recording a payment.`, { invoice: "another customer's invoice" });
+  }
+  if (input.amount > inv.balance + 0.005) throw new AppError("VALIDATION_FAILED", `Only ${inr(inv.balance)} is still open on ${inv.number || row.invoice_number} in Zoho Books.`, { amount: "more than the balance in Books" });
   const payment = await books.recordPayment({
     customer_id: String(franchisee.zoho_books_customer_id), payment_mode: input.mode, amount: round(input.amount, 2), date: input.paid_on,
     reference_number: input.reference ?? undefined, description: input.note ?? `${describeCollection(row)} for ${franchisee.display_name ?? franchisee.franchise_code}`,

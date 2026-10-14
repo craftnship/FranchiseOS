@@ -49,7 +49,8 @@ export interface ZohoBooksClient {
   findCustomer(name: string, email?: string): Promise<{ id: string } | null>;
   createCustomer(data: { contact_name: string; company_name?: string; email?: string; phone?: string }): Promise<{ id: string }>;
   /** Finds an invoice by its reference number (the agreement code). */
-  findInvoice(referenceNumber: string): Promise<{ id: string } | null>;
+  /** The invoice carrying this reference, with enough of it to tell whether it is ours (booksInvoices.ts). */
+  findInvoice(referenceNumber: string): Promise<BooksInvoiceRef | null>;
   createInvoice(data: { customer_id: string; reference_number: string; date?: string; payment_terms?: number; line_items: Array<{ name: string; description?: string; rate: number; quantity: number; tax_id?: string }> }): Promise<{ id: string }>;
   /** Emails the invoice to the given addresses, or only marks it sent when there are none. */
   sendInvoice(id: string, to: string[]): Promise<void>;
@@ -72,4 +73,5 @@ export interface BooksDay { day: string; gross_sales: number; discounts: number;
 export interface BooksBill { id: string; number: string; reference: string; vendor: string; date: string | null; status: string; total: number; balance: number }
 
 /** Books invoice status: draft, sent, viewed, overdue, partially_paid, paid, void. */
-export interface BooksInvoiceState { id: string; number: string; status: string; total: number; balance: number; due_date: string | null; last_payment_date?: string | null }
+export interface BooksInvoiceRef { id: string; customer_id?: string; total?: number; status?: string }
+export interface BooksInvoiceState { id: string; number: string; status: string; total: number; balance: number; due_date: string | null; last_payment_date?: string | null; customer_id?: string }

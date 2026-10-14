@@ -31,13 +31,13 @@ async function setup(opts: { settings?: Record<string, unknown> } = {}) {
   const agreement = await ins("agreements", { agreement_code: "AGR-1", tenant_code_key: `${tid}:AGR-1`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "SIGNED", signed_at: "2026-06-01T10:00:00Z", zoho_books_invoice_id: "INV-0", fee_status: "PAID", fee_total: 500_000, fee_balance: 0, fee_paid_on: "2026-06-11" });
   const project = await ins("franchise_projects", { project_code: "PROJ-1", tenant_code_key: `${tid}:PROJ-1`, application_id: app.ROWID, franchisee_id: fr.ROWID, status: "OPENED", actual_opening_date: "2026-09-01" });
   // Books as the fake sees it: invoice balances that payments reduce.
-  const invoices = new Map<string, { number: string; total: number; balance: number; due: string; paid?: string }>([
-    ["INV-1", { number: "INV/1", total: 60_000, balance: 60_000, due: "2026-10-15" }],
-    ["INV-2", { number: "INV/2", total: 200_000, balance: 200_000, due: "2026-09-20" }],
+  const invoices = new Map<string, { number: string; total: number; balance: number; due: string; paid?: string; customer_id: string }>([
+    ["INV-1", { number: "INV/1", total: 60_000, balance: 60_000, due: "2026-10-15", customer_id: "CUST-1" }],
+    ["INV-2", { number: "INV/2", total: 200_000, balance: 200_000, due: "2026-09-20", customer_id: "CUST-1" }],
   ]);
   const payments: any[] = [];
   const books = {
-    getInvoice: async (id: string) => { const i = invoices.get(id)!; return { id, number: i.number, status: i.balance <= 0 ? "paid" : "sent", total: i.total, balance: i.balance, due_date: i.due, last_payment_date: i.paid ?? null }; },
+    getInvoice: async (id: string) => { const i = invoices.get(id)!; return { id, number: i.number, status: i.balance <= 0 ? "paid" : "sent", total: i.total, balance: i.balance, due_date: i.due, last_payment_date: i.paid ?? null, customer_id: i.customer_id }; },
     recordPayment: async (d: any) => { payments.push(d); for (const x of d.invoices) { const i = invoices.get(x.invoice_id)!; i.balance -= x.amount_applied; i.paid = d.date; } return { id: `PAY-${payments.length}`, number: `CP-${payments.length}` }; },
   } as any;
   // September's royalty, invoiced on 1 Oct and due 15 Oct; a fit-out instalment due 20 Sep, already late.
@@ -128,6 +128,18 @@ describe("collections: the ladder", () => {
 });
 
 describe("collections: payments", () => {
+  it("refuses to record a payment on an invoice Books holds for another customer, or beyond what Books has open", async () => {
+    const s = await setup();
+    const roy = (await s.list()).items.find((i: any) => i.kind === "ROYALTY");
+    s.invoices.get("INV-1")!.customer_id = "CUST-ARUN";
+    expect((await s.call("tony", "POST", `/collections/${roy.ROWID}/payment`, { amount: 60_000, paid_on: "2026-10-10", mode: "banktransfer" })).error).toMatchObject({ code: "INVOICE_CONFLICT", fields: { invoice: "another customer's invoice" } });
+    s.invoices.get("INV-1")!.customer_id = "CUST-1";
+    s.invoices.get("INV-1")!.balance = 50_000;
+    expect((await s.call("tony", "POST", `/collections/${roy.ROWID}/payment`, { amount: 60_000, paid_on: "2026-10-10", mode: "banktransfer" })).error?.fields).toEqual({ amount: "more than the balance in Books" });
+    expect(s.payments).toEqual([]);
+    expect((await s.list()).items.find((i: any) => i.kind === "ROYALTY")).toMatchObject({ status: "OPEN" });
+  });
+
   it("records a bank transfer in Books, closes the report and the item, and measures how long it took", async () => {
     const s = await setup();
     const roy = (await s.list()).items.find((i: any) => i.kind === "ROYALTY");

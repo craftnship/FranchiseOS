@@ -597,6 +597,16 @@ Daily sales from each store's POS into FranchiseOS, so royalty can be billed on 
 - The `pos_sales` step wrote its actor, `SYSTEM:job`, into `sales_reports.submitted_by`, a user foreign key, so the Data Store refused every month the job tried to close on its own; only the "Pull POS sales now" button, pressed by a person, worked. Rows written by a job now leave `submitted_by` and `reviewed_by` null (`actorId` in `functions/common/context.ts`); `source = POS` says where the row came from.
 - Integration health read each step's last run from the newest 300 log rows, so on a busy night the early steps (`project_risk`, `reservation_expiry`) fell outside the window and showed a stale date. It now reads each step's own rows.
 
+## Invoice references and adoption (2026-10-14)
+
+Found while testing Record payment on Development: Books refused the payment because INV-000004, the invoice Bengaluru's September report was attached to, belonged to Arun Foods LLP, a customer from the pilot before the aadai data. Approval looks an invoice up by reference before raising one, and the reference `ROY-PROJ-000002-202609` matched that old invoice because project codes restarted at PROJ-000002. Three changes:
+
+- **References carry the tenant code** (`booksRef` in `functions/workflows/booksInvoices.ts`): royalty `ROY-STARK-PROJ-000002-202609`, instalment `FEE-STARK-AGR-000001-2`, signing fee `FEE-STARK-AGR-000001` (was the bare agreement code). Invoices already linked keep their ids; only new lookups use the new form.
+- **An invoice found by reference is adopted only when it is ours** (`adoptInvoice`): the same Books customer and, unless the tenant adds tax in Books, the same total. Otherwise approval, the fee run and the signing step stop with `INVOICE_CONFLICT` (409) naming the reference, and nothing is attached. A voided invoice is ignored and a fresh one raised.
+- **Record payment reads the invoice from Books first** and refuses when its customer is not the franchisee's, or when the amount is more than Books still has open.
+
+Demo clean-up on Development (chosen 2026-10-14): Bengaluru's September report goes back to SUBMITTED, INV-000004 is voided in Books, and re-approving the report after this deploy raises the correct ₹1.21 L invoice for Raghavendra Rao with the new reference.
+
 ## ROWIDs are not in time order (2026-10-14)
 
 The Data Store hands ROWIDs out in blocks per server, so a row written on the 14th can carry a lower ROWID than one written on the 13th (seen on `integration_logs`: the 14 Oct `project_risk` run was …127437, the 13 Oct run …138172). Anything that picked "the latest" by ROWID could pick an old row: the job runs on Integration health, the activity feed's order, the feasibility model a store's royalty rate comes from (`ratesFor`, the owner dashboard, analytics, store health, the launch plan), the newest agreement for an application, site photos and designs, purchase orders. All of them now go by `CREATEDTIME`, with ROWID only as a tie-break (`oldestFirst` / `newestFirst` in `functions/common/store.ts`); ROWID order remains for paging, where any stable order will do.

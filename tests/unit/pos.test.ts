@@ -245,7 +245,7 @@ describe("POS sales feed: royalty on real sales", () => {
     await s.call("pepper", "POST", `${s.base}/sales`, { period: "2026-09", gross_sales: 900_000, net_sales: 880_000 }); // 2.2% under: within tolerance
     const r = await s.job(() => s.feed("2026-08-20", "2026-10-10", 30_000));
     expect(r).toMatchObject({ closed: 2, approved: 2 });
-    expect(s.invoices.map((i) => i.ref)).toEqual(["ROY-PROJ-1-202608", "ROY-PROJ-1-202609"]);
+    expect(s.invoices.map((i) => i.ref)).toEqual(["ROY-STARK-PROJ-1-202608", "ROY-STARK-PROJ-1-202609"]);
     const sep = await s.store.findOne("sales_reports", { period_key: `${s.tid}:${s.project.ROWID}:2026-09` });
     expect(sep).toMatchObject({ status: "INVOICED", basis: "POS", royalty_amount: 54_000, variance_pct: -2.2 });
     await s.job(() => s.feed("2026-08-20", "2026-10-10", 30_000), "2026-10-12T06:00:00Z");

@@ -6,6 +6,7 @@ import { log } from "../common/logger";
 import { DuplicateKeyError, Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
 import { ZohoBooksClient } from "../integrations/clients";
+import { adoptInvoice, booksRef } from "./booksInvoices";
 import { FeeKind, FeeStep, FeeTrigger, onboardingSettings } from "./agreements";
 import { ensureBudget } from "./capex";
 import { booksCustomerFor } from "./royalties";
@@ -150,7 +151,7 @@ export async function refundDeposit(store: Store, ctx: TenantContext, project: R
   return out;
 }
 
-export const instalmentRef = (agreement: Row, row: Row) => `FEE-${agreement.agreement_code}-${row.seq}`;
+export const instalmentRef = (tenant: Row | null, agreement: Row, row: Row) => booksRef(tenant, "FEE", String(agreement.agreement_code), String(row.seq));
 
 /**
  * Raises a scheduled instalment as a Books invoice and sends it (found by reference first, so a
@@ -161,15 +162,16 @@ export async function raiseInstalment(store: Store, ctx: TenantContext, books: Z
   if (!books) throw new AppError("ZOHO_SYNC_FAILED", "Zoho Books is not connected for this tenant.");
   const repo = new TenantRepo(store, ctx.tenantId);
   const franchisee = await booksCustomerFor(repo, books, project);
-  const settings = onboardingSettings(await store.findOne("tenants", { ROWID: ctx.tenantId }));
-  const ref = instalmentRef(agreement, row);
+  const tenant = await store.findOne("tenants", { ROWID: ctx.tenantId });
+  const settings = onboardingSettings(tenant);
+  const ref = instalmentRef(tenant, agreement, row);
   const deposit = row.kind === "DEPOSIT";
   const line = deposit
     ? { name: "Security deposit", description: `Refundable security deposit, agreement ${agreement.agreement_code}, store ${project.project_code}`, rate: toNum(row.amount), quantity: 1 }
     : { name: "Franchise fee", description: `${row.label}, agreement ${agreement.agreement_code}, store ${project.project_code}`, rate: toNum(row.amount), quantity: 1, ...(settings.books_tax_id ? { tax_id: settings.books_tax_id } : {}) };
   // One raise at a time per instalment: a second click, or the job, waits for this one (idempotency.ts).
   return claim(store, ctx.tenantId, "fee_invoice", String(row.ROWID), async () => {
-  const invoice = await books.findInvoice(ref) ?? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: [line] });
+  const invoice = adoptInvoice(await books.findInvoice(ref), { customer_id: String(franchisee.zoho_books_customer_id), total: toNum(row.amount), taxed: !deposit && !!settings.books_tax_id, ref }) ?? await books.createInvoice({ customer_id: String(franchisee.zoho_books_customer_id), reference_number: ref, date: now.toISOString().slice(0, 10), payment_terms: settings.books_payment_terms, line_items: [line] });
   let state: Row = {};
   try {
     const inv = await books.getInvoice(invoice.id);

@@ -4,7 +4,7 @@ import { ZohoHttp } from "./zohoHttp";
 
 // Zoho Books v3 adapter (D-17). Every call is scoped by organization_id.
 
-interface BooksInvoice { invoice_id?: string; invoice_number?: string; reference_number?: string; status?: string; total?: number; balance?: number; due_date?: string; last_payment_date?: string }
+interface BooksInvoice { invoice_id?: string; invoice_number?: string; reference_number?: string; customer_id?: string; status?: string; total?: number; balance?: number; due_date?: string; last_payment_date?: string }
 interface BooksBillRow { bill_id?: string; bill_number?: string; reference_number?: string; vendor_name?: string; date?: string; status?: string; total?: number; balance?: number }
 interface BooksSaleRow { invoice_id?: string; creditnote_id?: string; date?: string; status?: string; total?: number; sub_total?: number; tax_total?: number; discount_total?: number; discount?: number }
 interface BooksRes { payment?: { payment_id?: string; payment_number?: string }; bills?: BooksBillRow[]; organizations?: Array<{ organization_id?: string; name?: string }>; creditnotes?: BooksSaleRow[]; page_context?: { has_more_page?: boolean }; code?: number; message?: string; contact?: { contact_id?: string }; contacts?: Array<{ contact_id?: string; contact_name?: string; email?: string }>; invoice?: BooksInvoice; invoices?: BooksInvoice[] }
@@ -49,7 +49,7 @@ export class HttpBooksClient implements ZohoBooksClient {
   async findInvoice(referenceNumber: string) {
     const res = check(await this.http.request<BooksRes>("GET", this.url("/invoices", { reference_number: referenceNumber })), "invoice search");
     const hit = res.invoices?.find((i) => i.reference_number === referenceNumber && i.invoice_id);
-    return hit ? { id: String(hit.invoice_id) } : null;
+    return hit ? { id: String(hit.invoice_id), customer_id: hit.customer_id ? String(hit.customer_id) : undefined, total: hit.total == null ? undefined : Number(hit.total), status: hit.status ? String(hit.status) : undefined } : null;
   }
 
   async createInvoice(data: { customer_id: string; reference_number: string; date?: string; payment_terms?: number; line_items: Array<{ name: string; description?: string; rate: number; quantity: number; tax_id?: string }> }) {
@@ -67,7 +67,7 @@ export class HttpBooksClient implements ZohoBooksClient {
   async getInvoice(id: string): Promise<BooksInvoiceState> {
     const inv = check(await this.http.request<BooksRes>("GET", this.url(`/invoices/${encodeURIComponent(id)}`)), "invoice read").invoice;
     if (!inv?.invoice_id) throw new ProviderError(`Books invoice ${id} not found`, 404, false);
-    return { id: String(inv.invoice_id), number: String(inv.invoice_number ?? ""), status: String(inv.status ?? "unknown"), total: Number(inv.total ?? 0), balance: Number(inv.balance ?? 0), due_date: inv.due_date ?? null, last_payment_date: inv.last_payment_date || null };
+    return { id: String(inv.invoice_id), number: String(inv.invoice_number ?? ""), status: String(inv.status ?? "unknown"), total: Number(inv.total ?? 0), balance: Number(inv.balance ?? 0), due_date: inv.due_date ?? null, last_payment_date: inv.last_payment_date || null, customer_id: inv.customer_id ? String(inv.customer_id) : undefined };
   }
 
   // Needs the ZohoBooks.bills.READ scope. search_text also matches bill numbers and vendor names,
