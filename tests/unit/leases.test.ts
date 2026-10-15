@@ -60,6 +60,16 @@ describe("lease terms", () => {
     expect((await s.call("pm", "GET", `/projects/${s.project.ROWID}`)).data.lease).toMatchObject({ status: "SIGNED", rent_start: "2026-10-31", opening_gap: { days: 31 } });
   });
 
+  it("signing can carry the missing start date (and other terms) in the same step", async () => {
+    const s = await setup();
+    const { lease_start: _start, ...noStart } = terms;
+    await s.call("fm", "PATCH", s.lease, noStart);
+    await s.call("fm", "POST", `${s.lease}/document`, pdf);
+    expect((await s.call("fm", "PATCH", s.lease, { status: "SIGNED" })).error?.fields).toEqual({ lease_start: "required to sign" });
+    const signed = await s.call("fm", "PATCH", s.lease, { status: "SIGNED", lease_start: "2026-10-01", signed_on: "2026-10-08" });
+    expect(signed.data).toMatchObject({ lease: { status: "SIGNED", lease_start: "2026-10-01", signed_on: "2026-10-08", rent_start: "2026-10-31" }, site: { status: "LEASE_SIGNED" } });
+  });
+
   it("the manual lease signed step is refused without a signed lease", async () => {
     const s = await setup();
     await s.store.update("sites", String(s.site.ROWID), { status: "LEASE_PENDING" });

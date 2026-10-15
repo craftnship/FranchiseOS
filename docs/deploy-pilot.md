@@ -641,3 +641,7 @@ A CRM lead that arrives without a city produced an application that could not be
 - **The next-step card says what submit still needs**, documents and details together, with an "Add details" button, and the Submit button stays disabled until they are in. The API returns `missing_details` on a DRAFT application.
 - **Later lead edits fill the gaps.** While the application is DRAFT or SUBMITTED, a lead webhook fills preferred country, state, city and investment capacity from the lead when they are empty in FOS; values already typed in FOS are kept.
 - No schema, permission or setting change.
+
+## Lease signing asks for what it needs (2026-10-15)
+
+"Mark signed" used to stay greyed out with only a hover tooltip saying why. On SITE-000016 the lease had every term but the start date, so the button looked stuck. Now the lease panel shows "Still needed to sign: …" in plain text, and the signing dialog asks for any missing start date, term or monthly rent (plus the signed-on date) and signs in the same step. The signed document still has to be uploaded first. No schema change.

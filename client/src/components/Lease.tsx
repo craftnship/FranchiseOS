@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, Row } from "../api";
 import { useAction } from "../hooks";
-import { ConfirmDialog, Dialog, Field, Form, FormError } from "./forms";
+import { Dialog, Field, Form, FormError } from "./forms";
 import { date, Facts, Icon, inr, Panel, Pill } from "./ui";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
@@ -59,7 +59,9 @@ export function LeasePanel({ siteId, lease, editable, signable, onChanged }: { s
   const base = `/sites/${siteId}/lease`;
   const l = lease;
   const live = !l || l.status !== "TERMINATED";
-  const ready = !!(l?.lease_start && l?.term_months && l?.monthly_rent && l?.file_ref);
+  // What signing still needs. The terms can be typed in the signing step; the deed has to be uploaded first.
+  const missing = l ? SIGN_NEEDS.filter(([k]) => !l[k]).map(([, text]) => text) : SIGN_NEEDS.map(([, text]) => text);
+  const needsDoc = !l?.file_ref;
   const upload = async (f: File | undefined) => {
     if (!f) return;
     if (file.current) file.current.value = "";
@@ -72,19 +74,53 @@ export function LeasePanel({ siteId, lease, editable, signable, onChanged }: { s
       {l?.file_ref && <button className="btn ghost sm" disabled={!!act.busy} onClick={view}>View lease</button>}
       {editable && live && <button className="btn ghost sm" disabled={!!act.busy} onClick={() => file.current?.click()}>{act.busy === "upload" ? "Uploading…" : l?.file_ref ? "Replace document" : "Upload signed lease"}</button>}
       {editable && live && <button className={l ? "btn ghost sm" : "btn sm"} onClick={() => setEditing(true)}>{l ? "Edit terms" : "Record lease terms"}</button>}
-      {editable && signable && l?.status === "DRAFT" && <button className="btn sm" disabled={!ready || !!act.busy} title={ready ? undefined : "Needs start date, term, rent and the signed document"} onClick={() => setSigning(true)}><Icon name="check" size={14} />Mark signed</button>}
+      {editable && signable && l?.status === "DRAFT" && <button className="btn sm" disabled={needsDoc || !!act.busy} title={needsDoc ? "Upload the signed lease first" : undefined} onClick={() => setSigning(true)}><Icon name="check" size={14} />Mark signed</button>}
     </span>}>
       <input ref={file} type="file" accept={ACCEPT} hidden onChange={(e) => upload(e.target.files?.[0])} />
       {l && <GapNotice lease={l} />}
+      {editable && signable && l?.status === "DRAFT" && missing.length > 0 && (
+        <div className="notice warn" style={{ margin: ".75rem 1rem 0" }}><Icon name="alert" />
+          <span>Still needed to sign: {missing.join(", ")}.{needsDoc ? " Upload the signed deed, then mark it signed." : " You can fill in the terms when you mark it signed."}</span>
+        </div>
+      )}
       {act.notice && <div className="notice ok" style={{ margin: ".75rem 1rem 0" }}><Icon name="check" />{act.notice}</div>}
       {act.error && !editing && !signing && <div style={{ margin: ".75rem 1rem 0" }}><FormError error={act.error} /></div>}
       {l ? <LeaseFacts l={l} /> : <div className="state">No lease recorded yet.{editable ? " Record the terms as they are agreed; upload the signed deed to mark it signed." : ""}</div>}
       {editing && <LeaseDialog lease={l} busy={act.busy === "save"} error={act.error} onClose={close}
         onSave={(body) => act.run("save", () => api<Row>("PATCH", base, { body }), "Lease terms saved.").then((r) => r && setEditing(false))} />}
-      {signing && <ConfirmDialog title="Mark the lease signed?" confirm="Mark signed" busy={!!act.busy} error={act.error} onClose={close}
-        body={<p className="muted" style={{ margin: 0 }}>The site moves to lease signed and the project's "Sign lease" task is completed. The terms can still be corrected later.</p>}
-        onConfirm={() => act.run("sign", () => api<Row>("PATCH", base, { body: { status: "SIGNED" } }), (r) => `Lease signed.${r.task_completed ? " The Sign lease task is done." : ""}`).then((r) => r && setSigning(false))} />}
+      {signing && l && <SignDialog lease={l} busy={!!act.busy} error={act.error} onClose={close}
+        onSign={(body) => act.run("sign", () => api<Row>("PATCH", base, { body: { ...body, status: "SIGNED" } }), (r) => `Lease signed.${r.task_completed ? " The Sign lease task is done." : ""}`).then((r) => r && setSigning(false))} />}
     </Panel>
+  );
+}
+
+const SIGN_NEEDS: [string, string][] = [["lease_start", "the start date"], ["term_months", "the term"], ["monthly_rent", "the monthly rent"], ["file_ref", "the signed document"]];
+
+/** Signing asks for any term it still needs (start date, term, rent) so nobody has to find the Edit terms form first. */
+function SignDialog({ lease, busy, error, onSign, onClose }: { lease: Row; busy: boolean; error: ApiError | null; onSign: (b: Row) => void; onClose: () => void }) {
+  const [start, setStart] = useState(lease.lease_start ? String(lease.lease_start).slice(0, 10) : "");
+  const [term, setTerm] = useState(lease.term_months ? String(lease.term_months) : "");
+  const [rent, setRent] = useState(lease.monthly_rent ? String(lease.monthly_rent) : "");
+  const [signedOn, setSignedOn] = useState(lease.signed_on ? String(lease.signed_on).slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const asks = { start: !lease.lease_start, term: !lease.term_months, rent: !lease.monthly_rent };
+  const complete = !!start && !!term && !!rent;
+  const submit = () => {
+    const body: Row = { signed_on: signedOn || null };
+    if (asks.start) body.lease_start = start;
+    if (asks.term) body.term_months = Number(term);
+    if (asks.rent) body.monthly_rent = Number(rent);
+    onSign(body);
+  };
+  return (
+    <Dialog title="Mark the lease signed" subtitle="The site moves to lease signed and the project’s “Sign lease” task is completed. The terms can still be corrected later." onClose={onClose}>
+      <Form onSubmit={submit} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={busy || !complete}>{busy ? "Signing…" : "Mark signed"}</button></>}>
+        {asks.start && <Field label="Lease start" hint="Rent-free days, lock-in and expiry are counted from this date."><input type="date" value={start} onChange={(e) => setStart(e.target.value)} autoFocus required /></Field>}
+        {asks.term && <Field label="Term (months)"><input type="number" min={1} step={1} value={term} onChange={(e) => setTerm(e.target.value)} required /></Field>}
+        {asks.rent && <Field label="Monthly rent (₹)"><input type="number" min={0} step="any" value={rent} onChange={(e) => setRent(e.target.value)} required /></Field>}
+        <Field label="Signed on"><input type="date" value={signedOn} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setSignedOn(e.target.value)} /></Field>
+        <div className="span"><FormError error={error} /></div>
+      </Form>
+    </Dialog>
   );
 }
 
