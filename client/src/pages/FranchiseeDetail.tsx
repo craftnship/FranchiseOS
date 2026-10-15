@@ -106,7 +106,8 @@ function Overview({ d }: { d: Row }) {
   return (
     <div className="row c21">
       <div className="stack">
-        <Panel title="Needs attention" flush><TodoList items={d.attention as Row[]} empty="Nothing waiting on this franchisee." /></Panel>
+        <Panel title="Waiting on the franchisee" flush><TodoList items={(d.attention as Row[]).filter((t) => t.side !== "brand")} empty="Nothing waiting on this franchisee." /></Panel>
+        <Panel title="Waiting on the brand team" flush><TodoList items={(d.attention as Row[]).filter((t) => t.side === "brand")} empty="Nothing waiting on the brand team." /></Panel>
         <Panel title="Net sales by month" flush>
           <DataTable rows={(sales.by_month as Row[]).map((m) => ({ ...m, ROWID: m.period }))} empty="No trading months yet." columns={[
             { key: "label", label: "Month" },

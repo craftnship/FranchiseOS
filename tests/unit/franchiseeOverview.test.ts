@@ -33,7 +33,6 @@ async function setup() {
   const audit = await store.insert("audits", { tenant_id: tid, audit_code: "AUD-000001", tenant_code_key: `${tid}:AUD-000001`, project_id: open.ROWID, franchisee_id: fid, site_id: site.ROWID, audit_type: "OPENING", status: "COMPLETED", completed_at: "2026-07-20 12:00:00", score: 85.1, rating: "GREEN", critical_fails: 0 });
   await store.insert("corrective_actions", { tenant_id: tid, audit_id: audit.ROWID, project_id: open.ROWID, franchisee_id: fid, action_key: `${tid}:${audit.ROWID}:SIZE`, item_code: "SIZE", description: "Size curve", severity: "MAJOR", due_date: "2026-10-01", status: "OPEN" });
   await store.insert("licences", { tenant_id: tid, project_id: open.ROWID, franchisee_id: fid, licence_code: "TRADE", name: "Trade licence", status: "ISSUED", expires_on: "2026-11-15", licence_key: `${tid}:${open.ROWID}:TRADE` });
-  await store.insert("collections", { tenant_id: tid, collection_key: `${tid}:ROYALTY:1`, kind: "ROYALTY", source_id: "1", project_id: open.ROWID, franchisee_id: fid, invoice_number: "INV-000011", period: "2026-08", amount: 57584, total: 57584, due_date: "2026-09-22", status: "OPEN", step: 1, reminders_sent: 1, escalated: false, promise_broken: false });
   await store.insert("fee_instalments", { tenant_id: tid, project_id: open.ROWID, agreement_id: agreement.ROWID, franchisee_id: fid, seq: 1, instalment_key: `${tid}:${agreement.ROWID}:1`, kind: "FEE", label: "On signing", amount: 200000, raise_on: "SIGNING", status: "PAID" });
   await store.insert("activity_logs", { tenant_id: tid, entity_type: "project", entity_id: String(open.ROWID), action: "transition:open", actor_user_id: null, metadata_json: "{}", created_at: "2026-07-01 09:00:00" });
   const call = async (ext: string, method: string, path: string, body?: unknown) => {
@@ -64,8 +63,11 @@ describe("franchisee overview", () => {
     expect(d.compliance.open_actions[0]).toMatchObject({ item_code: "SIZE", overdue: true, project_code: "PROJ-000001" });
     expect(d.compliance.lapsing[0]).toMatchObject({ licence_code: "TRADE" });
     expect(d.attention.map((a: any) => a.kind)).toContain("royalty.review");
-    expect(d.attention.map((a: any) => a.kind)).not.toContain("payment");
-    expect(d.attention.find((a: any) => a.kind === "royalty.review")).toMatchObject({ level: "due", detail: "Reported below POS by 9.2%" });
+    expect(d.attention.map((a: any) => a.kind)).not.toContain("collection");
+    expect(d.attention.find((a: any) => a.kind === "royalty.review")).toMatchObject({ side: "brand", level: "due", title: "Review the Sep 2026 sales report", detail: "Reported below POS by 9.2%", path: "/royalties" });
+    // The partner's to-do items read from the brand's side and link to the staff screens.
+    expect(d.attention.find((a: any) => a.kind === "audit")).toMatchObject({ side: "franchisee", level: "overdue", title: "Corrective action open: Size curve", path: "/audits" });
+    expect(d.attention.find((a: any) => a.kind === "licence")).toMatchObject({ side: "franchisee", title: "Franchisee to renew the Trade licence", detail: "It expires 2026-11-15.", path: "/projects" });
     expect(d.activity[0]).toMatchObject({ action: "transition:open", project_code: "PROJ-000001", actor: "System" });
   });
 
@@ -79,7 +81,9 @@ describe("franchisee overview", () => {
     expect(d.money.fees[0]).toMatchObject({ agreement_code: "AGR-000001", fee_status: "PAID", fee_total: 590000 });
     expect(d.money.paid_royalty).toBe(31200);
     expect(d.royalties.totals).toEqual({ invoiced_net_sales: 1130000, royalty: 67800, marketing: 22600, outstanding: 57584 });
-    expect(d.attention[0]).toMatchObject({ kind: "payment", level: "overdue", due: "2026-09-22" });
+    // The unpaid invoice is listed from the collections ledger, which is synced on read so a royalty invoiced today shows at once.
+    expect(d.money.collections[0]).toMatchObject({ kind: "ROYALTY", invoice_number: "INV-000011", amount: 57584, step: -1 });
+    expect(d.attention[0]).toMatchObject({ kind: "collection", side: "franchisee", level: "overdue", due: "2026-09-22", title: "Aug 2026 royalty unpaid: ₹57,584 on INV-000011", detail: "18 days late · No reminder sent yet", project_code: "PROJ-000001", path: "/collections" });
   });
 
   it("lets a franchisee see their own record only, and keeps other staff out", async () => {

@@ -1,9 +1,9 @@
 import { TenantContext } from "../common/context";
 import { Row, Store, TenantRepo } from "../common/store";
 import { round, toNum } from "../common/values";
-import { OPEN_COLLECTION } from "./collections";
+import { collectionSources, describeCollection, OPEN_COLLECTION, syncCollections } from "./collections";
 import { leaseForSite } from "./leases";
-import { brandDocuments, portalLogins, portalTodo, Todo } from "./portalHub";
+import { brandDocuments, portalLogins, portalTodo, Todo, TodoLevel } from "./portalHub";
 import { periodLabel, periodOf, prevPeriod, royaltyLedger } from "./royalties";
 
 // One franchise partner, everything about them on one screen (the Franchisees record page). A partner
@@ -22,6 +22,33 @@ const addDays = (d: string, n: number) => { const t = new Date(d + "T00:00:00Z")
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 const sum = (rows: Row[], k: string) => round(rows.reduce((a, r) => a + toNum(r[k]), 0), 2);
 const byTime = (a: Row, b: Row) => String(b.CREATEDTIME ?? "").localeCompare(String(a.CREATEDTIME ?? ""));
+const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const fmt = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** An attention item on the record page: who it waits on, and the level the to-do lists use. */
+export interface Attention extends Todo { side: "franchisee" | "brand"; level: TodoLevel }
+
+/**
+ * The partner's to-do list is written to the partner ("Report your Sep 2026 sales"); on the brand's record page
+ * the same item reads from the brand's side ("Franchisee to report their Sep 2026 sales") and links to the
+ * staff screen for it rather than the portal.
+ */
+export function brandVoice(t: Todo): Attention {
+  const theirs = (s: string) => s.replace(/\byour\b/g, "their").replace(/\bYour\b/g, "Their").replace(/\byou\b/g, "they");
+  const detail = t.detail?.startsWith("Check your email") ? "Zoho Sign request sent." : t.detail?.startsWith("Talk to your") ? "No renewal decision recorded yet." : t.detail && theirs(t.detail);
+  const path = t.path.startsWith("/portal/") ? (STAFF_PATH[t.kind] ?? "/projects") : t.path;
+  if (t.kind === "renewal") return { ...t, side: "franchisee", detail, path };
+  if (t.kind === "audit") return { ...t, side: "franchisee", title: `Corrective action open: ${t.title.replace(/^Fix: /, "")}`, detail, path };
+  if (t.kind === "opening" && !t.title.startsWith("Unblock: ")) return { ...t, side: "franchisee", title: `Opening task due: ${t.title}`, detail, path };
+  if (t.kind === "launch") return { ...t, side: "franchisee", title: `Launch task due: ${t.title}`, detail, path };
+  return { ...t, side: "franchisee", title: `Franchisee to ${lower(theirs(t.title))}`, detail, path };
+}
+const STAFF_PATH: Record<string, string> = {
+  agreement: "/agreements", renewal: "/agreements", application: "/applications", opening: "/projects", licence: "/projects", sales: "/royalties",
+  audit: "/audits", construction: "/projects", team: "/projects", orders: "/projects", launch: "/projects",
+};
 
 export interface OverviewOptions { today: string; finance: boolean; portal: boolean }
 
@@ -30,6 +57,8 @@ export async function franchiseeOverview(store: Store, ctx: TenantContext, franc
   const repo = new TenantRepo(store, ctx.tenantId);
   const fid = String(franchisee.ROWID);
   const own = { franchisee_id: fid };
+  // Finance sees what is owed today, not what the nightly sync last wrote: bring the ledger up to date first, as GET /collections does.
+  if (opts.finance) await syncCollections(store, ctx, opts.today, await collectionSources(repo));
   const [applications, sites, agreements, projects, audits, actions, licences, instalments, collections, logins, shared] = await Promise.all([
     repo.findMany("franchise_applications", own, { orderBy: "CREATEDTIME", desc: true, limit: 100 }),
     repo.findMany("sites", own, { orderBy: "CREATEDTIME", desc: true, limit: 100 }),
@@ -127,12 +156,24 @@ export async function franchiseeOverview(store: Store, ctx: TenantContext, franc
     scored: scored.length,
   };
 
-  // What needs attention: the partner's own to-do list (payments owed stay with finance), plus what the brand is sitting on.
+  // What needs attention, in the brand's words: what the partner owes the brand (their portal to-do list, with
+  // unpaid invoices from the collections ledger when finance is looking), then what the brand owes the partner.
   const todo = await portalTodo(store, ctx, fid, opts.today);
-  const attention: Todo[] = todo.items.filter((t) => opts.finance || t.kind !== "payment");
-  for (const m of months.filter((x) => x.status === "SUBMITTED")) {
-    attention.push({ key: `review:${m.report_id}`, kind: "royalty.review", level: m.strayed ? "due" : "info", title: `${m.label} sales report waits for finance`, detail: m.strayed ? `Reported ${toNum(m.variance_pct) > 0 ? "above" : "below"} POS by ${Math.abs(toNum(m.variance_pct))}%` : undefined, project_code: String(m.project_code), path: "/royalties" });
+  const attention: Attention[] = todo.items.filter((t) => !["payment", "message"].includes(t.kind)).map(brandVoice);
+  for (const c of openCollections) {
+    const due = day(c.due_date), late = due ? daysBetween(due, opts.today) : 0;
+    const chase = c.status === "PROMISED" ? `Promised for ${c.promise_date ? fmt(day(c.promise_date)!) : "a date"}` : c.status === "DISPUTED" ? "Disputed" : toNum(c.reminders_sent) > 0 ? `${c.reminders_sent} reminder${toNum(c.reminders_sent) === 1 ? "" : "s"} sent${c.escalated ? ", escalated" : ""}` : "No reminder sent yet";
+    attention.push({
+      key: `collect:${c.ROWID}`, kind: "collection", side: "franchisee", level: late > 0 ? "overdue" : late >= -3 ? "due" : late >= -14 ? "soon" : "info",
+      title: `${cap(describeCollection(c))} unpaid: ${inr(toNum(c.amount))}${c.invoice_number ? ` on ${c.invoice_number}` : ""}`,
+      detail: late > 0 ? `${late} day${late === 1 ? "" : "s"} late · ${chase}` : chase, due, project_code: projectCode.get(String(c.project_id)) ?? null, path: "/collections",
+    });
   }
+  for (const m of months.filter((x) => x.status === "SUBMITTED")) {
+    attention.push({ key: `review:${m.report_id}`, kind: "royalty.review", side: "brand", level: m.strayed ? "due" : "info", title: `Review the ${m.label} sales report`, detail: m.strayed ? `Reported ${toNum(m.variance_pct) > 0 ? "above" : "below"} POS by ${Math.abs(toNum(m.variance_pct))}%` : "Waiting for finance to approve and invoice.", project_code: String(m.project_code), path: "/royalties" });
+  }
+  const unread = (await repo.findMany("messages", { franchisee_id: fid, from_side: "FRANCHISEE" }, { limit: 500 })).filter((m) => !m.read_at);
+  if (unread.length) attention.push({ key: "messages", kind: "message", side: "brand", level: "due", title: `Reply to ${unread.length} unread message${unread.length === 1 ? "" : "s"} from the franchisee`, path: `/franchisees/${fid}?tab=messages` });
   const order: Record<string, number> = { overdue: 0, due: 1, soon: 2, info: 3 };
   attention.sort((a, b) => order[a.level] - order[b.level] || String(a.due ?? "9").localeCompare(String(b.due ?? "9")));
 
