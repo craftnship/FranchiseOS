@@ -211,11 +211,13 @@ function NextStep({ a, busy, can_, setOpen, transition, submit, startApproval, s
       title = current ? `Waiting on the ${label(current.approver_role).toLowerCase()}` : "In approval";
       body = current ? `Step ${current.sequence} of ${a.approval.steps.length}${a.approval.step_due_at ? `, due ${date(a.approval.step_due_at)}` : ""}. The decision is below.` : "The approval chain is running.";
       break;
-    case "APPROVED":
+    case "APPROVED": {
+      const noEmail = a.franchisee && !a.franchisee.email;
       title = "Send the franchise agreement";
-      body = "It goes to the franchisee through Zoho Sign.";
-      if (sendAgreement) buttons = [btn("agreement", "Send franchise agreement", sendAgreement)];
+      body = noEmail ? `Still needed: the franchisee's email address. Zoho Sign sends the agreement to it; add it on ${a.franchisee.display_name}'s CRM lead or record.` : "It goes to the franchisee through Zoho Sign.";
+      if (sendAgreement) buttons = [btn("agreement", "Send franchise agreement", sendAgreement, { disabled: !!noEmail, title: noEmail ? "Needs the franchisee's email" : undefined })];
       break;
+    }
     case "AGREEMENT_PENDING": title = "Waiting for the signature"; body = "The franchisee has the agreement in Zoho Sign. Signing starts onboarding automatically."; break;
     case "AGREEMENT_SIGNED": title = "Onboarding is starting"; body = "CRM, Books and the opening project are being set up."; break;
     case "ONBOARDING":
@@ -387,10 +389,10 @@ function DetailsDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; o
     <Dialog title="Application details" subtitle="The format, where the applicant wants to open, and what they can invest. Submitting needs the city and the investment capacity." onClose={onClose}>
       <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={!!act.busy}>{act.busy ? "Saving…" : "Save"}</button></>}>
         <Field label="Format"><select {...f.bind("application_type")}>{FORMATS.map((t) => <option key={t} value={t}>{label(t)}</option>)}</select></Field>
-        <Field label="Investment capacity (₹)"><input type="number" min={0} step={100000} {...f.bind("investment_capacity")} /></Field>
+        <Field label="Investment capacity (₹)" neededFor="to submit"><input type="number" min={0} step={100000} {...f.bind("investment_capacity")} /></Field>
         <Field label="Country"><input {...f.bind("preferred_country")} maxLength={60} /></Field>
         <Field label="State"><input {...f.bind("preferred_state")} maxLength={60} /></Field>
-        <Field label="City" span><input {...f.bind("preferred_city")} maxLength={60} autoFocus={!a.preferred_city} /></Field>
+        <Field label="City" span neededFor="to submit"><input {...f.bind("preferred_city")} maxLength={60} autoFocus={!a.preferred_city} /></Field>
         <div className="span"><FormError error={act.error} /></div>
       </Form>
     </Dialog>
@@ -521,7 +523,7 @@ export function SiteDialog({ a, onClose, onSaved }: { a: Row; onClose: () => voi
     <Dialog title="Propose a site" subtitle={a.territory ? `In ${a.territory.territory_code} · ${a.territory.name}` : undefined} onClose={onClose}>
       <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={!!act.busy || !f.values.city.trim()}>{act.busy ? "Saving…" : "Propose site"}</button></>}>
         <Field label="Address" span><input {...f.bind("address_line_1")} autoFocus /></Field>
-        <Field label="City"><input {...f.bind("city")} /></Field>
+        <Field label="City"><input {...f.bind("city")} required /></Field>
         <Field label="State"><input {...f.bind("state")} /></Field>
         <Field label="Postal code"><input {...f.bind("postal_code")} /></Field>
         <Field label="Area (sq ft)"><input type="number" min={0} {...f.bind("area_sqft")} /></Field>

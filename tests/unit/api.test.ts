@@ -88,6 +88,9 @@ describe("franchise pipeline through the API", () => {
     expect((await call("mgr", "PATCH", `/applications/${id}`, { preferred_city: "Chennai" })).data.preferred_city).toBe("Chennai");
     await call("pepper", "PATCH", `/applications/${id}`, { preferred_city: "Chennai", investment_capacity: 5_000_000 });
     expect((await call("pepper", "GET", `/applications/${id}`)).data.missing_details).toEqual([]);
+    // Staff see the franchisee's contact, so the agreement step can say when the email is missing; portal users don't.
+    expect((await call("mgr", "GET", `/applications/${id}`)).data.franchisee).toMatchObject({ ROWID: String(fr.data.ROWID), email: fr.data.email ?? null });
+    expect((await call("pepper", "GET", `/applications/${id}`)).data.franchisee).toBeUndefined();
 
     const missing = await call("pepper", "POST", `/applications/${id}/submit`);
     expect(missing.error?.code).toBe("APPLICATION_DOCUMENT_MISSING");

@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { Children, FormEvent, isValidElement, ReactNode, useEffect, useState } from "react";
 import { ApiError } from "../api";
 import { Icon, label } from "./ui";
 
@@ -26,10 +26,15 @@ export function Form({ onSubmit, children, footer }: { onSubmit: () => void; chi
   return <form onSubmit={submit}><div className="form-body">{children}</div><footer className="form-foot">{footer}</footer></form>;
 }
 
-export function Field({ label: text, hint, error, children, span }: { label: string; hint?: ReactNode; error?: string; children: ReactNode; span?: boolean }) {
+/**
+ * A labelled input. Required fields are marked with * (set `required`, or put `required` on the input);
+ * `neededFor="to sign"` tags a field that can be left empty now but blocks that later step.
+ */
+export function Field({ label: text, hint, error, children, span, required, neededFor }: { label: string; hint?: ReactNode; error?: string; children: ReactNode; span?: boolean; required?: boolean; neededFor?: string }) {
+  const must = required ?? Children.toArray(children).some((c) => isValidElement(c) && !!(c.props as { required?: boolean }).required);
   return (
     <label className={`field ${span ? "span" : ""} ${error ? "invalid" : ""}`}>
-      <span className="field-label">{text}</span>
+      <span className="field-label">{text}{must && <span className="req" title="Required">*</span>}{neededFor && <span className="need">Needed {neededFor}</span>}</span>
       {children}
       {error ? <span className="field-error">{error}</span> : hint ? <span className="field-hint">{hint}</span> : null}
     </label>
@@ -70,7 +75,7 @@ export function ConfirmDialog({ title, body, confirm, danger, comment, busy, err
         <button type="submit" className={`btn ${danger ? "danger" : ""}`} disabled={busy || missing}>{busy ? "Working…" : confirm}</button>
       </>}>
         {body && <div className="span">{body}</div>}
-        {comment && <Field label={comment === "required" ? "Comment (required)" : "Comment"} span><textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} autoFocus /></Field>}
+        {comment && <Field label="Comment" span><textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} required={comment === "required"} autoFocus /></Field>}
         <div className="span"><FormError error={error ?? null} /></div>
       </Form>
     </Dialog>

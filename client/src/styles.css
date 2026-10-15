@@ -325,6 +325,8 @@ input:focus, textarea:focus, select:focus { outline: 0; border-color: var(--acce
 .form-foot { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.1rem; }
 .field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
 .field-label { font-size: .8rem; font-weight: 600; color: var(--text-2); }
+.field-label .req { color: var(--bad); margin-left: .15rem; }
+.field-label .need { margin-left: .45rem; font-size: .68rem; font-weight: 600; color: var(--warn); background: var(--warn-bg); padding: .05rem .4rem; border-radius: 999px; vertical-align: 1px; }
 .field-hint { font-size: .75rem; color: var(--muted); }
 .field-error { font-size: .75rem; color: var(--bad); }
 .field.invalid input, .field.invalid select { border-color: var(--bad); }

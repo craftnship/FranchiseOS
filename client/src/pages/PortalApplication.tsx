@@ -74,8 +74,8 @@ function ApplicationForm({ a, onSaved }: { a?: Row; onSaved: () => void }) {
     <Panel title={a ? "Details" : "Start your application"}>
       <Form onSubmit={save} footer={<button className="btn" disabled={!!act.busy || !f.values.preferred_city.trim()}>{act.busy ? "Saving…" : a ? "Save" : "Start application"}</button>}>
         <Field label="Format"><select {...f.bind("application_type")}>{FORMATS.map((t) => <option key={t} value={t}>{label(t)}</option>)}</select></Field>
-        <Field label="Investment capacity (₹)"><input type="number" min={0} {...f.bind("investment_capacity")} /></Field>
-        <Field label="City"><input {...f.bind("preferred_city")} /></Field>
+        <Field label="Investment capacity (₹)"><input type="number" min={0} {...f.bind("investment_capacity")} required /></Field>
+        <Field label="City"><input {...f.bind("preferred_city")} required /></Field>
         <Field label="State"><input {...f.bind("preferred_state")} /></Field>
         <Field label="Country"><input {...f.bind("preferred_country")} /></Field>
         <div className="span"><FormError error={act.error} /></div>

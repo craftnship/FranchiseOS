@@ -142,12 +142,12 @@ function LeaseDialog({ lease, busy, error, onSave, onClose }: { lease: Row | nul
       <Form onSubmit={submit} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={busy}>{busy ? "Saving…" : "Save"}</button></>}>
         <Field label="Landlord"><input value={v.landlord_name} onChange={set("landlord_name")} maxLength={200} autoFocus /></Field>
         <Field label="Landlord contact"><input value={v.landlord_contact} onChange={set("landlord_contact")} maxLength={200} placeholder="Phone or email" /></Field>
-        <Field label="Monthly rent (₹)">{num("monthly_rent")}</Field>
+        <Field label="Monthly rent (₹)" neededFor="to sign">{num("monthly_rent")}</Field>
         <Field label="Maintenance / CAM a month (₹)">{num("cam_monthly")}</Field>
         <Field label="Security deposit (₹)">{num("security_deposit")}</Field>
-        <Field label="Lease start"><input type="date" value={v.lease_start} onChange={set("lease_start")} /></Field>
+        <Field label="Lease start" neededFor="to sign"><input type="date" value={v.lease_start} onChange={set("lease_start")} /></Field>
         <Field label="Rent-free period (days)" hint="The fit-out window before rent is due.">{num("rent_free_days", { step: 1 })}</Field>
-        <Field label="Term (months)">{num("term_months", { step: 1 })}</Field>
+        <Field label="Term (months)" neededFor="to sign">{num("term_months", { step: 1 })}</Field>
         <Field label="Lock-in (months)">{num("lock_in_months", { step: 1 })}</Field>
         <Field label="Escalation (%)">{num("escalation_pct", { max: 100 })}</Field>
         <Field label="Escalation every (months)">{num("escalation_every_months", { min: 1, step: 1 })}</Field>

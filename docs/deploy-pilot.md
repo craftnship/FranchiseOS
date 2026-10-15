@@ -645,3 +645,7 @@ A CRM lead that arrives without a city produced an application that could not be
 ## Lease signing asks for what it needs (2026-10-15)
 
 "Mark signed" used to stay greyed out with only a hover tooltip saying why. On SITE-000016 the lease had every term but the start date, so the button looked stuck. Now the lease panel shows "Still needed to sign: …" in plain text, and the signing dialog asks for any missing start date, term or monthly rent (plus the signed-on date) and signs in the same step. The signed document still has to be uploaded first. No schema change.
+
+## Required fields marked upfront (2026-10-15)
+
+Forms now say what a later step needs before anyone clicks it. The shared field label shows * for a required input (set on the field or detected from the input itself, so every existing required input is marked), and a "Needed to sign" / "Needed to submit" tag for a field that can be saved empty but blocks that step: lease start, term and monthly rent on the lease terms form; investment capacity and city on the application details form. On the applicant's portal form, city and investment capacity are required outright. Proposing a site requires the city. The approved application's next-step card now says when the franchisee has no email address, which Zoho Sign needs, and keeps the send button disabled with the reason. No schema change.

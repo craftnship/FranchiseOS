@@ -119,8 +119,11 @@ export function applicationRoutes(r: Router): void {
       actions: await call.repo.findMany("approval_actions", { approval_id: String(latest.ROWID) }, { orderBy: "acted_at" }),
     } : null;
     const project = (await call.repo.findMany("franchise_projects", { application_id: id }, { limit: 1 }))[0];
+    // Sending the agreement needs the franchisee's email (Zoho Sign), so the screen can say so before the click.
+    const franchisee = app.franchisee_id ? await call.repo.findOne("franchisees", { ROWID: String(app.franchisee_id) }) : null;
     return {
       ...base, territory, approval,
+      franchisee: franchisee ? { ROWID: franchisee.ROWID, display_name: franchisee.display_name, email: franchisee.email ?? null } : null,
       project: project ? { ROWID: project.ROWID, project_code: project.project_code, status: project.status, target_opening_date: project.target_opening_date } : null,
       feasibility: feasibility && { ...feasibility, fail_reasons: feasibility.fail_reasons_json ? JSON.parse(String(feasibility.fail_reasons_json)) : [], warnings: modelWarnings(feasibility) },
     };
