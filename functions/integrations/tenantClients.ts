@@ -1,4 +1,4 @@
-import { Store } from "../common/store";
+import { Row, Store } from "../common/store";
 import { HttpBooksClient } from "./booksClient";
 import { ZohoBooksClient, ZohoCrmClient, ZohoProjectsClient, ZohoSignClient } from "./clients";
 import { HttpCrmClient } from "./crmClient";
@@ -15,6 +15,17 @@ export interface ZohoAppCredentials { clientId: string; clientSecret: string }
 
 export function zohoCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): ZohoAppCredentials | null {
   return env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET ? { clientId: env.ZOHO_CLIENT_ID, clientSecret: env.ZOHO_CLIENT_SECRET } : null;
+}
+
+/**
+ * The OAuth client franchisees consent to when connecting their own Books (docs/pos-sales.md). A
+ * Server-based client with the web app as its redirect URI: ZOHO_POS_CLIENT_ID/SECRET when the
+ * brand's own client is a Self Client (which has no redirect URI), else the brand's client.
+ */
+export function posCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): ZohoAppCredentials | null {
+  const id = env.ZOHO_POS_CLIENT_ID || env.ZOHO_FRANCHISEE_CLIENT_ID, secret = env.ZOHO_POS_CLIENT_SECRET || env.ZOHO_FRANCHISEE_CLIENT_SECRET;
+  if (id && secret) return { clientId: id, clientSecret: secret };
+  return zohoCredentialsFromEnv(env);
 }
 
 /** Clients for one tenant. Books and Projects are null until their org or portal is configured. */
@@ -46,12 +57,24 @@ export function zohoFactory(store: Store, app: ZohoAppCredentials | null, fetchF
       crm: new HttpCrmClient(http, endpoints.crm),
       sign: new HttpSignClient(http, endpoints.sign),
       books: row.org_id ? new HttpBooksClient(http, endpoints.books, String(row.org_id)) : null,
-      projects: row.portal_id ? new HttpProjectsClient(http, endpoints.projects, String(row.portal_id), settings.projects_owner_zpuid ? String(settings.projects_owner_zpuid) : undefined) : null,
+      projects: row.portal_id ? new HttpProjectsClient(http, endpoints.projects, String(row.portal_id), str(settings.projects_owner_zpuid),
+        { open: str(settings.projects_open_status_id), closed: str(settings.projects_closed_status_id) }) : null,
     };
   };
 }
 
+/** A setting as a string, or undefined when unset. */
+const str = (v: unknown) => (v == null || v === "" ? undefined : String(v));
+
 export function crmFactory(store: Store, app: ZohoAppCredentials | null, fetchFn?: FetchLike, env: NodeJS.ProcessEnv = process.env): CrmFactory {
   const zoho = zohoFactory(store, app, fetchFn, env);
   return async (tenantId) => (await zoho(tenantId))?.crm ?? null;
+}
+
+/** A franchisee's own Books, from their connection row (docs/pos-sales.md); the app's OAuth client, their refresh token. */
+export function franchiseeBooks(app: ZohoAppCredentials, conn: Row, fetchFn?: FetchLike): ZohoBooksClient | null {
+  if (!conn.refresh_token || !conn.org_id) return null;
+  const endpoints = endpointsFor(String(conn.zoho_dc || "IN"));
+  const http = new ZohoHttp(new RefreshTokenProvider(endpoints, { ...app, refreshToken: String(conn.refresh_token) }, fetchFn), fetchFn);
+  return new HttpBooksClient(http, endpoints.books, String(conn.org_id));
 }

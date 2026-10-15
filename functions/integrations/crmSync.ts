@@ -14,11 +14,23 @@ export const CRM_LEAD_FIELDS = {
   preferredState: "Preferred_State",
 } as const;
 
+/** FOS fields on CRM Accounts, created 2026-10-09 for Phase A. The lead is converted on signing. */
+export const CRM_ACCOUNT_FIELDS = {
+  franchiseCode: "FOS_Franchise_Code",
+  applicationCode: "FOS_Application_Code",
+  applicationStatus: "FOS_Application_Status",
+  targetOpening: "FOS_Target_Opening",
+  openedOn: "FOS_Opened_On",
+  feeStatus: "FOS_Fee_Status",
+  feePaidOn: "FOS_Fee_Paid_On",
+} as const;
+
 export type CrmFactory = (tenantId: string) => Promise<ZohoCrmClient | null>;
 
 /**
- * Pushes an application's code and status to its CRM lead. Failures are retried and land in
- * integration_logs as DEAD_LETTER; they never fail the user's action.
+ * Pushes an application's code and status to CRM: to its Account once the franchisee has one, and
+ * to its lead while the lead is not converted. Failures are retried and land in integration_logs
+ * as DEAD_LETTER; they never fail the user's action.
  */
 export async function pushApplicationStatus(
   store: Store,
@@ -27,16 +39,26 @@ export async function pushApplicationStatus(
   app: Record<string, unknown>,
   opts: { sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<boolean> {
-  if (!crm || !app.zoho_lead_id) return false;
+  if (!crm) return false;
+  const franchisee = app.franchisee_id ? await store.findOne("franchisees", { tenant_id: ctx.tenantId, ROWID: String(app.franchisee_id) }) : null;
+  const accountId = franchisee?.zoho_account_id ? String(franchisee.zoho_account_id) : null;
+  // A converted lead (the franchisee has a CRM Contact) no longer takes updates.
+  const leadId = app.zoho_lead_id && !franchisee?.zoho_contact_id ? String(app.zoho_lead_id) : null;
+  if (!accountId && !leadId) return false;
+  const meta = { store, tenantId: ctx.tenantId, sourceSystem: "CRM", entityType: "application", entityId: String(app.ROWID), requestId: ctx.requestId };
   try {
-    await withRetry(
-      () => crm.updateLead(String(app.zoho_lead_id), {
+    if (accountId) {
+      await withRetry(() => crm.updateAccount(accountId, {
+        [CRM_ACCOUNT_FIELDS.applicationCode]: app.application_code,
+        [CRM_ACCOUNT_FIELDS.applicationStatus]: app.status,
+      }), { ...meta, operation: "account.status" }, { sleep: opts.sleep });
+    }
+    if (leadId) {
+      await withRetry(() => crm.updateLead(leadId, {
         [CRM_LEAD_FIELDS.applicationCode]: app.application_code,
         [CRM_LEAD_FIELDS.applicationStatus]: app.status,
-      }),
-      { store, tenantId: ctx.tenantId, sourceSystem: "CRM", entityType: "application", entityId: String(app.ROWID), operation: "lead.status", requestId: ctx.requestId },
-      { sleep: opts.sleep },
-    );
+      }), { ...meta, operation: "lead.status" }, { sleep: opts.sleep });
+    }
     return true;
   } catch (e) {
     log("warn", "crm.status_push_failed", { tenant_id: ctx.tenantId, request_id: ctx.requestId, error: String((e as Error).message) });

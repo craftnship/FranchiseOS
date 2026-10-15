@@ -1,0 +1,10 @@
+{
+  "deployment": {
+    "name": "fos_jobs",
+    "stack": "node20",
+    "type": "cron"
+  },
+  "execution": {
+    "main": "index.js"
+  }
+}

@@ -24,6 +24,46 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Checklist rows from the template, created once per task code. Returns every row by code. */
+async function buildLocalChecklist(repo: TenantRepo, projectRowId: string, template: TemplateTask[], startDate: string): Promise<Map<string, Row>> {
+  const existing = await repo.findMany("opening_checklists", { project_id: projectRowId }, { limit: 300 });
+  const byCode = new Map(existing.map((r) => [String(r.task_code), r]));
+  for (const t of template) {
+    if (byCode.has(t.code)) continue;
+    const row = await repo.insert("opening_checklists", {
+      project_id: projectRowId,
+      task_code: t.code,
+      category: t.category,
+      item: t.name,
+      weight: t.weight ?? 1,
+      mandatory: t.mandatory,
+      status: "OPEN",
+      due_date: addDays(startDate, t.offset_days),
+      depends_on_json: JSON.stringify(t.depends_on ?? []),
+      // Days of work after the latest predecessor is due (or after the start), for the opening forecast.
+      duration_days: Math.max(1, t.offset_days - Math.max(0, ...(t.depends_on ?? []).map((d) => template.find((x) => x.code === d)?.offset_days ?? 0))),
+      external_task_id: null,
+      external_tasklist_id: null,
+      dependencies_synced: false,
+    });
+    byCode.set(t.code, row);
+  }
+
+  return byCode;
+}
+
+/** Tenants without Zoho Projects: the opening checklist lives only in FranchiseOS, and the project starts planning. */
+export async function buildLocalProject(store: Store, ctx: TenantContext, args: { projectRowId: string; template: TemplateTask[]; startDate: string }): Promise<{ tasksCreated: number }> {
+  const repo = new TenantRepo(store, ctx.tenantId);
+  const project = await repo.findOne("franchise_projects", { ROWID: args.projectRowId });
+  if (!project) throw new AppError("PROJECT_CREATION_FAILED", "Project record not found.");
+  const before = (await repo.findMany("opening_checklists", { project_id: args.projectRowId }, { limit: 300 })).length;
+  const byCode = await buildLocalChecklist(repo, args.projectRowId, args.template, args.startDate);
+  if (project.status === "NOT_STARTED") await repo.update("franchise_projects", args.projectRowId, { status: "PLANNING" });
+  await logActivity(store, ctx, { entityType: "project", entityId: args.projectRowId, action: "project:built", metadata: { local: true, tasksCreated: byCode.size - before } });
+  return { tasksCreated: byCode.size - before };
+}
+
 export async function buildOpeningProject(
   store: Store,
   ctx: TenantContext,
@@ -43,26 +83,7 @@ export async function buildOpeningProject(
   }
 
   // 2. Local checklist rows from the template (once), so readiness works even before tasks sync.
-  const existing = await repo.findMany("opening_checklists", { project_id: args.projectRowId }, { limit: 300 });
-  const byCode = new Map(existing.map((r) => [String(r.task_code), r]));
-  for (const t of args.template) {
-    if (byCode.has(t.code)) continue;
-    const row = await repo.insert("opening_checklists", {
-      project_id: args.projectRowId,
-      task_code: t.code,
-      category: t.category,
-      item: t.name,
-      weight: t.weight ?? 1,
-      mandatory: t.mandatory,
-      status: "OPEN",
-      due_date: addDays(args.startDate, t.offset_days),
-      depends_on_json: JSON.stringify(t.depends_on ?? []),
-      external_task_id: null,
-      external_tasklist_id: null,
-      dependencies_synced: false,
-    });
-    byCode.set(t.code, row);
-  }
+  const byCode = await buildLocalChecklist(repo, args.projectRowId, args.template, args.startDate);
 
   // 3. Task lists, one per category (reuse IDs already recorded on any row of that category).
   const tasklistIds = new Map<string, string>();

@@ -4,3 +4,4 @@ dist/
 *.log
 catalyst/functions/*/dist/
 catalyst/env.local.json
+catalyst/client/

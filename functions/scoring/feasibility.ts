@@ -83,3 +83,23 @@ export function calculateScenarios(input: FeasibilityInput, scenarios: Scenario[
     ),
   }));
 }
+
+/** Above these the numbers are possible but rare for a franchise outlet, so they are worth a second look. */
+export const PLAUSIBILITY_LIMITS = { max_roi_pct: 100, min_payback_months: 12, max_ebitda_margin_pct: 35 };
+
+/** Warnings for figures that look too good; they never fail the model. */
+export function plausibilityWarnings(r: Pick<FeasibilityResult, "roi_pct" | "payback_months" | "ebitda_margin_pct">, limits = PLAUSIBILITY_LIMITS): string[] {
+  const out: string[] = [];
+  if (r.roi_pct > limits.max_roi_pct) out.push(`ROI of ${r.roi_pct}% is unusually high (above ${limits.max_roi_pct}%).`);
+  if (r.payback_months !== null && r.payback_months < limits.min_payback_months) out.push(`Payback of ${r.payback_months} months is unusually fast (under ${limits.min_payback_months}).`);
+  if (r.ebitda_margin_pct > limits.max_ebitda_margin_pct) out.push(`EBITDA margin of ${r.ebitda_margin_pct}% is unusually high (above ${limits.max_ebitda_margin_pct}%).`);
+  if (out.length) out.push("Check the revenue and cost assumptions.");
+  return out;
+}
+
+/** Warnings for a stored, calculated model row. */
+export function modelWarnings(model: Record<string, unknown>): string[] {
+  if (model.status !== "CALCULATED") return [];
+  const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
+  return plausibilityWarnings({ roi_pct: num(model.roi_pct) ?? 0, payback_months: num(model.payback_months), ebitda_margin_pct: num(model.ebitda_margin_pct) ?? 0 });
+}

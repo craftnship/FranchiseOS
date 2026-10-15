@@ -4,7 +4,7 @@
 // restores the committed config afterwards.
 //
 // catalyst/env.local.json: { "fos_api": { "ZOHO_CLIENT_ID": "..." }, "fos_webhooks": { ... } }
-// Usage: node scripts/deployFunctions.mjs [fos_api fos_webhooks]
+// Usage: node scripts/deployFunctions.mjs [fos_api fos_webhooks fos_jobs] (default: fos_api fos_webhooks)
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";

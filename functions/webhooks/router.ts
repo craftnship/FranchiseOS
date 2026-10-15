@@ -1,6 +1,6 @@
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
 import { log } from "../common/logger";
 import { fail, newRequestId, ok } from "../common/response";
 import { Store } from "../common/store";
@@ -20,6 +20,8 @@ export interface WebhookRequest {
   headers: Record<string, string | string[] | undefined>;
   query: Record<string, string>;
   body: unknown;
+  /** The body as received; the Sign signature is computed over it. */
+  rawBody?: string;
 }
 
 export interface WebhookDeps {
@@ -30,6 +32,18 @@ export interface WebhookDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Pilot fallback when the tenant_integrations row has no webhook_secret (env FOS_CRM_WEBHOOK_SECRET). */
   fallbackSecret?: string;
+  /**
+   * The secret being rotated out (env FOS_CRM_WEBHOOK_SECRET_PREVIOUS). Still accepted until
+   * `previousSecretUntil` (YYYY-MM-DD, env FOS_CRM_WEBHOOK_SECRET_PREVIOUS_UNTIL), so senders can be
+   * moved to the new secret one at a time. Without an end date it is not accepted at all.
+   */
+  previousSecret?: string;
+  previousSecretUntil?: string;
+  now?: () => Date;
+  /** Zoho Sign webhook secret key (env FOS_SIGN_WEBHOOK_SECRET). When set, Sign callbacks must carry its signature. */
+  signSecret?: string;
+  /** Sends notification emails; absent until a sender is configured. */
+  mailer?: Mailer;
 }
 
 const LEAD_ROUTE = /^\/webhooks\/crm\/lead\/([A-Za-z0-9_-]{1,40})$/;
@@ -43,6 +57,13 @@ function sameSecret(given: string, expected: string): boolean {
   const a = createHash("sha256").update(given).digest();
   const b = createHash("sha256").update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/** The previous secret counts only with an end date that has not passed. */
+export function previousSecretLive(deps: Pick<WebhookDeps, "previousSecret" | "previousSecretUntil" | "now">): boolean {
+  const until = deps.previousSecretUntil?.trim();
+  if (!deps.previousSecret || !until || !/^\d{4}-\d{2}-\d{2}$/.test(until)) return false;
+  return (deps.now?.() ?? new Date()).toISOString().slice(0, 10) <= until;
 }
 
 function header(h: WebhookRequest["headers"], name: string): string {
@@ -66,10 +87,20 @@ export async function handleWebhook(req: WebhookRequest, deps: WebhookDeps): Pro
     const given = header(req.headers, "x-fos-webhook-secret") || req.query.token || (typeof body.token === "string" ? body.token : "");
     // Unknown tenant and wrong secret answer the same way.
     const expected = integration ? String(integration.webhook_secret || deps.fallbackSecret || "") : "";
-    if (!expected || !given || !sameSecret(given, expected)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
+    const current = !!expected && !!given && sameSecret(given, expected);
+    const previous = !current && !!integration && previousSecretLive(deps) && !!given && sameSecret(given, deps.previousSecret!);
+    if (!current && !previous) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
+    // Shows which senders still use the old secret during a rotation (names the route, never the secret).
+    if (previous) log("warn", "webhook.previous_secret_used", { request_id: requestId, route: path.split("/").slice(0, 3).join("/"), tenant: m[1].toUpperCase(), until: deps.previousSecretUntil });
 
     const tenantId = String(tenant!.ROWID);
-    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : TEST_AGREEMENT_ROUTE.test(path) ? "SYSTEM:test" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId };
+    const ctx: TenantContext = { tenantId, userId: SIGN_ROUTE.test(path) ? "SYSTEM:sign" : TEST_AGREEMENT_ROUTE.test(path) ? "SYSTEM:test" : "SYSTEM:crm", roles: ["SYSTEM"], zohoDc: String(tenant!.zoho_dc), requestId, correlationId: requestId, mailer: deps.mailer };
+    if (SIGN_ROUTE.test(path) && deps.signSecret) {
+      // Zoho Sign signs each callback: base64 HMAC-SHA256 of the raw body with the webhook's secret key.
+      const expectedSig = createHmac("sha256", deps.signSecret).update(req.rawBody ?? "").digest("base64");
+      const givenSig = header(req.headers, "x-zs-webhook-signature");
+      if (!givenSig || !sameSecret(givenSig, expectedSig)) throw new AppError("WEBHOOK_SIGNATURE_INVALID");
+    }
     if (SIGN_ROUTE.test(path)) return { status: 200, body: ok(await signCallback(body, ctx, deps), requestId) };
     if (TEST_AGREEMENT_ROUTE.test(path)) return { status: 200, body: ok(await testSendAgreement(tenant!, body, ctx, deps), requestId) };
 

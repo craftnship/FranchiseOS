@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { scoreQualification, classify, territoryAvailabilityRating } from "../../functions/scoring/qualification";
 import { scoreSite } from "../../functions/scoring/site";
 import { opportunityScore } from "../../functions/scoring/territory";
-import { calculateFeasibility, calculateScenarios } from "../../functions/scoring/feasibility";
+import { calculateFeasibility, calculateScenarios, plausibilityWarnings } from "../../functions/scoring/feasibility";
 import { calculateReadiness, ChecklistItem } from "../../functions/scoring/readiness";
 import { AppError } from "../../functions/common/errors";
 
@@ -64,6 +64,15 @@ describe("feasibility (§16, D-15)", () => {
     expect(r.passed).toBe(false);
     expect(r.fail_reasons[0]).toMatch(/exceeds 36/);
   });
+  it("warns, without failing, when the numbers look too good", () => {
+    expect(plausibilityWarnings(calculateFeasibility(base))).toEqual([]);
+    // The test run that slipped through: 50L in, 15L/month revenue.
+    const hot = calculateFeasibility({ ...base, initial_investment: 5_000_000, monthly_revenue: 1_500_000, monthly_fixed_opex: 250_000 });
+    expect(hot.passed).toBe(true);
+    const w = plausibilityWarnings(hot);
+    expect(w.join(" ")).toMatch(/ROI .* unusually high/);
+    expect(w.join(" ")).toMatch(/Payback .* unusually fast/);
+  });
   it("rejects negative or zero investment", () => {
     expect(() => calculateFeasibility({ ...base, initial_investment: 0 })).toThrow(AppError);
     expect(() => calculateFeasibility({ ...base, monthly_revenue: -1 })).toThrow(AppError);
@@ -104,5 +113,22 @@ describe("readiness (§20, D-7)", () => {
   it("uses within-category task weights", () => {
     const r = calculateReadiness([item("big", "CONSTRUCTION", "COMPLETED", { weight: 3 }), item("small", "CONSTRUCTION", "OPEN", { weight: 1 })], today);
     expect(r.by_category.CONSTRUCTION).toBe(75);
+  });
+});
+
+describe("pace-based readiness RAG", () => {
+  const item = (id: string, status: "OPEN" | "COMPLETED", due: string, category = "CONSTRUCTION") => ({ id, category, mandatory: false, status, due_date: due });
+  it("judges progress against what is due by now", async () => {
+    const { calculateReadiness } = await import("../../functions/scoring/readiness");
+    const w = [{ code: "CONSTRUCTION", weight: 100 }];
+    // Nothing due yet and nothing done: on pace.
+    expect(calculateReadiness([item("a", "OPEN", "2026-12-01"), item("b", "OPEN", "2026-12-10")], "2026-10-01", w)).toMatchObject({ score: 0, expected: 0, rag: "GREEN" });
+    // Half due, a quarter done: 25 points behind is amber; three quarters due is 50 behind, red.
+    const four = [item("a", "COMPLETED", "2026-09-01"), item("b", "OPEN", "2026-09-20"), item("c", "OPEN", "2026-12-01"), item("d", "OPEN", "2026-12-02")];
+    expect(calculateReadiness(four, "2026-10-01", w)).toMatchObject({ score: 25, expected: 50, rag: "AMBER" });
+    expect(calculateReadiness(four, "2026-12-01", w)).toMatchObject({ score: 25, expected: 75, rag: "RED" });
+    // Everything due, 75% done: amber.
+    four[1].status = "COMPLETED"; four[2].status = "COMPLETED";
+    expect(calculateReadiness(four, "2026-12-05", w)).toMatchObject({ score: 75, expected: 100, rag: "AMBER" });
   });
 });

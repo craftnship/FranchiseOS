@@ -3,13 +3,17 @@ import { logActivity } from "../common/audit";
 import { nextBusinessId } from "../common/ids";
 import { Row, Store, TenantRepo } from "../common/store";
 import { toNum } from "../common/values";
+import { defaultFranchiseType } from "../common/franchiseType";
 import { ZohoCrmClient } from "../integrations/clients";
 import { CRM_LEAD_FIELDS, pushApplicationStatus } from "../integrations/crmSync";
 import { processOnce } from "../integrations/idempotency";
+import { applyContactChanges, contactFieldsFrom } from "../workflows/crmContacts";
 
 // D-9: a CRM lead reaching the trigger status creates the franchisee and a DRAFT application.
 export const DEFAULT_CRM_TRIGGER_STATUS = "Pre-Qualified";
 const CLOSED_APP_STATES = ["REJECTED", "WITHDRAWN"];
+/** Written to the lead's FOS_Application_Status when the lead cannot become an application yet. */
+export const NEEDS_CONTACT = "NEEDS_CONTACT_DETAILS";
 
 export type LeadOutcome =
   | { action: "duplicate" }
@@ -36,6 +40,13 @@ export async function handleCrmLead(
   const res = await processOnce(store, ctx.tenantId, { source: "CRM", eventId: `lead:${modified}`, recordId: args.leadId, payload: { id: args.leadId, modified } }, async () => {
     const trigger = args.triggerStatus ?? DEFAULT_CRM_TRIGGER_STATUS;
     if (lead.Lead_Status !== trigger) return { action: "ignored", reason: `Lead status is ${lead.Lead_Status ?? "empty"}, not ${trigger}.` } as LeadOutcome;
+    // A franchisee FOS cannot reach (no email, no phone) would carry blanks into Sign and Books.
+    if (!text(lead.Email) && !text(lead.Mobile) && !text(lead.Phone)) {
+      if (lead[CRM_LEAD_FIELDS.applicationStatus] !== NEEDS_CONTACT) {
+        await crm.updateLead(args.leadId, { [CRM_LEAD_FIELDS.applicationStatus]: NEEDS_CONTACT }).catch(() => undefined);
+      }
+      return { action: "ignored", reason: "The lead has no email or phone; it is marked NEEDS_CONTACT_DETAILS in CRM." } as LeadOutcome;
+    }
     return upsertFromLead(store, ctx, crm, args.leadId, lead, args.sleep);
   });
   return res.duplicate ? { action: "duplicate" } : res.result;
@@ -43,7 +54,7 @@ export async function handleCrmLead(
 
 async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClient, leadId: string, lead: Row, sleep?: (ms: number) => Promise<void>): Promise<LeadOutcome> {
   const repo = new TenantRepo(store, ctx.tenantId);
-  const franchiseType = text(lead[CRM_LEAD_FIELDS.franchiseType]) ?? "QSR";
+  const franchiseType = text(lead[CRM_LEAD_FIELDS.franchiseType]) ?? defaultFranchiseType(await store.findOne("tenants", { ROWID: ctx.tenantId }));
 
   let franchisee = await repo.findOne("franchisees", { zoho_lead_id: leadId });
   if (!franchisee) {
@@ -55,6 +66,10 @@ async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClie
       status: "PROSPECT", franchise_type: franchiseType, zoho_lead_id: leadId,
     });
     await logActivity(store, ctx, { entityType: "franchisee", entityId: String(franchisee.ROWID), action: "create:crm", metadata: { lead_id: leadId } });
+  } else if (!franchisee.zoho_contact_id) {
+    // Before conversion the lead is where contact details are kept, so its edits come across.
+    const changed = await applyContactChanges(store, ctx, franchisee, contactFieldsFrom({ lead }), "crm_lead");
+    if (changed.length) franchisee = { ...franchisee, ...contactFieldsFrom({ lead }) };
   }
 
   const apps = await repo.findMany("franchise_applications", { zoho_lead_id: leadId });
@@ -72,6 +87,20 @@ async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClie
     });
     action = "created";
     await logActivity(store, ctx, { entityType: "application", entityId: String(app.ROWID), action: "create:crm", metadata: { lead_id: leadId } });
+  } else if (["DRAFT", "SUBMITTED"].includes(String(app.status))) {
+    // A lead that arrived without its location or capacity gets them on a later edit, while the application is still early.
+    // Only empty fields are filled: what someone typed in FOS stays.
+    const capacity = lead[CRM_LEAD_FIELDS.investmentCapacity];
+    const fromLead: Record<string, unknown> = {
+      preferred_country: text(lead.Country), preferred_state: text(lead[CRM_LEAD_FIELDS.preferredState]) ?? text(lead.State),
+      preferred_city: text(lead[CRM_LEAD_FIELDS.preferredCity]) ?? text(lead.City),
+      investment_capacity: capacity == null || capacity === "" ? null : toNum(capacity),
+    };
+    const fill = Object.fromEntries(Object.entries(fromLead).filter(([k, v]) => v != null && (app![k] == null || app![k] === "")));
+    if (Object.keys(fill).length) {
+      app = await repo.update("franchise_applications", String(app.ROWID), fill);
+      await logActivity(store, ctx, { entityType: "application", entityId: String(app.ROWID), action: "update:crm", metadata: { lead_id: leadId, fields: Object.keys(fill) } });
+    }
   }
 
   const crm_updated = await pushApplicationStatus(store, ctx, crm, app, { sleep });

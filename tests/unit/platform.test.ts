@@ -29,6 +29,18 @@ describe("webhook idempotency (§14, FOS-012/015)", () => {
     await expect(processOnce(store, "T1", evt, async () => { throw new Error("boom"); })).rejects.toThrow("boom");
     expect(await processOnce(store, "T1", evt, async () => "ok")).toEqual({ duplicate: false, result: "ok" });
   });
+  it("runs a finished event again only when asked to, never one still in flight", async () => {
+    const store = newStore();
+    const evt = { source: "FOS", eventId: "royalty_invoice", recordId: "R1", payload: null };
+    expect(await processOnce(store, "T1", evt, async () => 1)).toEqual({ duplicate: false, result: 1 });
+    expect(await processOnce(store, "T1", evt, async () => 2)).toEqual({ duplicate: true });
+    expect(await processOnce(store, "T1", evt, async () => 3, { retakeDone: true })).toEqual({ duplicate: false, result: 3 });
+    expect(await store.findMany("integration_events", { source_system: "FOS" })).toHaveLength(1);
+    // A row left PROCESSING by a caller that is still running is not retaken.
+    const row = (await store.findOne("integration_events", { source_system: "FOS" }))!;
+    await store.update("integration_events", String(row.ROWID), { status: "PROCESSING" });
+    expect(await processOnce(store, "T1", evt, async () => 4, { retakeDone: true })).toEqual({ duplicate: true });
+  });
 });
 
 describe("retry and dead letter (§29)", () => {
@@ -63,7 +75,7 @@ describe("project creation saga (§15, FOS-053..056)", () => {
       },
       updateTask: async () => {},
       addDependency: async () => { calls.addDependency++; },
-      listTasks: async () => [],
+      listTasks: async () => [], setTaskClosed: async () => {}, rescheduleTask: async () => {},
     };
   }
   async function seedProject() {

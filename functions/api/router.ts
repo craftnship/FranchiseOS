@@ -1,15 +1,20 @@
 import { z } from "zod";
+import type { AuthAdmin } from "../common/authAdmin";
+import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
-import { TenantContext } from "../common/context";
+import { Mailer, TenantContext } from "../common/context";
+import { DEMO_PERMISSIONS, maskContacts, readOnlyStore, resolveDemo } from "../common/demo";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
 import { log } from "../common/logger";
+import { describeError } from "../common/catalystStore";
 import { authorize, PermissionLookup } from "../common/rbac";
 import { fail, newRequestId, ok } from "../common/response";
 import { Store, TenantRepo } from "../common/store";
 import { IdentityUser, resolveTenant } from "../common/tenant";
 import { CrmFactory, pushApplicationStatus } from "../integrations/crmSync";
 import { ProviderError } from "../integrations/retry";
-import { ZohoClients, ZohoFactory } from "../integrations/tenantClients";
+import { ZohoAppCredentials, ZohoClients, ZohoFactory } from "../integrations/tenantClients";
+import type { FetchLike } from "../integrations/zohoHttp";
 import { TransitionDeps } from "../workflows/transition";
 
 // Framework-free router for the /api/v1 Advanced I/O function (D-14). The Catalyst entry point
@@ -21,6 +26,8 @@ export interface ApiRequest {
   query?: Record<string, string>;
   body?: unknown;
   identity: IdentityUser | null;
+  /** A read-only demo link's token (the X-FOS-Demo header), used only when nobody is signed in. */
+  demoToken?: string;
   requestId?: string;
   correlationId?: string;
 }
@@ -36,7 +43,17 @@ export interface ApiDeps {
   crm?: CrmFactory;
   /** Builds all of the tenant's Zoho clients (Sign, Books, Projects); null when not connected. */
   zoho?: ZohoFactory;
+  /** Where uploaded documents are stored; absent until a Stratus bucket is configured. */
+  files?: FileStorage;
+  /** Sends notification emails; absent until a sender is configured. */
+  mailer?: Mailer;
+  /** Invites people to Catalyst Authentication; absent until FOS_AUTH_ZAID is set. */
+  auth?: AuthAdmin;
+  /** The app's Zoho OAuth client and state secret, for franchisees connecting their own Books (docs/pos-sales.md). */
+  oauth?: OAuthDeps;
 }
+
+export interface OAuthDeps { app: ZohoAppCredentials | null; stateSecret: string | null; redirectUri: string | null; fetchFn?: FetchLike }
 
 export interface Call {
   ctx: TenantContext;
@@ -51,11 +68,18 @@ export interface Call {
   onTransition: NonNullable<TransitionDeps["onTransition"]>;
   /** The tenant's Zoho clients, or null when Zoho is not connected. */
   zoho: () => Promise<ZohoClients | null>;
+  files: FileStorage | null;
+  auth: AuthAdmin | null;
+  oauth: OAuthDeps;
 }
 
 export type Handler = (call: Call) => Promise<unknown>;
 
-interface Route { method: string; parts: string[]; permission: string | null; handler: Handler; status: number }
+/** What a route open to signed-out visitors gets: the caller's tenant only when they are signed in. */
+export interface PublicCall { store: Store; files: FileStorage | null; tenantId: string | null; query: Record<string, string>; now: Date }
+export type PublicHandler = (call: PublicCall) => Promise<unknown>;
+
+interface Route { method: string; parts: string[]; permission: string | null; handler: Handler; status: number; open?: PublicHandler }
 
 export const API_PREFIXES = ["/server/fos_api", "/server/fos_webhooks", "/api/v1"];
 
@@ -71,6 +95,12 @@ export class Router {
   /** permission null = any authenticated tenant user; handlers may check more. */
   on(method: string, pattern: string, permission: string | null, handler: Handler, status = 200): this {
     this.routes.push({ method: method.toUpperCase(), parts: pattern.split("/").filter(Boolean), permission, handler, status });
+    return this;
+  }
+
+  /** A route that answers signed-out visitors too, such as the sign-in screen's branding. */
+  onPublic(method: string, pattern: string, handler: PublicHandler): this {
+    this.routes.push({ method: method.toUpperCase(), parts: pattern.split("/").filter(Boolean), permission: null, handler: async () => null, status: 200, open: handler });
     return this;
   }
 
@@ -93,17 +123,37 @@ export class Router {
 
   async handle(req: ApiRequest, deps: ApiDeps): Promise<ApiResult> {
     const requestId = req.requestId ?? newRequestId();
+    const started = Date.now();
+    const result = await this.dispatch(req, deps, requestId);
+    // One line per call, so a slow or refused request can be found by its request id.
+    const err = (result.body as { error?: { code?: string } }).error;
+    log(result.status >= 500 ? "error" : "info", "api.request", { request_id: requestId, method: req.method.toUpperCase(), path: normalizePath(req.path), http_status: result.status, duration_ms: Date.now() - started, ...(err?.code ? { error_code: err.code } : {}) });
+    return result;
+  }
+
+  private async dispatch(req: ApiRequest, deps: ApiDeps, requestId: string): Promise<ApiResult> {
     try {
       const m = this.match(req.method, normalizePath(req.path));
       if (m === null) throw new AppError("NOT_FOUND", "Route not found.");
       if (m === "method") throw new AppError("INVALID_REQUEST", "Method not allowed on this route.");
-      const ctx = await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId });
-      const permissions = deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
+      if (m.route.open) {
+        const tenantId = req.identity ? await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId }).then((c) => c.tenantId, () => null) : null;
+        const data = await m.route.open({ store: deps.store, files: deps.files ?? null, tenantId, query: req.query ?? {}, now: deps.now?.() ?? new Date() });
+        return { status: m.route.status, body: ok(data, requestId) };
+      }
+      // A demo link stands in for sign-in: it reads the brand's screens and changes nothing.
+      const demo = !req.identity && !!req.demoToken;
+      const ctx: TenantContext = demo
+        ? await resolveDemo(deps.store, req.demoToken!, deps.now?.() ?? new Date(), { requestId, correlationId: req.correlationId })
+        : { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
+      if (demo && req.method.toUpperCase() !== "GET") throw new AppError("ACCESS_DENIED", "This is a read-only demo, so changes are disabled.");
+      const permissions = demo ? async () => DEMO_PERMISSIONS : deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
       if (m.route.permission) await authorize(ctx, m.route.permission, permissions);
-      const data = await m.route.handler({
+      const store = demo ? readOnlyStore(deps.store) : deps.store;
+      const raw = await m.route.handler({
         ctx,
-        repo: new TenantRepo(deps.store, ctx.tenantId),
-        store: deps.store,
+        repo: new TenantRepo(store, ctx.tenantId),
+        store,
         permissions,
         params: m.params,
         query: req.query ?? {},
@@ -113,13 +163,17 @@ export class Router {
           if (e.entityType !== "application" || !deps.crm) return;
           await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
         },
-        zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
+        zoho: async () => (deps.zoho && !demo ? deps.zoho(ctx.tenantId) : null),
+        files: demo ? null : deps.files ?? null,
+        auth: deps.auth ?? null,
+        oauth: deps.oauth ?? { app: null, stateSecret: null, redirectUri: null },
       });
+      const data = demo ? maskContacts(raw) : raw;
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {
       // A Zoho failure carries Zoho's own reason, which names what to fix and holds no secrets.
       const err = caught instanceof ProviderError ? new AppError("ZOHO_SYNC_FAILED", caught.message.slice(0, 300)) : caught;
-      if (!(err instanceof AppError)) log("error", "api.unhandled", { request_id: requestId, error: String((err as Error)?.stack ?? err) });
+      if (!(err instanceof AppError)) log("error", "api.unhandled", { request_id: requestId, error: describeError(err) });
       return fail(err, requestId);
     }
   }

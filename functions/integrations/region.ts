@@ -23,3 +23,14 @@ export function resolveZohoEndpoints(dc: string): ZohoEndpoints {
     books: `https://www.${apis}/books/v3`,
   };
 }
+
+/** Web app roots for linking staff to a record in Zoho (not the API hosts above). */
+export interface ZohoWeb { crm: string; sign: string; books: string; books_org: string | null }
+
+export function zohoWebFor(dc: string, booksOrg: string | null): ZohoWeb {
+  const key = dc.toUpperCase() as ZohoDc;
+  const tld = TLD[key];
+  if (!tld) throw new Error(`Unsupported Zoho data center: ${dc}`);
+  const base = key === "CA" ? "zohocloud.ca" : `zoho.${tld}`;
+  return { crm: `https://crm.${base}`, sign: `https://sign.${base}`, books: `https://books.${base}`, books_org: booksOrg };
+}

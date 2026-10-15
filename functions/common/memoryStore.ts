@@ -23,7 +23,8 @@ export class MemoryStore implements Store {
   async insert(table: string, row: Row): Promise<Row> {
     this.checkUnique(table, row);
     const now = new Date().toISOString();
-    const stored = { ...row, ROWID: String(++this.seq), CREATEDTIME: now, MODIFIEDTIME: now };
+    // A test may hand in CREATEDTIME to stage rows whose age and ROWID disagree, as the Data Store's can.
+    const stored = { ...row, ROWID: String(++this.seq), CREATEDTIME: row.CREATEDTIME ?? now, MODIFIEDTIME: now };
     this.rows(table).push(stored);
     return { ...stored };
   }
@@ -43,11 +44,19 @@ export class MemoryStore implements Store {
 
   async findMany(table: string, where: Record<string, Primitive>, opts: QueryOptions = {}): Promise<Row[]> {
     let out = this.rows(table).filter((r) => Object.entries(where).every(([k, v]) => r[k] === v));
+    if (opts.contains?.columns.length) {
+      const term = opts.contains.term.toLowerCase();
+      out = out.filter((r) => opts.contains!.columns.some((c) => String(r[c] ?? "").toLowerCase().includes(term)));
+    }
+    const rg = opts.range;
+    if (rg?.from) out = out.filter((r) => r[rg.column] != null && String(r[rg.column]) >= rg.from!);
+    if (rg?.before) out = out.filter((r) => r[rg.column] != null && String(r[rg.column]) < rg.before!);
     if (opts.orderBy) {
       const k = opts.orderBy;
       const cmp = (x: unknown, y: unknown) =>
-        typeof x === "number" && typeof y === "number" ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0;
-      out = [...out].sort((a, b) => cmp(a[k], b[k]) * (opts.desc ? -1 : 1));
+        typeof x === "number" && typeof y === "number" ? x - y : /^\d+$/.test(String(x)) && /^\d+$/.test(String(y)) ? Number(x) - Number(y) : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0;
+      const dir = opts.desc ? -1 : 1;
+      out = [...out].sort((a, b) => (cmp(a[k], b[k]) || cmp(a.ROWID, b.ROWID)) * dir);
     }
     const start = opts.offset ?? 0;
     return out.slice(start, opts.limit ? start + opts.limit : undefined).map((r) => ({ ...r }));

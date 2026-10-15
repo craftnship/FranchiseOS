@@ -7,7 +7,8 @@ import { opportunityScore } from "../../scoring/territory";
 import { releaseTerritory, reserveTerritory } from "../../workflows/territoryReservation";
 import { DEFAULTS } from "../../../database/seed/defaults";
 import { page, parse, Router } from "../router";
-import { mustGet } from "./shared";
+import { regionScope } from "./regions";
+import { assertOwner, fetchAll, mustGet } from "./shared";
 
 const index = z.number().min(0).max(100).optional();
 const createSchema = z.object({
@@ -27,6 +28,9 @@ const createSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
 }).strict();
+// Edits; status moves only between AVAILABLE and BLOCKED (reservations own the other states).
+const updateSchema = createSchema.partial().extend({ status: z.enum(["AVAILABLE", "BLOCKED"]).optional() }).strict()
+  .refine((v) => Object.keys(v).length > 0, "Nothing to change.");
 const searchSchema = z.object({
   city: z.string().trim().optional(),
   state: z.string().trim().optional(),
@@ -41,8 +45,10 @@ const RESERVABLE_APP_STATES = ["UNDER_REVIEW", "QUALIFIED"];
 export function territoryRoutes(r: Router): void {
   r.on("GET", "/territories", "territory.reserve", async (call) => {
     const q = parse(page.extend({ status: z.string().optional(), city: z.string().optional() }), call.query);
+    const scope = await regionScope(call);
     const where = { ...(q.status ? { status: q.status } : {}), ...(q.city ? { city: q.city } : {}) };
-    return call.repo.findMany("territories", where, { orderBy: "territory_code", limit: q.limit, offset: q.offset });
+    if (!scope.region) return call.repo.findMany("territories", where, { orderBy: "territory_code", limit: q.limit, offset: q.offset });
+    return (await fetchAll(call.repo, "territories", where)).filter(scope.territory).sort((a, b) => String(a.territory_code).localeCompare(String(b.territory_code))).slice(q.offset, q.offset + q.limit);
   });
 
   r.on("POST", "/territories", "territory.write", async (call) => {
@@ -59,6 +65,27 @@ export function territoryRoutes(r: Router): void {
     return row;
   }, 201);
 
+  r.on("PATCH", "/territories/:id", "territory.write", async (call) => {
+    const { population_index, market_index, status, ...body } = parse(updateSchema, call.body);
+    const territory = await assertOwner(call, await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND"), "TERRITORY_NOT_FOUND");
+    const change: Record<string, unknown> = { ...body };
+    if (status && status !== territory.status) {
+      if (!["AVAILABLE", "BLOCKED"].includes(String(territory.status))) {
+        throw new AppError("TERRITORY_NOT_AVAILABLE", `${territory.territory_code} is ${String(territory.status).toLowerCase()}; release it before blocking.`);
+      }
+      change.status = status;
+    }
+    // A new score needs all four indices; population and market indices are not stored.
+    const indices = [population_index, market_index, body.income_index ?? territory.income_index, body.competition_index ?? territory.competition_index];
+    if (population_index !== undefined && market_index !== undefined && indices.every((v) => v !== undefined && v !== null && v !== "")) {
+      change.opportunity_score = opportunityScore({ population: population_index, market_size: market_index, income_index: toNum(indices[2]), competition_index: toNum(indices[3]) });
+    }
+    const row = await call.repo.update("territories", call.params.id, change);
+    const action = change.status === "BLOCKED" ? "territory:block" : change.status === "AVAILABLE" ? "territory:unblock" : "update";
+    await logActivity(call.store, call.ctx, { entityType: "territory", entityId: call.params.id, action, metadata: { fields: Object.keys(change) } });
+    return row;
+  });
+
   r.on("POST", "/territories/search", "territory.reserve", async (call) => {
     const q = parse(searchSchema, call.body);
     const where = Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== "")) as Record<string, string>;
@@ -68,7 +95,7 @@ export function territoryRoutes(r: Router): void {
 
   r.on("POST", "/territories/:id/reserve", "territory.reserve", async (call) => {
     const { application_id } = parse(reserveSchema, call.body);
-    const territory = await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND");
+    const territory = await assertOwner(call, await mustGet(call.repo, "territories", call.params.id, "TERRITORY_NOT_FOUND"), "TERRITORY_NOT_FOUND");
     const app = await mustGet(call.repo, "franchise_applications", application_id, "APPLICATION_NOT_FOUND");
     if (!RESERVABLE_APP_STATES.includes(String(app.status))) {
       throw new AppError("APPLICATION_INVALID_STATE", `A territory cannot be reserved for an application in ${app.status}.`);

@@ -8,7 +8,7 @@ export interface IdentityUser {
 }
 
 export interface UserDirectory {
-  findActiveByExternalId(externalUserId: string): Promise<{ userId: string; tenantId: string; roleCodes: string[]; franchiseeId?: string } | null>;
+  findActiveByExternalId(externalUserId: string, email?: string): Promise<{ userId: string; tenantId: string; roleCodes: string[]; franchiseeId?: string; region?: string } | null>;
   findTenant(tenantId: string): Promise<{ tenantId: string; status: string; zohoDc: string } | null>;
 }
 
@@ -22,8 +22,9 @@ export async function resolveTenant(
   ids: { requestId: string; correlationId?: string },
 ): Promise<TenantContext> {
   if (!identity) throw new AppError("AUTH_REQUIRED");
-  const user = await dir.findActiveByExternalId(identity.externalUserId);
+  const user = await dir.findActiveByExternalId(identity.externalUserId, identity.email);
   if (!user) throw new AppError("ACCESS_DENIED", "User is not provisioned for any tenant.");
+  if (!user.roleCodes.length) throw new AppError("ACCESS_DENIED", "User has no role in this tenant.");
   const tenant = await dir.findTenant(user.tenantId);
   if (!tenant || tenant.status !== "ACTIVE") throw new AppError("TENANT_NOT_FOUND");
   return {
@@ -33,6 +34,8 @@ export async function resolveTenant(
     zohoDc: tenant.zohoDc,
     requestId: ids.requestId,
     correlationId: ids.correlationId ?? ids.requestId,
-    ...(user.franchiseeId ? { franchiseeId: user.franchiseeId } : {}),
+    // A vendor is not a franchisee: it never carries one, whatever its row says.
+    ...(user.franchiseeId && !user.roleCodes.every((r) => r === "VENDOR") ? { franchiseeId: user.franchiseeId } : {}),
+    ...(user.region ? { region: user.region } : {}),
   };
 }

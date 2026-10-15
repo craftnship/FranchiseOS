@@ -49,4 +49,10 @@ export class HttpSignClient implements ZohoSignClient {
     const t = r.action_time;
     return { id: String(r.request_id ?? id), status: String(r.request_status).toLowerCase(), ...(t ? { completedAt: new Date(Number(t) || String(t)).toISOString() } : {}) };
   }
+
+  async downloadSigned(id: string): Promise<{ name: string; type: string; data: Uint8Array }> {
+    const file = await this.http.download(`${this.baseUrl}/requests/${encodeURIComponent(id)}/pdf`);
+    const zip = /zip/i.test(file.type);
+    return { name: file.name ?? `signed-agreement-${id}.${zip ? "zip" : "pdf"}`, type: zip ? "application/zip" : "application/pdf", data: file.data };
+  }
 }

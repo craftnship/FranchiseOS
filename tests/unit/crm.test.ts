@@ -11,6 +11,9 @@ function fakeCrm(lead: Record<string, unknown>, failUpdates = 0) {
     getAccount: async () => ({}),
     getContact: async () => ({}),
     createAccount: async () => ({ id: "A1" }),
+    updateAccount: async () => {},
+    convertLead: async () => ({ accountId: "A1", contactId: "C1" }),
+    attachFile: async () => ({ id: "F1" }),
     updateLead: async (id, data) => {
       if (failures-- > 0) throw new Error("boom");
       updates.push({ id, data });
@@ -23,6 +26,15 @@ const lead = { id: "L1", Full_Name: "Pepper Potts", Email: "p@x.test", Lead_Stat
 const sleep = async () => {};
 
 describe("CRM lead webhook (D-9)", () => {
+  it("does not create an application for a lead with no email or phone, and flags it in CRM", async () => {
+    const store = newStore();
+    const { crm, updates } = fakeCrm({ ...lead, Email: null, Mobile: null, Phone: null });
+    const res = await handleCrmLead(store, ctx(["SYSTEM"]), crm, { leadId: "L1", sleep });
+    expect(res).toMatchObject({ action: "ignored" });
+    expect(updates).toEqual([{ id: "L1", data: { FOS_Application_Status: "NEEDS_CONTACT_DETAILS" } }]);
+    expect(await store.findMany("franchise_applications", {})).toHaveLength(0);
+  });
+
   it("creates franchisee and DRAFT application once and writes status back", async () => {
     const store = newStore();
     const { crm, updates } = fakeCrm(lead);
@@ -36,12 +48,27 @@ describe("CRM lead webhook (D-9)", () => {
     expect(await store.findMany("franchise_applications", {})).toHaveLength(1);
   });
 
+  it("fills a draft application's empty location and capacity from a later lead edit, without overwriting what FOS has", async () => {
+    const store = newStore();
+    await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, City: null, Preferred_City: null, State: null, Preferred_State: null, Investment_Capacity: null }).crm, { leadId: "L1", sleep });
+    const before = (await store.findOne("franchise_applications", { zoho_lead_id: "L1" }))!;
+    expect([before.preferred_city, before.investment_capacity]).toEqual([null, null]);
+    await store.update("franchise_applications", String(before.ROWID), { preferred_state: "Karnataka" });
+    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later", Preferred_City: "Coimbatore", State: "Tamil Nadu", Investment_Capacity: 2500000 }).crm, { leadId: "L1", sleep });
+    expect(again.action).toBe("existing");
+    const after = (await store.findOne("franchise_applications", { zoho_lead_id: "L1" }))!;
+    expect(after).toMatchObject({ preferred_city: "Coimbatore", preferred_state: "Karnataka", investment_capacity: 2500000 });
+  });
+
   it("reuses the open application on a later lead edit", async () => {
     const store = newStore();
     await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm(lead).crm, { leadId: "L1", sleep });
-    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later" }).crm, { leadId: "L1", sleep });
+    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later", Email: "pepper@new.test", Mobile: "+91 90000 00000" }).crm, { leadId: "L1", sleep });
     expect(again.action).toBe("existing");
-    expect(await store.findMany("franchisees", {})).toHaveLength(1);
+    const franchisees = await store.findMany("franchisees", {});
+    expect(franchisees).toHaveLength(1);
+    // The lead's edits come across onto the franchisee.
+    expect(franchisees[0]).toMatchObject({ display_name: "Pepper Potts", email: "pepper@new.test", phone: "+91 90000 00000" });
   });
 
   it("ignores leads not at the trigger status", async () => {
@@ -124,5 +151,22 @@ describe("pilot env fallbacks", () => {
     const res2 = await handleWebhook({ method: "POST", path: "/webhooks/crm/lead/STARK", headers: { "x-fos-webhook-secret": "envsecret" }, query: {}, body: { lead_id: "1" } },
       { store, crm: async () => null, fallbackSecret: "envsecret" });
     expect((res2.body as any).error.code).toBe("ZOHO_SYNC_FAILED");
+  });
+
+  it("accepts the previous secret during a rotation, until its end date", async () => {
+    const { handleWebhook } = await import("../../functions/webhooks/router");
+    const store = newStore();
+    const t = await store.insert("tenants", { tenant_code: "STARK", name: "Stark", status: "ACTIVE", zoho_dc: "IN" });
+    await store.insert("tenant_integrations", { tenant_id: String(t.ROWID), provider: "ZOHO", zoho_dc: "IN", status: "ACTIVE", provider_key: "k" });
+    const post = (secret: string, extra: Record<string, unknown>) => handleWebhook(
+      { method: "POST", path: "/webhooks/crm/lead/STARK", headers: {}, query: { token: secret }, body: { lead_id: "1" } },
+      { store, crm: async () => null, fallbackSecret: "new-secret", ...extra });
+    const code = async (secret: string, extra: Record<string, unknown> = {}) => ((await post(secret, extra)).body as any).error.code;
+    const rotating = { previousSecret: "old-secret", previousSecretUntil: "2026-10-20", now: () => new Date("2026-10-15T10:00:00Z") };
+    expect(await code("new-secret", rotating)).toBe("ZOHO_SYNC_FAILED"); // past the secret check
+    expect(await code("old-secret", rotating)).toBe("ZOHO_SYNC_FAILED");
+    expect(await code("old-secret", { ...rotating, now: () => new Date("2026-10-21T00:00:00Z") })).toBe("WEBHOOK_SIGNATURE_INVALID");
+    expect(await code("old-secret", { previousSecret: "old-secret" })).toBe("WEBHOOK_SIGNATURE_INVALID"); // no end date, not accepted
+    expect(await code("other", rotating)).toBe("WEBHOOK_SIGNATURE_INVALID");
   });
 });
