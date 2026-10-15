@@ -6,6 +6,28 @@ export class ApiError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number, public readonly fields?: Record<string, string>) { super(message); }
 }
 
+// A read-only demo link opens the app as /app/?demo=<token>: the token is kept for this browser tab
+// and sent with every call instead of a sign-in, so the address bar can be tidied straight away.
+const DEMO_KEY = "fos.demo";
+const demoToken = (() => {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("demo");
+    if (fromUrl) {
+      sessionStorage.setItem(DEMO_KEY, fromUrl);
+      const q = new URLSearchParams(window.location.search); q.delete("demo");
+      window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? `?${q}` : ""}${window.location.hash}`);
+      return fromUrl;
+    }
+    return sessionStorage.getItem(DEMO_KEY);
+  } catch { return null; }
+})();
+/** True while this tab opened the app through a demo link. */
+export const isDemo = () => !!demoToken;
+/** Drops the token, so the next load asks for a sign-in instead of the demo. */
+export const forgetDemo = () => { try { sessionStorage.removeItem(DEMO_KEY); } catch { /* nothing kept */ } };
+/** Leaves the demo: the token is dropped and the app reloads to its sign-in screen. */
+export const exitDemo = () => { forgetDemo(); window.location.href = window.location.pathname; };
+
 // A page firing many reads at once can trip Data Store's burst limit, so at most four requests
 // run together and a read that fails on the server is tried once more.
 const MAX_PARALLEL = 4;
@@ -33,7 +55,7 @@ async function request<T>(method: string, path: string, opts: { query?: Record<s
   const res = await fetch(`${API_BASE}${path}${qs ? `?${qs}` : ""}`, {
     method,
     credentials: "include",
-    headers: opts.body !== undefined ? { "Content-Type": "application/json" } : {},
+    headers: { ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}), ...(demoToken ? { "X-FOS-Demo": demoToken } : {}) },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   const json = await res.json().catch(() => ({}));
@@ -44,7 +66,7 @@ async function request<T>(method: string, path: string, opts: { query?: Record<s
   return json.data as T;
 }
 
-export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; name?: string | null; email?: string | null; region?: string | null; permissions?: string[]; zoho_web?: ZohoWeb | null }
+export interface Me { user_id: string; tenant_id: string; roles: string[]; franchisee_id: string | null; name?: string | null; email?: string | null; region?: string | null; permissions?: string[]; zoho_web?: ZohoWeb | null; demo?: boolean }
 export interface ZohoWeb { crm: string; sign: string; books: string; books_org: string | null }
 
 let current: Me | null = null;

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { logActivity } from "../../common/audit";
 import { brandingOf } from "../../common/branding";
+import { createDemoLink, DEMO_DEFAULT_DAYS, DEMO_MAX_DAYS, demoLinkOf, revokeDemoLink } from "../../common/demo";
 import { AppError } from "../../common/errors";
 import { FileStorage, safeFileName, STRATUS_PREFIX } from "../../common/files";
 import { Row, Store } from "../../common/store";
@@ -48,6 +49,15 @@ const setupSchema = z.object({
 
 const settingsOf = (tenant: Row | null): Row => { try { return tenant?.settings_json ? JSON.parse(String(tenant.settings_json)) : {}; } catch { return {}; } };
 
+const demoSchema = z.object({ days: z.number().int().min(1).max(DEMO_MAX_DAYS).optional() }).strict();
+
+/** The tenant's read-only demo link as Settings shows it: the token the link carries, and when it lapses. */
+async function demoView(store: Store, tenantId: string, now: Date) {
+  const tenant = await store.findOne("tenants", { ROWID: tenantId });
+  const link = demoLinkOf(tenant, now);
+  return link ? { active: true, token: `${tenant!.tenant_code}.${link.token}`, expires_on: link.expires_on, created_at: link.created_at } : { active: false, token: null, expires_on: null, created_at: null };
+}
+
 async function setupView(store: Store, tenantId: string) {
   const tenant = await store.findOne("tenants", { ROWID: tenantId });
   const cfg = staffConfig(tenant);
@@ -80,6 +90,27 @@ export function settingsRoutes(r: Router): void {
     await call.store.update("tenants", call.ctx.tenantId, { settings_json: JSON.stringify(settings) });
     await logActivity(call.store, call.ctx, { entityType: "tenant", entityId: call.ctx.tenantId, action: "settings:store_setup", metadata: { default_franchise_type: b.default_franchise_type, roles: b.staff_roles.length, modules: b.training_modules.length } });
     return setupView(call.store, call.ctx.tenantId);
+  });
+
+  // Settings → Demo link: one read-only link per tenant, replaced on each create and turned off on delete.
+  r.on("GET", "/settings/demo-link", "settings.manage", async (call) => demoView(call.store, call.ctx.tenantId, call.now));
+
+  r.on("POST", "/settings/demo-link", "settings.manage", async (call) => {
+    const b = parse(demoSchema, call.body);
+    const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
+    if (!tenant) throw new AppError("TENANT_NOT_FOUND");
+    const days = b.days ?? DEMO_DEFAULT_DAYS;
+    const link = await createDemoLink(call.store, tenant, days, call.now, /^\d+$/.test(call.ctx.userId) ? call.ctx.userId : null);
+    await logActivity(call.store, call.ctx, { entityType: "tenant", entityId: call.ctx.tenantId, action: "settings:demo_link_create", metadata: { days, expires_on: link.expires_on } });
+    return demoView(call.store, call.ctx.tenantId, call.now);
+  }, 201);
+
+  r.on("DELETE", "/settings/demo-link", "settings.manage", async (call) => {
+    const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
+    if (!tenant) throw new AppError("TENANT_NOT_FOUND");
+    await revokeDemoLink(call.store, tenant);
+    await logActivity(call.store, call.ctx, { entityType: "tenant", entityId: call.ctx.tenantId, action: "settings:demo_link_revoke", metadata: {} });
+    return demoView(call.store, call.ctx.tenantId, call.now);
   });
 
   r.onPublic("GET", "/branding", async (call) => {

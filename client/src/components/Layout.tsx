@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { api, can, isPortal, Me, portalHome, Row, setPortalStore } from "../api";
+import { api, can, exitDemo, isPortal, Me, portalHome, Row, setPortalStore } from "../api";
 import { Icon, label, Pill } from "./ui";
 import { useLoad } from "../hooks";
 import { BrandMark, useBrand } from "../branding";
@@ -198,14 +198,22 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
       </aside>
       <div className="scrim" onClick={() => setOpen(false)} />
       <div className="main-col">
+        {me.demo && (
+          <div className="demo-bar" role="status">
+            <Icon name="eye" /><span><strong>Read-only demo.</strong> You're looking at {brand.name} with sample data. Changes are disabled and contact details are masked.</span>
+            <button className="btn ghost sm" onClick={exitDemo}>Exit demo</button>
+          </div>
+        )}
         <header className="topbar">
           <button className="icon-btn menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Menu"><Icon name="menu" /></button>
           {!portal ? <Search /> : <><StorePicker /><div className="grow" /></>}
           <Bell portal={portal} />
           <div className="user">
             <span className="avatar">{initials}</span>
-            <span className="user-meta" title={me.email ?? undefined}><strong>{who ?? label(role)}</strong><small>{meta}</small></span>
-            <button className="icon-btn" onClick={signOut} title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>
+            <span className="user-meta" title={me.email ?? undefined}><strong>{who ?? label(role)}</strong><small>{me.demo ? "Read-only" : meta}</small></span>
+            {me.demo
+              ? <button className="icon-btn" onClick={exitDemo} title="Exit demo" aria-label="Exit demo"><Icon name="logout" /></button>
+              : <button className="icon-btn" onClick={signOut} title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>}
           </div>
         </header>
         <main className="content">{children}</main>

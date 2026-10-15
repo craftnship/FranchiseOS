@@ -3,6 +3,7 @@ import type { AuthAdmin } from "../common/authAdmin";
 import type { FileStorage } from "../common/files";
 import { AppError } from "../common/errors";
 import { Mailer, TenantContext } from "../common/context";
+import { DEMO_PERMISSIONS, maskContacts, readOnlyStore, resolveDemo } from "../common/demo";
 import { StoreUserDirectory, storePermissionLookup } from "../common/directory";
 import { log } from "../common/logger";
 import { describeError } from "../common/catalystStore";
@@ -25,6 +26,8 @@ export interface ApiRequest {
   query?: Record<string, string>;
   body?: unknown;
   identity: IdentityUser | null;
+  /** A read-only demo link's token (the X-FOS-Demo header), used only when nobody is signed in. */
+  demoToken?: string;
   requestId?: string;
   correlationId?: string;
 }
@@ -138,13 +141,19 @@ export class Router {
         const data = await m.route.open({ store: deps.store, files: deps.files ?? null, tenantId, query: req.query ?? {}, now: deps.now?.() ?? new Date() });
         return { status: m.route.status, body: ok(data, requestId) };
       }
-      const ctx: TenantContext = { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
-      const permissions = deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
+      // A demo link stands in for sign-in: it reads the brand's screens and changes nothing.
+      const demo = !req.identity && !!req.demoToken;
+      const ctx: TenantContext = demo
+        ? await resolveDemo(deps.store, req.demoToken!, deps.now?.() ?? new Date(), { requestId, correlationId: req.correlationId })
+        : { ...await resolveTenant(req.identity, new StoreUserDirectory(deps.store), { requestId, correlationId: req.correlationId }), mailer: deps.mailer };
+      if (demo && req.method.toUpperCase() !== "GET") throw new AppError("ACCESS_DENIED", "This is a read-only demo, so changes are disabled.");
+      const permissions = demo ? async () => DEMO_PERMISSIONS : deps.permissions ?? storePermissionLookup(deps.store, ctx.tenantId);
       if (m.route.permission) await authorize(ctx, m.route.permission, permissions);
-      const data = await m.route.handler({
+      const store = demo ? readOnlyStore(deps.store) : deps.store;
+      const raw = await m.route.handler({
         ctx,
-        repo: new TenantRepo(deps.store, ctx.tenantId),
-        store: deps.store,
+        repo: new TenantRepo(store, ctx.tenantId),
+        store,
         permissions,
         params: m.params,
         query: req.query ?? {},
@@ -154,11 +163,12 @@ export class Router {
           if (e.entityType !== "application" || !deps.crm) return;
           await pushApplicationStatus(deps.store, ctx, await deps.crm(ctx.tenantId).catch(() => null), e.entity);
         },
-        zoho: async () => (deps.zoho ? deps.zoho(ctx.tenantId) : null),
-        files: deps.files ?? null,
+        zoho: async () => (deps.zoho && !demo ? deps.zoho(ctx.tenantId) : null),
+        files: demo ? null : deps.files ?? null,
         auth: deps.auth ?? null,
         oauth: deps.oauth ?? { app: null, stateSecret: null, redirectUri: null },
       });
+      const data = demo ? maskContacts(raw) : raw;
       return { status: m.route.status, body: ok(data, requestId) };
     } catch (caught) {
       // A Zoho failure carries Zoho's own reason, which names what to fix and holds no secrets.

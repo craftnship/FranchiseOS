@@ -63,6 +63,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
   }
 
   const correlation = req.headers["x-correlation-id"];
+  const demo = req.headers["x-fos-demo"];
   const result = await router.handle(
     {
       method: req.method ?? "GET",
@@ -70,6 +71,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, s
       query: Object.fromEntries(url.searchParams),
       body,
       identity,
+      demoToken: typeof demo === "string" && demo.length <= 200 ? demo : undefined,
       requestId,
       correlationId: typeof correlation === "string" ? correlation.slice(0, 100) : undefined,
     },

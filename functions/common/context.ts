@@ -12,6 +12,8 @@ export interface TenantContext {
   region?: string;
   /** Sends notification emails; absent when no sender is configured (inbox only). */
   mailer?: Mailer;
+  /** Set for a visitor on a read-only demo link: nothing is written and contact details are masked. */
+  demo?: boolean;
 }
 
 /**

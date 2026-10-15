@@ -10,7 +10,7 @@ import { AuditPage, Audits, PortalAudits } from "./components/Audits";
 import { Launches, PortalLaunch, Renewals } from "./components/Launch";
 import { BrandDocuments, MessagesInbox, MessageThread, PortalDocuments, PortalMessages, PortalTodo } from "./components/PortalHub";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api, ApiError, isPortal, Me, setCurrentUser } from "./api";
+import { api, ApiError, forgetDemo, isPortal, Me, setCurrentUser } from "./api";
 import { useLoad } from "./hooks";
 import { Layout } from "./components/Layout";
 import { ErrorState } from "./components/ui";
@@ -65,6 +65,7 @@ export function App() {
   if (me.error) {
     const e = me.error as ApiError;
     if (e.code === "AUTH_REQUIRED") return <SignIn brand={brand} />;
+    if (e.code === "DEMO_LINK_INVALID") { forgetDemo(); return <SignIn brand={brand} reason="This demo link has expired or was turned off. Ask the person who shared it for a new one, or sign in." />; }
     if (e.code === "ACCESS_DENIED") return <SignIn brand={brand} reason={`Your sign-in worked, but this account isn't set up in ${brand.name} yet. Ask your administrator to add you.`} />;
     return <ErrorState error={e} retry={me.reload} />;
   }

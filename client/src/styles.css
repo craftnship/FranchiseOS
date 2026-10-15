@@ -201,6 +201,12 @@ select { font: inherit; height: 34px; padding: 0 .6rem; border: 1px solid var(--
 .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
 .notice.info { background: var(--info-bg); color: var(--info); }
+/* The strip above the top bar while the app is open through a read-only demo link. */
+.demo-bar { display: flex; align-items: center; gap: .6rem; padding: .5rem 1.5rem; background: var(--warn-bg); color: var(--warn); font-size: .85rem; border-bottom: 1px solid var(--border); }
+.demo-bar span { flex: 1; }
+.demo-bar .btn { color: inherit; border-color: currentColor; }
+.demo-link-box { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.demo-link-box input { flex: 1; min-width: 240px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
 label.check { display: flex; gap: .5rem; align-items: center; font-weight: 500; cursor: pointer; }
 .check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .35rem .9rem; max-height: 14rem; overflow: auto; padding: .1rem 0; }
 .check-list label.check { font-weight: 400; font-size: .88rem; }

@@ -88,11 +88,51 @@ export function Settings() {
         </Form>
       </Panel>
       <p className="muted">“Continue to sign in” opens Zoho Catalyst's own sign-in page. Its logo and title are set in the Catalyst console's Authentication settings.</p>
+      <DemoLink />
       <StoreSetup />
       <RoyaltySettings />
       <CollectionsSettings />
       <HealthSettings />
     </>
+  );
+}
+
+interface DemoState { active: boolean; token: string | null; expires_on: string | null; created_at: string | null }
+
+/** One read-only link that opens the app without a sign-in, for showing the product around. */
+function DemoLink() {
+  const act = useAction();
+  const [d, setD] = useState<DemoState | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { api<DemoState>("GET", "/settings/demo-link").then(setD).catch(() => setD(null)); }, []);
+  if (!d) return null;
+  const url = d.token ? `${window.location.origin}${window.location.pathname}?demo=${encodeURIComponent(d.token)}` : null;
+  const create = async () => { const r = await act.run("create", () => api<DemoState>("POST", "/settings/demo-link", { body: { days: 30 } }), d.active ? "New link created. The old one has stopped working." : "Link created. Anyone with it can look around for 30 days."); if (r) setD(r); };
+  const revoke = async () => { const r = await act.run("revoke", () => api<DemoState>("DELETE", "/settings/demo-link"), "The demo link is off."); if (r) setD(r); };
+  const copy = async () => { if (!url) return; try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* the field is selectable */ } };
+  return (
+    <Panel title="Demo link">
+      {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
+      <p className="field-hint" style={{ margin: "0 0 .75rem" }}>
+        Anyone with the link sees the team's screens as a read-only visitor, without a sign-in. Changes are disabled, contact details are masked, Admin is hidden and nothing reaches Zoho. Create a new link or turn it off at any time.
+      </p>
+      {url ? (
+        <>
+          <div className="demo-link-box">
+            <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Demo link" />
+            <button type="button" className="btn sm" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+          </div>
+          <p className="field-hint" style={{ margin: ".5rem 0 .75rem" }}>Works until {d.expires_on}.</p>
+          <div className="demo-link-box">
+            <button type="button" className="btn ghost sm" disabled={!!act.busy} onClick={create}>{act.busy === "create" ? "Creating…" : "Replace with a new link"}</button>
+            <button type="button" className="btn ghost sm" disabled={!!act.busy} onClick={revoke}>{act.busy === "revoke" ? "Turning off…" : "Turn off"}</button>
+          </div>
+        </>
+      ) : (
+        <button type="button" className="btn sm" disabled={!!act.busy} onClick={create}>{act.busy ? "Creating…" : "Create a 30-day link"}</button>
+      )}
+      <FormError error={act.error} />
+    </Panel>
   );
 }
 

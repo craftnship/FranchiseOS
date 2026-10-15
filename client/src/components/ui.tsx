@@ -1,6 +1,6 @@
 import { ReactNode, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, drillHref, Kpi, Row, zohoLink } from "../api";
+import { ApiError, currentUser, drillHref, Kpi, Row, zohoLink } from "../api";
 import { Load } from "../hooks";
 
 const TONE: Record<string, string> = {
@@ -49,6 +49,7 @@ const ICONS: Record<string, string> = {
   box: "M20 2H4a2 2 0 0 0-2 2v3c0 .7.4 1.3 1 1.7V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.7c.6-.4 1-1 1-1.7V4a2 2 0 0 0-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z",
   audit: "M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z",
   flag: "M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z",
+  eye: "M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5s9.3-3.1 11-7.5c-1.7-4.4-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   bank: "M4 10v7h3v-7H4zm6 0v7h3v-7h-3zM2 22h19v-3H2v3zm14-12v7h3v-7h-3zm-4.5-9L2 6v2h19V6l-9.5-5z",
   chat: "M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z",
   folder: "M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z",
@@ -169,7 +170,7 @@ export function Loaded<T>({ load, empty, children, emptyText = "Nothing here yet
 }
 
 export function ErrorState({ error, retry }: { error: ApiError; retry?: () => void }) {
-  const msg = error.code === "ACCESS_DENIED" ? "You don't have access to this." : error.code === "AUTH_REQUIRED" ? "Please sign in again." : error.message;
+  const msg = error.code === "ACCESS_DENIED" ? (currentUser()?.demo ? "This part isn't included in the demo." : "You don't have access to this.") : error.code === "AUTH_REQUIRED" ? "Please sign in again." : error.message;
   return <div className="state error"><Icon name="alert" /> {msg} {retry && <button className="btn ghost sm" onClick={retry}>Try again</button>}</div>;
 }
 

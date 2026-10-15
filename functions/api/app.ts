@@ -43,11 +43,11 @@ export function buildRouter(): Router {
   r.on("GET", "/me", null, async (call) => ({
     user_id: call.ctx.userId, tenant_id: call.ctx.tenantId, roles: call.ctx.roles, franchisee_id: call.ctx.franchiseeId ?? null, region: call.ctx.region ?? null,
     // Who is signed in, for the header.
-    ...await call.repo.findOne("users", { ROWID: call.ctx.userId }).then((u) => ({ name: (u?.name as string) ?? null, email: (u?.email as string) ?? null })),
+    ...(call.ctx.demo ? { name: "Demo viewer", email: null, demo: true } : await call.repo.findOne("users", { ROWID: call.ctx.userId }).then((u) => ({ name: (u?.name as string) ?? null, email: (u?.email as string) ?? null }))),
     // For showing only the actions the caller may take; every route still checks on the server.
     permissions: call.ctx.roles.includes("SUPER_ADMIN") ? ["*"] : [...await call.permissions(call.ctx.roles)].sort(),
-    // Staff get the tenant's Zoho web addresses, so record IDs can open in Zoho.
-    zoho_web: isPortalUser(call.ctx) ? null : await zohoWeb(call),
+    // Staff get the tenant's Zoho web addresses, so record IDs can open in Zoho; a demo gets none.
+    zoho_web: isPortalUser(call.ctx) || call.ctx.demo ? null : await zohoWeb(call),
   }));
   franchiseeRoutes(r);
   applicationRoutes(r);
