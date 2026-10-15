@@ -104,7 +104,11 @@ export function applicationRoutes(r: Router): void {
     const tenant = await call.store.findOne("tenants", { ROWID: call.ctx.tenantId });
     const required_documents = (settings(tenant).required_documents as string[] | undefined) ?? DEFAULT_REQUIRED_DOCUMENTS;
     const score_breakdown = app.score_breakdown_json ? JSON.parse(String(app.score_breakdown_json)) : null;
-    const base = { ...app, documents, allowed_transitions, transitions, required_documents, score_breakdown, uploads_enabled: !!call.files };
+    // What "submit" still needs besides documents (the state machine's rule), so the screen can ask for it before the click fails.
+    const missing_details = app.status === "DRAFT"
+      ? (findRule("application", "DRAFT", "submit")?.requiredFields ?? []).filter((f) => app[f] === null || app[f] === undefined || app[f] === "")
+      : [];
+    const base = { ...app, documents, allowed_transitions, transitions, required_documents, missing_details, score_breakdown, uploads_enabled: !!call.files };
     if (isPortalUser(call.ctx)) return base;
     const territory = app.territory_id ? await call.repo.findOne("territories", { ROWID: String(app.territory_id) }) : null;
     const feasibility = app.feasibility_id ? await call.repo.findOne("feasibility_models", { ROWID: String(app.feasibility_id) }) : null;

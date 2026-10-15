@@ -48,6 +48,18 @@ describe("CRM lead webhook (D-9)", () => {
     expect(await store.findMany("franchise_applications", {})).toHaveLength(1);
   });
 
+  it("fills a draft application's empty location and capacity from a later lead edit, without overwriting what FOS has", async () => {
+    const store = newStore();
+    await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, City: null, Preferred_City: null, State: null, Preferred_State: null, Investment_Capacity: null }).crm, { leadId: "L1", sleep });
+    const before = (await store.findOne("franchise_applications", { zoho_lead_id: "L1" }))!;
+    expect([before.preferred_city, before.investment_capacity]).toEqual([null, null]);
+    await store.update("franchise_applications", String(before.ROWID), { preferred_state: "Karnataka" });
+    const again = await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm({ ...lead, Modified_Time: "later", Preferred_City: "Coimbatore", State: "Tamil Nadu", Investment_Capacity: 2500000 }).crm, { leadId: "L1", sleep });
+    expect(again.action).toBe("existing");
+    const after = (await store.findOne("franchise_applications", { zoho_lead_id: "L1" }))!;
+    expect(after).toMatchObject({ preferred_city: "Coimbatore", preferred_state: "Karnataka", investment_capacity: 2500000 });
+  });
+
   it("reuses the open application on a later lead edit", async () => {
     const store = newStore();
     await handleCrmLead(store, ctx(["SYSTEM"]), fakeCrm(lead).crm, { leadId: "L1", sleep });

@@ -83,7 +83,11 @@ describe("franchise pipeline through the API", () => {
     const app = await call("pepper", "POST", "/applications", { application_type: "UNIT" });
     expect(app.status).toBe(201);
     const id = String(app.data.ROWID);
+    // Before the details are in, the screen is told what submit still needs; a staff reviewer can fill them in too.
+    expect((await call("pepper", "GET", `/applications/${id}`)).data.missing_details).toEqual(["preferred_city", "investment_capacity"]);
+    expect((await call("mgr", "PATCH", `/applications/${id}`, { preferred_city: "Chennai" })).data.preferred_city).toBe("Chennai");
     await call("pepper", "PATCH", `/applications/${id}`, { preferred_city: "Chennai", investment_capacity: 5_000_000 });
+    expect((await call("pepper", "GET", `/applications/${id}`)).data.missing_details).toEqual([]);
 
     const missing = await call("pepper", "POST", `/applications/${id}/submit`);
     expect(missing.error?.code).toBe("APPLICATION_DOCUMENT_MISSING");

@@ -30,7 +30,11 @@ const SIDE: Record<string, { text: string; danger?: boolean; confirm: string; bo
 const truthy = (v: unknown) => v === true || String(v) === "true";
 const pct = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : `${+Number(v).toFixed(1)}%`);
 
-type Open = null | "score" | "doc" | "site" | "feasibility" | "recalc" | `confirm:${string}` | "release" | "qualify";
+type Open = null | "score" | "doc" | "site" | "feasibility" | "recalc" | `confirm:${string}` | "release" | "qualify" | "details";
+/** Staff can correct the applicant's details while the application is still being worked. */
+const EDITABLE_STATES = ["DRAFT", "UNDER_REVIEW", "ON_HOLD"];
+const FORMATS = ["UNIT", "MULTI_UNIT", "MASTER", "AREA_DEVELOPER"];
+const DETAIL_LABEL: Record<string, string> = { franchisee_id: "franchisee", application_type: "format", preferred_city: "preferred city", investment_capacity: "investment capacity" };
 
 export function ApplicationDetail() {
   const { id } = useParams();
@@ -77,7 +81,7 @@ export function ApplicationDetail() {
           {FUNNEL.includes(a.status) && <Panel title="Progress"><StatusPath steps={FUNNEL} current={a.status} /></Panel>}
 
           <div className="row c2">
-            <Panel title="Application details">
+            <Panel title="Application details" action={can("application.review") && EDITABLE_STATES.includes(a.status) && <button className="btn ghost sm" onClick={() => setOpen("details")}>Edit</button>}>
               <Facts items={[
                 ["Application", a.application_code], ["Format", a.application_type], ["Country", a.preferred_country], ["State", a.preferred_state], ["City", a.preferred_city],
                 ["Status", <Pill value={a.status} />], ...(a.held_from ? [["Held from", label(a.held_from)] as [string, string]] : []), ["Created", date(a.CREATEDTIME)], ["Last updated", date(a.MODIFIEDTIME)],
@@ -115,6 +119,7 @@ export function ApplicationDetail() {
             </Panel>
           )}
 
+          {open === "details" && <DetailsDialog a={a} onClose={close} onSaved={() => { close(); reload(); act.say("Details saved."); }} />}
           {open === "score" && <ScoreDialog a={a} onClose={close} onSaved={(r) => { close(); reload(); act.say(`Scored ${r.qualification_score}: ${label(r.qualification_class)}.`); }} />}
           {open === "doc" && <DocumentDialog a={a} required={a.required_documents} onClose={close} onSaved={(d) => { close(); reload(); act.say(`${label(d.document_type)} added.`); }} />}
           {open === "site" && <SiteDialog a={a} onClose={close} onSaved={(s) => { close(); reload(); act.say(`${s.site_code} proposed. The application is now waiting on the site evaluation.`); }} />}
@@ -154,11 +159,16 @@ function NextStep({ a, busy, can_, setOpen, transition, submit, startApproval, s
 
   let title: string, body: ReactNode, buttons: ReactNode[] = [];
   switch (a.status) {
-    case "DRAFT":
+    case "DRAFT": {
+      const details = ((a.missing_details ?? []) as string[]).map((k) => DETAIL_LABEL[k] ?? label(k));
       title = "Collect the documents, then submit";
-      body = missing.length ? `Still needed: ${missing.map(label).join(", ")}.` : "All required documents are in. Submit it for review.";
-      if (can("application.submit")) buttons = [btn("submit", "Submit for review", submit, { disabled: missing.length > 0, title: missing.length ? "Add the required documents first" : undefined })];
+      body = missing.length || details.length
+        ? `Still needed: ${[...missing.map(label), ...details].join(", ")}.${details.length ? " Add the details, or ask the applicant to fill them in on the portal." : ""}`
+        : "All required documents are in. Submit it for review.";
+      if (details.length && can("application.review")) buttons.push(btn("details", "Add details", () => setOpen("details"), { secondary: true }));
+      if (can("application.submit")) buttons.push(btn("submit", "Submit for review", submit, { disabled: missing.length > 0 || details.length > 0, title: missing.length ? "Add the required documents first" : details.length ? `Add the ${details.join(", ")} first` : undefined }));
       break;
+    }
     case "SUBMITTED":
       title = "Start the review";
       body = "Check the documents and begin the qualification review.";
@@ -361,6 +371,29 @@ function FeasibilityPanel({ a, busy, onCreate, onEdit, onCalculate, onScenarios 
         )}
       </div>
     </Panel>
+  );
+}
+
+/** The applicant's details staff can fill in or correct: format, location and investment capacity. */
+function DetailsDialog({ a, onClose, onSaved }: { a: Row; onClose: () => void; onSaved: () => void }) {
+  const f = useFields({ application_type: String(a.application_type ?? "UNIT"), preferred_country: String(a.preferred_country ?? ""), preferred_state: String(a.preferred_state ?? ""), preferred_city: String(a.preferred_city ?? ""), investment_capacity: a.investment_capacity != null ? String(a.investment_capacity) : "" });
+  const act = useAction();
+  const save = async () => {
+    const body = { application_type: f.values.application_type, preferred_country: f.text("preferred_country"), preferred_state: f.text("preferred_state"), preferred_city: f.text("preferred_city"), investment_capacity: f.num("investment_capacity") };
+    const r = await act.run("details", () => api<Row>("PATCH", `/applications/${a.ROWID}`, { body }));
+    if (r) onSaved();
+  };
+  return (
+    <Dialog title="Application details" subtitle="The format, where the applicant wants to open, and what they can invest. Submitting needs the city and the investment capacity." onClose={onClose}>
+      <Form onSubmit={save} footer={<><button type="button" className="btn secondary" onClick={onClose}>Cancel</button><button className="btn" disabled={!!act.busy}>{act.busy ? "Saving…" : "Save"}</button></>}>
+        <Field label="Format"><select {...f.bind("application_type")}>{FORMATS.map((t) => <option key={t} value={t}>{label(t)}</option>)}</select></Field>
+        <Field label="Investment capacity (₹)"><input type="number" min={0} step={100000} {...f.bind("investment_capacity")} /></Field>
+        <Field label="Country"><input {...f.bind("preferred_country")} maxLength={60} /></Field>
+        <Field label="State"><input {...f.bind("preferred_state")} maxLength={60} /></Field>
+        <Field label="City" span><input {...f.bind("preferred_city")} maxLength={60} autoFocus={!a.preferred_city} /></Field>
+        <div className="span"><FormError error={act.error} /></div>
+      </Form>
+    </Dialog>
   );
 }
 

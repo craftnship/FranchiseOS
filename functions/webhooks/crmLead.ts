@@ -87,6 +87,20 @@ async function upsertFromLead(store: Store, ctx: TenantContext, crm: ZohoCrmClie
     });
     action = "created";
     await logActivity(store, ctx, { entityType: "application", entityId: String(app.ROWID), action: "create:crm", metadata: { lead_id: leadId } });
+  } else if (["DRAFT", "SUBMITTED"].includes(String(app.status))) {
+    // A lead that arrived without its location or capacity gets them on a later edit, while the application is still early.
+    // Only empty fields are filled: what someone typed in FOS stays.
+    const capacity = lead[CRM_LEAD_FIELDS.investmentCapacity];
+    const fromLead: Record<string, unknown> = {
+      preferred_country: text(lead.Country), preferred_state: text(lead[CRM_LEAD_FIELDS.preferredState]) ?? text(lead.State),
+      preferred_city: text(lead[CRM_LEAD_FIELDS.preferredCity]) ?? text(lead.City),
+      investment_capacity: capacity == null || capacity === "" ? null : toNum(capacity),
+    };
+    const fill = Object.fromEntries(Object.entries(fromLead).filter(([k, v]) => v != null && (app![k] == null || app![k] === "")));
+    if (Object.keys(fill).length) {
+      app = await repo.update("franchise_applications", String(app.ROWID), fill);
+      await logActivity(store, ctx, { entityType: "application", entityId: String(app.ROWID), action: "update:crm", metadata: { lead_id: leadId, fields: Object.keys(fill) } });
+    }
   }
 
   const crm_updated = await pushApplicationStatus(store, ctx, crm, app, { sleep });

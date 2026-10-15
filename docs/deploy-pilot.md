@@ -632,3 +632,12 @@ Until now staff could only reply: the Messages inbox listed franchisees who had 
 - **Schema.** `messages` gains `context_type` (varchar), `context_id` (varchar) and `emailed_to` (varchar); added to Development on 2026-10-14. No permission or setting change.
 - **Email sender.** To make the fallback (and every other notification email) go out: in the Catalyst console, Cloud Scale → Mail, add and verify a sender address on a domain the brand owns, then set `FOS_MAIL_FROM` to that address on `fos_api` and `fos_jobs`.
 - **Not done yet.** No per-record Messages tab, no "waiting on us" ageing on the dashboard, no attachment preview, and no reminder that a franchisee message has had no reply. The demo franchisees carry reserved `.example` addresses, so the email fallback cannot reach a real person there.
+
+## Application details before submit (2026-10-15)
+
+A CRM lead that arrives without a city produced an application that could not be submitted: "Required data is missing (Preferred city: required)", with no screen to fix it. Now:
+
+- **Edit on the application page.** Staff with `application.review` can edit the format, country, state, city and investment capacity while the application is DRAFT, UNDER_REVIEW or ON_HOLD (the existing PATCH).
+- **The next-step card says what submit still needs**, documents and details together, with an "Add details" button, and the Submit button stays disabled until they are in. The API returns `missing_details` on a DRAFT application.
+- **Later lead edits fill the gaps.** While the application is DRAFT or SUBMITTED, a lead webhook fills preferred country, state, city and investment capacity from the lead when they are empty in FOS; values already typed in FOS are kept.
+- No schema, permission or setting change.
