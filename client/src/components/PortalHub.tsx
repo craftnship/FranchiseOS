@@ -114,7 +114,7 @@ const aboutPath = (a: Row, portal: boolean) => portal
 const delivery = (m: Row, undelivered?: string) => (m.read_at ? "Read" : m.emailed_to ? `Emailed to ${m.emailed_to}` : undelivered ?? "");
 
 /** A conversation and the box to reply in. `me` is the side reading it; `about` lists the records a message can be about. */
-function Conversation({ messages, me, about, initial, undelivered, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; about: Row[]; initial?: string; undelivered?: string; onSend: (b: Row) => Promise<unknown> }) {
+export function Conversation({ messages, me, about, initial, undelivered, onSend }: { messages: Row[]; me: "FRANCHISEE" | "BRAND"; about: Row[]; initial?: string; undelivered?: string; onSend: (b: Row) => Promise<unknown> }) {
   const [textValue, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [context, setContext] = useState(initial ?? "");
@@ -246,7 +246,7 @@ export function MessageThread() {
         <>
           <PageHeader title={String(f.display_name ?? f.franchise_code)} crumbs={[["Overview"], ["Messages", "/messages"], [String(f.franchise_code)]]}
             subtitle={f.email ? String(f.email) : undefined}
-            actions={<Link className="btn secondary" to={`/applications?franchisee_id=${f.ROWID}`}><Icon name="applications" size={16} />Applications</Link>} />
+            actions={<Link className="btn secondary" to={`/franchisees/${f.ROWID}`}><Icon name="franchisees" size={16} />Franchisee record</Link>} />
           {noLogin && (!f.email
             ? <div className="notice warn"><Icon name="alert" />{f.display_name} has no portal login and no email on file, so they will not see these messages. Add their email in CRM, or invite them to the portal from Users.</div>
             : !f.email_enabled

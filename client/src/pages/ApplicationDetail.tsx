@@ -32,7 +32,7 @@ const pct = (v: unknown) => (v === null || v === undefined || v === "" ? "—" :
 
 type Open = null | "score" | "doc" | "site" | "feasibility" | "recalc" | `confirm:${string}` | "release" | "qualify" | "details";
 /** Staff can correct the applicant's details while the application is still being worked. */
-const EDITABLE_STATES = ["DRAFT", "UNDER_REVIEW", "ON_HOLD"];
+const EDITABLE_STATES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ON_HOLD"];
 const FORMATS = ["UNIT", "MULTI_UNIT", "MASTER", "AREA_DEVELOPER"];
 const DETAIL_LABEL: Record<string, string> = { franchisee_id: "franchisee", application_type: "format", preferred_city: "preferred city", investment_capacity: "investment capacity" };
 
@@ -61,6 +61,7 @@ export function ApplicationDetail() {
           <PageHeader title={a.application_code} badges={<Pill value={a.status} />} crumbs={[["Expansion"], ["Applications", "/applications"], [a.application_code]]}
             subtitle={[a.preferred_city, a.preferred_state, label(a.application_type ?? "")].filter(Boolean).join(" · ")}
             actions={<>
+              {a.franchisee_id && <Link className="btn secondary" to={`/franchisees/${a.franchisee_id}`}><Icon name="franchisees" size={16} />Franchisee</Link>}
               {can("dashboard.view") && a.franchisee_id && <Link className="btn secondary" to={`/messages/${a.franchisee_id}?about=APPLICATION:${a.ROWID}`}><Icon name="chat" size={16} />Message franchisee</Link>}
               {side.map((t) => <button key={t} className={SIDE[t].danger ? "btn danger-ghost" : "btn secondary"} onClick={() => setOpen(`confirm:${t}`)} disabled={!!act.busy}>{SIDE[t].text}</button>)}
               {canSend && a.status === "AGREEMENT_PENDING" && <button className="btn secondary" onClick={sendAgreement} disabled={!!act.busy}><Icon name="send" size={16} />{act.busy === "agreement" ? "Sending…" : "Resend agreement"}</button>}

@@ -48,7 +48,7 @@ const transitionSchema = z.object({ transition: z.string().min(1).max(40), overr
 /** Classes that qualify without an override (§18). */
 const QUALIFYING_CLASSES = ["HOT", "QUALIFIED"];
 
-const EDITABLE_STATES = ["DRAFT", "UNDER_REVIEW", "ON_HOLD"];
+const EDITABLE_STATES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ON_HOLD"];
 
 async function getApp(call: Call): Promise<Row> {
   return assertOwner(call, await mustGet(call.repo, "franchise_applications", call.params.id, "APPLICATION_NOT_FOUND"), "APPLICATION_NOT_FOUND");

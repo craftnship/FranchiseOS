@@ -18,17 +18,17 @@ export function Franchisees() {
       {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
       <FormError error={act.error} />
       <Loaded load={load}>{(rows) => (
-        <DataTable rows={rows} href={(f) => `/applications?franchisee_id=${f.ROWID}`} searchKeys={["franchise_code", "display_name", "legal_name", "email", "phone"]}
+        <DataTable rows={rows} href={(f) => `/franchisees/${f.ROWID}`} searchKeys={["franchise_code", "display_name", "legal_name", "email", "phone"]}
           toolbar={<div className="chips">{["", "ACTIVE", "PROSPECT", "INACTIVE"].map((s) => <button key={s} className={`chip ${status === s ? "on" : ""}`} onClick={() => setParams(s ? { status: s } : {})}>{s ? label(s) : "All"}</button>)}</div>}
           columns={[
             { key: "franchise_code", label: "Code", render: (f) => <span className="code">{f.franchise_code}</span> },
-            { key: "display_name", label: "Name", render: (f) => <>{f.display_name}{f.legal_name && f.legal_name !== f.display_name && <span className="cell-sub">{f.legal_name}</span>}</> },
+            { key: "display_name", label: "Name", render: (f) => <><Link to={`/franchisees/${f.ROWID}`} onClick={(e) => e.stopPropagation()}>{f.display_name}</Link>{f.legal_name && f.legal_name !== f.display_name && <span className="cell-sub">{f.legal_name}</span>}</> },
             { key: "email", label: "Contact", render: (f) => <>{f.email ?? "—"}<span className="cell-sub">{f.phone}</span></> },
             { key: "franchise_type", label: "Format" },
             { key: "status", label: "Status", render: (f) => <Pill value={f.status} /> },
             { key: "CREATEDTIME", label: "Since", render: (f) => date(f.CREATEDTIME) },
             { key: "_apps", label: "", render: (f) => <span className="panel-actions">
-              <Link to={`/applications?franchisee_id=${f.ROWID}`}>Applications</Link>
+              <Link to={`/applications?franchisee_id=${f.ROWID}`} onClick={(e) => e.stopPropagation()}>Applications</Link>
               {can("dashboard.view") && <Link to={`/messages/${f.ROWID}`} onClick={(e) => e.stopPropagation()}><Icon name="chat" size={14} />Message</Link>}
               {can("application.review") && (f.zoho_lead_id || f.zoho_account_id) && <button className="btn ghost sm" disabled={act.busy === `c${f.ROWID}`} onClick={(e) => { e.stopPropagation(); pull(f); }}><Icon name="sync" size={14} />{act.busy === `c${f.ROWID}` ? "Checking…" : "Refresh from CRM"}</button>}
             </span> },

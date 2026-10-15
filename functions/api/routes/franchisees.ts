@@ -5,7 +5,9 @@ import { pullFranchiseeContact } from "../../workflows/crmContacts";
 import { logActivity } from "../../common/audit";
 import { nextBusinessId } from "../../common/ids";
 import { page, parse, Router } from "../router";
-import { assertOwner, defined, mustGet, ownerFilter } from "./shared";
+import { allowed, isPortalUser } from "../../common/rbac";
+import { franchiseeOverview } from "../../workflows/franchiseeOverview";
+import { assertOwner, defined, mustGet, ownerFilter, staffCan } from "./shared";
 import { listInRegion } from "./regions";
 
 const fields = {
@@ -38,6 +40,16 @@ export function franchiseeRoutes(r: Router): void {
 
   r.on("GET", "/franchisees/:id", null, async (call) =>
     await assertOwner(call, await mustGet(call.repo, "franchisees", call.params.id, "FRANCHISEE_NOT_FOUND"), "FRANCHISEE_NOT_FOUND", "ROWID"));
+
+  // The record page: everything about one partner across their applications, agreements and stores.
+  // Portal users see their own partner only; money needs finance.view.
+  r.on("GET", "/franchisees/:id/overview", null, async (call) => {
+    const franchisee = await assertOwner(call, await mustGet(call.repo, "franchisees", call.params.id, "FRANCHISEE_NOT_FOUND"), "FRANCHISEE_NOT_FOUND", "ROWID");
+    await staffCan(call, "dashboard.view", "application.review");
+    const portal = isPortalUser(call.ctx);
+    const finance = portal || await allowed(call.ctx, "finance.view", call.permissions);
+    return franchiseeOverview(call.store, call.ctx, franchisee, { today: call.now.toISOString().slice(0, 10), finance, portal });
+  });
 
   // Copies contact details edited in CRM (lead, or Contact and Account after signing) now.
   r.on("POST", "/franchisees/:id/sync-crm", "application.review", async (call) => {
