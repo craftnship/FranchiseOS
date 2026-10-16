@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, can, Row, zohoLink } from "../api";
 import { useAction, useLoad } from "../hooks";
 import { Dialog, Field, Form, FormError } from "../components/forms";
@@ -7,6 +7,7 @@ import { BooksInvoice, DataTable, date, Facts, Icon, inr, inrShort, label, Loade
 import { Conversation, TodoList } from "../components/PortalHub";
 import { Score } from "../components/Audits";
 import { Variance } from "../components/Pos";
+import { NewApplicationDialog } from "../components/NewApplication";
 
 // The franchise partner's record: one page for everything about them across their applications,
 // agreements and stores. A multi-unit partner gets the totals here and a link into each store page.
@@ -28,6 +29,8 @@ export function FranchiseeDetail() {
   const load = useLoad(() => api<Row>("GET", `/franchisees/${id}/overview`), [id]);
   const act = useAction(load.reload);
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const navigate = useNavigate();
   const pull = (f: Row) => act.run("crm", () => api<Row>("POST", `/franchisees/${id}/sync-crm`),
     (r) => (r.changed.length ? `Updated ${r.changed.map((k: string) => label(k).toLowerCase()).join(", ")} from CRM.` : `${f.display_name} already matches CRM.`));
   return (
@@ -46,6 +49,7 @@ export function FranchiseeDetail() {
               {crm && <a className="btn secondary" href={crm} target="_blank" rel="noreferrer">Open in CRM</a>}
               {can("application.review") && (f.zoho_lead_id || f.zoho_account_id) && <button className="btn secondary" disabled={!!act.busy} onClick={() => pull(f)}><Icon name="sync" size={16} />{act.busy === "crm" ? "Checking…" : "Refresh from CRM"}</button>}
               {can("application.review") && <button className="btn secondary" onClick={() => setEditing(true)}>Edit</button>}
+              {can("application.review") && <button className="btn" onClick={() => setAdding(true)}><Icon name="applications" size={16} />New application</button>}
             </>} />
           {act.notice && <div className="notice ok"><Icon name="check" />{act.notice}</div>}
           {act.error && !editing && <FormError error={act.error} />}
@@ -63,6 +67,7 @@ export function FranchiseeDetail() {
           {tab === "documents" && <Documents d={d} />}
           {tab === "activity" && <Activity rows={d.activity as Row[]} />}
           {editing && <EditDialog f={f} onClose={() => { setEditing(false); act.clear(); }} onSaved={() => { setEditing(false); load.reload(); act.say("Franchisee details saved."); }} />}
+          {adding && <NewApplicationDialog franchisee={f} onClose={() => setAdding(false)} onCreated={(a) => navigate(`/applications/${a.ROWID}`)} />}
         </>
       );
     }}</Loaded>
