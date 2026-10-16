@@ -82,13 +82,17 @@ export function applicationRoutes(r: Router): void {
       await authorize(call.ctx, "application.review", call.permissions);
     }
     if (!franchiseeId) throw new AppError("VALIDATION_FAILED", "franchisee_id is required.", { franchisee_id: "required" });
-    await mustGet(call.repo, "franchisees", franchiseeId, "FRANCHISEE_NOT_FOUND");
+    const franchisee = await mustGet(call.repo, "franchisees", franchiseeId, "FRANCHISEE_NOT_FOUND");
+    // An application started in the app for a prospect who came from CRM inherits the franchisee's
+    // lead, so the lead shows the application code and status like a webhook-created one does.
+    const inherited = franchisee.zoho_lead_id && !franchisee.zoho_contact_id ? String(franchisee.zoho_lead_id) : undefined;
     const application_code = await nextBusinessId(call.store, call.ctx.tenantId, "application");
     const row = await call.repo.insert("franchise_applications", {
-      ...body, franchisee_id: franchiseeId, application_code, tenant_code_key: `${call.ctx.tenantId}:${application_code}`,
-      status: "DRAFT", owner_user_id: isPortalUser(call.ctx) ? null : call.ctx.userId,
+      ...body, zoho_lead_id: body.zoho_lead_id ?? inherited ?? null, franchisee_id: franchiseeId, application_code,
+      tenant_code_key: `${call.ctx.tenantId}:${application_code}`, status: "DRAFT", owner_user_id: isPortalUser(call.ctx) ? null : call.ctx.userId,
     });
     await logActivity(call.store, call.ctx, { entityType: "application", entityId: String(row.ROWID), action: "create" });
+    await call.onTransition({ entityType: "application", entity: row, from: "", to: "DRAFT", transition: "create" });
     return row;
   }, 201);
 

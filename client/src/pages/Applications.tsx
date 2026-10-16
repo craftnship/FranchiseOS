@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, can, Row, zohoLink } from "../api";
 import { useFranchiseeNames, useLoad } from "../hooks";
 import { BooksInvoice, DataTable, date, ErrorState, Facts, Icon, inr, label, Loaded, PageHeader, Panel, Pill } from "../components/ui";
 import { RenewalPanel } from "../components/Launch";
+import { NewApplicationDialog } from "../components/NewApplication";
 
 export const FUNNEL = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUALIFIED", "SITE_REQUIRED", "SITE_SUBMITTED", "FEASIBILITY_REVIEW", "APPROVAL_PENDING", "APPROVED", "AGREEMENT_PENDING", "AGREEMENT_SIGNED", "ONBOARDING", "ACTIVE"];
 const STATUSES = [...FUNNEL, "ON_HOLD", "REJECTED", "WITHDRAWN"];
@@ -22,10 +23,14 @@ export function Applications() {
   const franchisee = params.get("franchisee_id") ?? undefined;
   const load = useLoad(() => api<Row[]>("GET", "/applications", { query: { status, franchisee_id: franchisee, limit: "200" } }), [status, franchisee]);
   const names = useFranchiseeNames();
+  const navigate = useNavigate();
+  const [adding, setAdding] = useState(false);
   const custom = status && !VIEWS.some(([, v]) => v === status) && !STATUSES.includes(status);
   return (
     <>
-      <PageHeader title="Applications" crumbs={[["Expansion"], ["Applications"]]} subtitle="Every franchise application from first draft to an active store." />
+      <PageHeader title="Applications" crumbs={[["Expansion"], ["Applications"]]} subtitle="Every franchise application from first draft to an active store."
+        actions={can("application.review") && <button className="btn" onClick={() => setAdding(true)}><Icon name="applications" size={16} />New application</button>} />
+      {adding && <NewApplicationDialog onClose={() => setAdding(false)} onCreated={(a) => navigate(`/applications/${a.ROWID}`)} />}
       <Loaded load={load}>{(rows) => (
         <DataTable rows={rows} href={(a) => `/applications/${a.ROWID}`} searchKeys={["application_code", "preferred_city", "preferred_state", "status"]}
           toolbar={

@@ -4,6 +4,7 @@ import { ApiRequest } from "../../functions/api/router";
 import { bootstrapTenant } from "../../database/seed/bootstrapTenant";
 import { newStore } from "./helpers";
 import { MemoryFileStorage } from "../../functions/common/files";
+import { ZohoCrmClient } from "../../functions/integrations/clients";
 
 const router = buildRouter();
 type Body = { success: boolean; data?: any; error?: { code: string; fields?: Record<string, string> } };
@@ -179,6 +180,23 @@ describe("franchise pipeline through the API", () => {
     expect(done.data.entity.status).toBe("APPROVED");
     const detail = await call("dir", "GET", `/approvals/${approvalId}`);
     expect(detail.data.actions).toHaveLength(4);
+  });
+
+  it("writes a staff-created application back to the franchisee's CRM lead", async () => {
+    const { store, call } = await setup();
+    const fr = await call("mgr", "POST", "/franchisees", { display_name: "Happy", zoho_lead_id: "L9" });
+    const updates: Array<{ id: string; data: any }> = [];
+    const crm = { updateLead: async (id: string, data: any) => { updates.push({ id, data }); } } as unknown as ZohoCrmClient;
+    const req: ApiRequest = { method: "POST", path: "/api/v1/applications", body: { franchisee_id: String(fr.data.ROWID), preferred_city: "Pune" }, identity: { externalUserId: "mgr", email: "mgr@x.test" } };
+    const res = await router.handle(req, { store, crm: async () => crm });
+    const app = (res.body as Body).data;
+    expect(res.status).toBe(201);
+    expect(app.zoho_lead_id).toBe("L9");
+    expect(updates).toEqual([{ id: "L9", data: { FOS_Application_Code: app.application_code, FOS_Application_Status: "DRAFT" } }]);
+    // Once the lead is converted, a new application no longer inherits it.
+    await store.update("franchisees", String(fr.data.ROWID), { zoho_contact_id: "C1" });
+    const second = await call("mgr", "POST", "/applications", { franchisee_id: String(fr.data.ROWID) });
+    expect(second.data.zoho_lead_id).toBeFalsy();
   });
 
   it("returns an application to feasibility when an approver sends it back", async () => {
